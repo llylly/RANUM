@@ -19,3 +19,4 @@ if __name__ == '__main__':
         else:
             model = torch_adaptor.parseTorch(args.modelpath)
 
+    print('model type is', type(model))
