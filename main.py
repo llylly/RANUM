@@ -1,7 +1,7 @@
 import argparse
 
-import parser.protobuf_adaptor as protobuf_adaptor
-import parser.torch_adaptor as torch_adaptor
+import graphparser.protobuf_adaptor as protobuf_adaptor
+import graphparser.torch_adaptor as torch_adaptor
 
 parser = argparse.ArgumentParser()
 parser.add_argument('modelpath', type=str, help='model architecture file path')

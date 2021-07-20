@@ -5,6 +5,8 @@ from tensorflow.graph_util import convert_variables_to_constants
 from onnx import helper, checker
 import tf2onnx
 
+from graphparser.utils import remove_node_and_decendents
+
 
 def trim_node(graphdef, node_name):
     """
@@ -54,11 +56,14 @@ def freeze_and_initialize_graph(graphdef):
     to_remove = list()
     to_extend = list()
     transform_node_list = list()
+    possible_input_node_list = list()
 
     for node in graphdef.node:
         if node.op == 'Variable' or node.op == 'VariableV2':
             to_remove.append(node)
             transform_node_list.append(node.name)
+        if node.op == 'Placeholder' or node.op == 'PlaceholderWithDefault':
+            possible_input_node_list.append(node.name)
 
     for item in to_remove:
 
@@ -131,7 +136,7 @@ def freeze_and_initialize_graph(graphdef):
                 node.input[0] = node.input[1]
                 del node.input[1]
 
-    """STEP3: remove the annoying ApplyAdam and BroadcastGradientArgs nodes and their descendents"""
+    """STEP3: remove the annoying ApplyAdam, BroadcastGradientArgs, ConcatOffset nodes and their descendents"""
     # these three types of nodes are gradient related, i.e., training related
     # so normally trimming them will not affect our analysis precision for inference time applications
     # moreover, they are not supported by onnx or static graph
@@ -163,7 +168,10 @@ def freeze_and_initialize_graph(graphdef):
                 default_node.name = node.name
                 graphdef.node.remove(node)
 
-    """STEP5: split ShapeN node to several Shape node since shabby onnx converter does not support ShapeN"""
+    """STEP5: replace OneShotIterator by a zero const, and record its name to possible input list"""
+    # TODO
+
+    """STEP6: split ShapeN node to several Shape node since shabby onnx converter does not support ShapeN"""
     find = True
     name_mapping = dict()
     while find:
@@ -184,15 +192,22 @@ def freeze_and_initialize_graph(graphdef):
                 graphdef.node.remove(node)
                 graphdef.node.extend(new_nodes)
 
-    """STEP6: fix renamed operators"""
+    """STEP7: replace TruncatedNormal by StatelessRandomNormal since onnx does not support truncated normal distribution"""
+    """Reminder: for boundedness, for all normally distributed nodes, we view its range is [mean - 2 * stddev, mean + 2 * stddev], i.e., view them all as truncated_normal"""
+    # new_nodes = list()
+    for node in graphdef.node:
+        if node.op == 'TruncatedNormal':
+            node.op = 'RandomStandardNormal'
+
+    """STEP8: fix renamed operators"""
     for node in graphdef.node:
         node.input[:] = [item if item not in name_mapping else name_mapping[item] for item in node.input]
 
-    """STEP7: trim the transform_node_list because some of them might be removed in later steps"""
+    """STEP9: trim the transform_node_list because some of them might be removed in later steps"""
     node_names = set([node.name for node in graphdef.node])
     transform_node_list = [item for item in transform_node_list if item in node_names]
 
-    return graphdef, transform_node_list
+    return graphdef, transform_node_list, possible_input_node_list
 
 
 def analyze_inputs_outputs(graphdef):
@@ -227,7 +242,7 @@ def parseProtoBuf(protobuf_path):
 
     print(type(graph_def))
 
-    graph_def, variable_node_list = freeze_and_initialize_graph(graph_def)
+    graph_def, variable_node_list, possible_input_node_list = freeze_and_initialize_graph(graph_def)
 
     input_nodes, outputs_nodes = analyze_inputs_outputs(graph_def)
 
@@ -238,7 +253,7 @@ def parseProtoBuf(protobuf_path):
     outputs_nodes = [x + ':0' if x.count(':') == 0 else x for x in outputs_nodes]
 
     onnx_graph, external_tensor_storage = tf2onnx.convert.from_graph_def(graph_def,
-                                         name=None, input_names=input_nodes, output_names=outputs_nodes, opset=None,
+                                         name=None, input_names=input_nodes, output_names=outputs_nodes, opset=13,
                                          custom_ops=None, custom_op_handlers=None, custom_rewriter=None,
                                          inputs_as_nchw=None, extra_opset=None,
                                          shape_override=None, target=None, large_model=False,
@@ -246,6 +261,18 @@ def parseProtoBuf(protobuf_path):
 
     # it should not use external tensor storage
     assert external_tensor_storage is None
+
+    # post-process
+    # need to remove all DynamicStitch nodes:
+    # if there is such node, means the translation did not go well and we have to remove the node and its decendents
+    find = True
+    while find:
+        find = False
+        for node in onnx_graph.graph.node:
+            if node.op_type == 'DynamicStitch':
+                onnx_graph = remove_node_and_decendents(onnx_graph, node.name)
+                find = True
+                break
 
     try:
         checker.check_model(onnx_graph)

@@ -1,6 +1,6 @@
 import os
 
-from parser import protobuf_adaptor
+from graphparser import protobuf_adaptor
 
 
 def test_protobuf_file(file_path):
