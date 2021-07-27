@@ -1,6 +1,6 @@
 import argparse
 
-import graphparser.protobuf_adaptor as protobuf_adaptor
+import graphparser.tf_adaptor as tf_adaptor
 import graphparser.torch_adaptor as torch_adaptor
 
 parser = argparse.ArgumentParser()
@@ -12,7 +12,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.format == 'protobuf':
-        model = protobuf_adaptor.parseProtoBuf(args.modelpath)
+        model = torch_adaptor.parseProtoBuf(args.modelpath)
     elif args.format == 'torch':
         if args.modelvar is not None:
             model = torch_adaptor.parseTorch(args.modelpath, args.modelvar)
