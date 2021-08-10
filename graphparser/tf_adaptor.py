@@ -1,3 +1,7 @@
+import os
+import sys
+sys.path.append('.')
+sys.path.append('..')
 
 from google.protobuf import text_format
 import tensorflow as tf
@@ -441,11 +445,11 @@ def parseProtoBuf(protobuf_path):
     outputs_nodes = [x + ':0' if x.count(':') == 0 else x for x in outputs_nodes]
 
     onnx_graph, external_tensor_storage = tf2onnx.convert.from_graph_def(graph_def,
-                                         name=None, input_names=input_nodes, output_names=outputs_nodes, opset=13,
-                                         custom_ops=None, custom_op_handlers=None, custom_rewriter=None,
-                                         inputs_as_nchw=None, extra_opset=None,
-                                         shape_override=None, target=None, large_model=False,
-                                         output_path=None)
+                                          name=None, input_names=input_nodes, output_names=outputs_nodes, opset=13,
+                                          custom_ops=None, custom_op_handlers=None, custom_rewriter=None,
+                                          inputs_as_nchw=None, extra_opset=None,
+                                          shape_override=None, target=None, large_model=False,
+                                          output_path=None)
 
     # it should not use external tensor storage
     assert external_tensor_storage is None
@@ -473,3 +477,56 @@ def parseProtoBuf(protobuf_path):
 
     return onnx_graph, {'variable nodes': variable_node_list, 'narrow inputs': possible_input_node_list, 'broad inputs': input_nodes}
 
+# ====== the following dumps the support pbtxt to onnx format ======
+
+
+import os
+import json
+
+banned_list = ['compression_entropy_coder', 'deep_speech', 'delf', 'domain_adaptation', 'faster_rcnn_resnet_50',
+               'feelvos', 'fivo_ghmm', 'fivo_srnn', 'fivo_vrnn', 'gan_cifar', 'gan_mnist',
+               'learning_to_remember_rare_events', 'neural_gpu1', 'neural_gpu2',
+               'textsum', 'ptn', 'sentiment_analysis', 'skip_thought',
+               'video_prediction']
+
+# debug
+# permit_list = ['adversarial_crypto']
+
+
+def convert_protobuf_file(file_path):
+    print(f'converting file {file_path}')
+    model, annotation = parseProtoBuf(file_path)
+    print('model type is', type(model))
+    print('# variable nodes:', len(annotation['variable nodes']))
+    print('# narrow inputs:', len(annotation['narrow inputs']))
+    print('# broad inputs:', len(annotation['broad inputs']))
+
+    bare_name = os.path.basename(file_path)
+    with open(f'model_zoo/tf_protobufs_onnx/{bare_name}.onnx', 'wb') as f:
+        f.write(model.SerializeToString())
+    with open(f'model_zoo/tf_protobufs_onnx/{bare_name}.json', 'w') as f:
+        json.dump(annotation, f)
+
+
+def convert_protobuf_folder(dir_path='model_zoo/tf_protobufs'):
+    files = [item for item in os.listdir(dir_path) if item.endswith('.pbtxt')]
+    files = sorted(files)
+    succeed = list()
+    failed = list()
+    skipped = list()
+    for file in files:
+        try:
+            if len([item for item in banned_list if file.count(item) > 0]) == 0:
+                convert_protobuf_file(os.path.join(dir_path, file))
+                succeed.append(file)
+            else:
+                skipped.append(file)
+        except Exception as e:
+            print(f'Error (type is {type(e)}):', str(e))
+            failed.append(file)
+
+    assert len(failed) == 0
+    print(f'Success on {len(succeed)}; failed (anticipated) on {len(skipped)}')
+
+if __name__ == '__main__':
+    convert_protobuf_folder()

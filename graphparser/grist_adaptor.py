@@ -143,10 +143,87 @@ current_new_scripts = {
     "ID_63": "model_zoo/grist_models/ID_63/main_DEBARUS.py"
 }
 
+package_info = {
+    "ID_1": "tensorflow",
+    "ID_2": "tensorflow",
+    "ID_3": "tensorflow",
+    "ID_4": "torch",
+    "ID_5": "torch",
+    "ID_6": "tensorflow",
+    "ID_7": "tensorflow",
+    "ID_8": "tensorflow",
+    "ID_9": "tensorflow",
+    "ID_10": "tensorflow",
+    "ID_11": "tensorflow",
+    "ID_12": "torch",
+    "ID_13": "torch",
+    "ID_14": "tensorflow",
+    "ID_15": "tensorflow",
+    "ID_16": "tensorflow",
+    "ID_17": "tensorflow",
+    "ID_18": "tensorflow",
+    "ID_19": "tensorflow",
+    "ID_20": "tensorflow",
+    "ID_21": "tensorflow",
+    "ID_22": "torch",
+    "ID_23": "torch",
+    "ID_24": "tensorflow",
+    "ID_25": "tensorflow",
+    "ID_26": "torch",
+    "ID_27": "torch",
+    "ID_28": "tensorflow",
+    "ID_29": "tensorflow",
+    "ID_30": "tensorflow",
+    "ID_31": "tensorflow",
+    "ID_32": "torch",
+    "ID_33": "torch",
+    "ID_34": "torch",
+    "ID_35": "tensorflow",
+    "ID_36": "tensorflow",
+    "ID_37": "torch",
+    "ID_38": "torch",
+    "ID_39": "tensorflow",
+    "ID_40": "tensorflow",
+    "ID_41": "tensorflow",
+    "ID_42": "tensorflow",
+    "ID_43": "tensorflow",
+    "ID_44": "tensorflow",
+    "ID_45": "tensorflow",
+    "ID_46": "torch",
+    "ID_47": "torch",
+    "ID_48": "tensorflow",
+    "ID_49": "tensorflow",
+    "ID_50": "tensorflow",
+    "ID_51": "torch",
+    "ID_52": "tensorflow",
+    "ID_53": "torch",
+    "ID_54": "torch",
+    "ID_55": "tensorflow",
+    "ID_56": "torch",
+    "ID_57": "torch",
+    "ID_58": "tensorflow",
+    "ID_59": "tensorflow",
+    "ID_60": "tensorflow",
+    "ID_61": "tensorflow",
+    "ID_62": "torch",
+    "ID_63": "torch"
+}
+
+run_ids = [5]
+
+inputs_outputs = {
+    "ID_1": (['x', 'y', 'keep_prob'], ['cross_entropy']),
+    "ID_2": (['x-input', 'y-input'], ['cost/cost']),
+    "ID_3": (['x', 'y'], ['cost']),
+}
+
+import sys
 import os
 import json
 import shutil
 import subprocess
+
+from config import SERVER_PYTHON_PATH, timeout_for_grist_execution, proj_root
 
 def script_scan():
     """
@@ -183,6 +260,11 @@ def script_scan():
 
 
 def script_copy():
+    """
+        Copy .py script which has correponding _grist.py version as _DEBARUS.py, so that we can edit the model file
+        Note that we copy from original script
+    :return:
+    """
     current_new_scripts = dict()
     for k, v in current_selected_scripts.items():
         dir_name = os.path.dirname(v)
@@ -204,18 +286,84 @@ def script_copy():
     # one time use to create "current_new_scripts" variable
     print(json.dumps(current_new_scripts, indent=2))
 
-def script_runner(white_list=[], black_list=[]):
+
+def package_detect():
+    """
+        Detect what framework the script is based on
+    :return:
+    """
+    torch_cnt = 0
+    tf_cnt = 0
+
+    pre_knowledge = {17: 'tensorflow'}
+
+    package_info = dict()
+
     for id in current_new_scripts:
+        is_torch = is_tensorflow = False
+        with open(current_new_scripts[id], 'r') as f:
+            code = f.read()
+        if code.count('torch') > 0:
+            is_torch = True
+        if code.count('tensorflow') > 0:
+            is_tensorflow = True
+        if int(id[3:]) in pre_knowledge:
+            knowledge = pre_knowledge[int(id[3:])]
+            if knowledge == 'tensorflow':
+                is_torch, is_tensorflow = False, True
+            elif knowledge == 'torch':
+                is_torch, is_tensorflow = True, False
+        if is_torch and is_tensorflow:
+            print(f'both torch and tf found in {id}: {current_new_scripts[id]}')
+        elif not is_torch and not is_tensorflow:
+            print(f'missing package in {id}: {current_new_scripts[id]}')
+        else:
+            torch_cnt += is_torch
+            tf_cnt += is_tensorflow
+            if is_torch: package_info[id] = 'torch'
+            if is_tensorflow: package_info[id] = 'tensorflow'
+
+    print('Torch Scripts:', torch_cnt, 'Tensorflow Scripts:', tf_cnt)
+    print(json.dumps(package_info, indent=2))
+
+def script_runner(white_list=[], black_list=[]):
+    """
+        Running the new script ended with _DEBARUS.py
+    :param white_list:
+    :param black_list:
+    :return:
+    """
+    for id, script_path in current_new_scripts.items():
         num = int(id[3:])
         if len(white_list) > 0 and num not in white_list: continue
         if num in black_list: continue
 
+        print(f'Saving for {id}')
         # now we can run it
-        # TODO
+        subproc = subprocess.Popen(f'timeout {timeout_for_grist_execution} {SERVER_PYTHON_PATH} {script_path}',
+                                   shell=True, cwd=proj_root)
+        outs, errs = subproc.communicate()
+        print(f'Exit with code {subproc.returncode}')
+        # print(outs)
+        # print(errs, file=sys.stderr)
+
+        if package_info[id] == 'tensorflow':
+            # for tf models, we externally run tf2onnx to convert it to onnx
+            print('  Convert to onnx...')
+            subproc = subprocess.Popen(f'timeout {timeout_for_grist_execution} {SERVER_PYTHON_PATH} -m tf2onnx.convert '
+                                       f'--checkpoint model_zoo/grist_protobufs/{id}/model.ckpt.meta '
+                                       f'--output model_zoo/grist_protobufs/{id}/model.onnx '
+                                       f'--inputs {",".join([x + ":0" for x in inputs_outputs[id][0]])} '
+                                       f'--outputs {",".join([x + ":0" for x in inputs_outputs[id][1]])}',
+                                       shell=True, cwd=proj_root)
+            outs, errs = subproc.communicate()
+            print(f'  Conversion exit with code {subproc.returncode}')
+
 
 
 if __name__ == '__main__':
     # script_scan()
     # script_copy()
-    script_runner([1])
+    # package_detect()
+    script_runner(run_ids)
 
