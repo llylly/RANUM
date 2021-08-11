@@ -209,12 +209,18 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = [5]
+run_ids = [1]
 
 inputs_outputs = {
-    "ID_1": (['x', 'y', 'keep_prob'], ['cross_entropy']),
-    "ID_2": (['x-input', 'y-input'], ['cost/cost']),
-    "ID_3": (['x', 'y'], ['cost']),
+    "ID_1": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
+    "ID_2": (['x-input', 'y-input'], ['cost/cost', 'cost/obj_function']),
+    "ID_3": (['x', 'y'], ['cost', 'obj_function']),
+    "ID_6": (['x', 'y', 'keep_prob'], ['cross_entropy']),
+    "ID_7": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
+    "ID_8": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
+    "ID_9": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_10": (['x', 'y'], ['cross_entropy', 'obj_function']),
+    "ID_11": (['x', 'y'], ['loss', 'obj_function', 'obj_grad']),
 }
 
 import sys

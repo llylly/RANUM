@@ -505,7 +505,7 @@ def convert_protobuf_file(file_path):
     with open(f'model_zoo/tf_protobufs_onnx/{bare_name}.onnx', 'wb') as f:
         f.write(model.SerializeToString())
     with open(f'model_zoo/tf_protobufs_onnx/{bare_name}.json', 'w') as f:
-        json.dump(annotation, f)
+        json.dump(annotation, f, indent=2)
 
 
 def convert_protobuf_folder(dir_path='model_zoo/tf_protobufs'):
