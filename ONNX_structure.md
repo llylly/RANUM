@@ -44,7 +44,7 @@ Now consider `graph` member, the object has:
                 
                     - `dim_param`: str, stands for the batch size identifier like `unk__xxx`; if not a batch size field, it is an empty string
 
-                    - `dim_int`: int, if it is batch size, the number is 0
+                    - `dim_value`: int, if it is batch size, the number is 0
     
     Sometimes the names can be overlapped with those names in `initializer`, and they usually correspond to the placeholder with default value.
     So we can deem them as just initializer variables.
