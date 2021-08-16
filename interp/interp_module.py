@@ -83,6 +83,9 @@ class InterpModule():
         if debug: print('construct graph')
         self.deg_in = dict()
         self.deg_out = dict()
+        # edge format:
+        # key: vi, value: list
+        # where each element of value corresponds to (vj, vi index in node input, vj index in node output, node name, node)
         self.edges = dict()
         self.all_nodes = set()
 
@@ -118,6 +121,10 @@ class InterpModule():
 
         self.start_points = set([x for x in self.all_nodes if self.deg_in[x] == 0])
 
+        """construct node dictionary"""
+        self.node_dict = dict([(x.name, x) for x in self.onnx_model.graph.node])
+        self.node_types = set([x.op_type for x in self.node_dict.values()])
+
         """summary"""
         print('==== Model Summary ====')
         print('Number of nodes:', len(self.signature_dict))
@@ -125,6 +132,8 @@ class InterpModule():
         print('Number of start points:', len(self.start_points))
         if len(self.start_points) <= 5:
             print('  They are', self.start_points)
+        print('Number of Op types:', len(self.node_types))
+        print('=======================')
 
     def _shape_invertor(self, shape):
         assert isinstance(shape, onnx.TensorShapeProto)
