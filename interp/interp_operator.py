@@ -147,6 +147,27 @@ class Abstraction(object):
             new_abst.var_name = self.var_name + '_split'
             return new_abst
 
+    def extend_dim(self, targ_dim, inplace=True):
+        # inplace, add several singleton dims to abstraction tensors
+        if inplace:
+            targ = self
+        else:
+            targ = Abstraction()
+            targ.lb = self.lb
+            targ.ub = self.ub
+            targ.splits = self.splits
+            targ.shape = self.shape
+            targ.var_name = self.var_name
+
+        # print(targ.get_dim(), targ_dim)
+
+        while targ_dim - targ.get_dim() > 0:
+            targ.lb = targ.lb.unsqueeze(dim=0)
+            targ.ub = targ.ub.unsqueeze(dim=0)
+            targ.shape = [1] + targ.shape
+            targ.splits = [[0]] + targ.splits
+            targ.var_name = targ.var_name + '_extend_dim'
+        return targ
 
     @staticmethod
     def summarize_data_and_assign(tensor_data, splits, dim=0):
@@ -169,6 +190,9 @@ class Abstraction(object):
         print('splits:', self.splits)
         print('shape:', self.shape)
         print('===ABST PRINT END===')
+
+    def get_dim(self):
+        return len(self.shape)
 
 
 class Interpreter(object):
@@ -197,25 +221,129 @@ class Interpreter(object):
         return func(abstracts, node, optype, var_name)
 
     def interp_Sub(self, abstracts, node, optype, var_name):
-        abst0 = abstracts[0].split_by(abstracts[1].splits, inplace=False)
-        abst1 = abstracts[1].split_by(abstracts[0].splits, inplace=False)
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
 
         ans = Abstraction()
-        ans.shape = abst0.shape
-        ans.splits = abst0.splits
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
         ans.lb = abst0.lb - abst1.ub
         ans.ub = abst0.ub - abst1.lb
         ans.var_name = var_name
 
         return ans, list()
 
+    def interp_Add(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ans.lb = abst0.lb + abst1.lb
+        ans.ub = abst0.ub + abst1.ub
+        ans.var_name = var_name
+
+        return ans, list()
+
     def interp_MatMul(self, abstracts, node, optype, var_name):
+        abstA, abstB = abstracts[0], abstracts[1]
+        assert isinstance(abstA, Abstraction)
+        assert isinstance(abstB, Abstraction)
 
-        for i, item in enumerate(abstracts):
-            print(f'input #{i}')
-            item.print()
+        if abstA.get_dim() == 1:
+            abstA = abstA.split_by([abstB.splits[-2]], inplace=False)
+            coeff = np.array(abstA.splits[0][1:] + [abstA.shape[0]]) - np.array(abstA.splits[0])
+            coeff = torch.tensor(coeff)
+            abstA.lb = abstA.lb * coeff
+            abstA.ub = abstA.ub * coeff
+        elif abstB.get_dim() == 1:
+            abstB = abstB.split_by([abstA.splits[-1]], inplace=False)
+            coeff = np.array(abstB.splits[0][1:] + [abstB.shape[0]]) - np.array(abstB.splits[0])
+            coeff = torch.tensor(coeff)
+            abstB.lb = abstB.lb * coeff
+            abstB.ub = abstB.ub * coeff
+        else:
+            target_splits = abstA.splits
+            target_splits[-1] = abstB.splits[-2]
+            target_splits[:-2] = abstB.splits[:-2]
+            abstA = abstA.split_by(target_splits, inplace=False)
 
-        return None, list()
+            target_splits = abstB.splits
+            target_splits[-2] = abstA.splits[-1]
+            target_splits[:-2] = abstA.splits[:-2]
+            abstB = abstB.split_by(target_splits, inplace=False)
+
+            coeff = np.array(abstA.splits[-1][1:] + [abstA.shape[-1]]) - np.array(abstA.splits[-1])
+            coeff = torch.tensor(coeff)
+            abstA.lb = abstA.lb * coeff
+            abstA.ub = abstA.ub * coeff
+
+        ans = Abstraction()
+        ans.lb = torch.minimum(torch.matmul(abstA.lb, abstB.lb),
+                 torch.minimum(torch.matmul(abstA.lb, abstB.ub),
+                 torch.minimum(torch.matmul(abstA.ub, abstB.lb),
+                               torch.matmul(abstA.ub, abstB.ub))))
+
+        ans.ub = torch.maximum(torch.matmul(abstA.lb, abstB.lb),
+                 torch.maximum(torch.matmul(abstA.lb, abstB.ub),
+                 torch.maximum(torch.matmul(abstA.ub, abstB.lb),
+                               torch.matmul(abstA.ub, abstB.ub))))
+        ans.var_name = var_name
+
+        if abstA.get_dim() == 1:
+            ans.shape = abstB.shape[:-2] + [abstB.shape[-1]]
+            ans.splits = abstB.splits[:-2] + [abstB.splits[-1]]
+        elif abstB.get_dim() == 1:
+            ans.shape = abstA.shape[:-1]
+            ans.splits = abstA.splits[:-1]
+        else:
+            ans.shape = abstA.shape[:-1] + [abstB.shape[-1]]
+            now_splits = list()
+            for i in range(abstA.get_dim() - 2):
+                if abstA.shape[i] >= abstB.shape[i]:
+                    now_splits.append(abstA.splits[i])
+                else:
+                    now_splits.append(abstB.splits[i])
+            now_splits.extend([abstA.splits[-2], abstB.splits[-1]])
+            ans.splits = now_splits
+
+        print('A = ')
+        print(abstracts[0].print())
+        print('B = ')
+        print(abstracts[1].print())
+        print('A @ B = ')
+        print(ans.print())
+
+        return ans, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name):
         return None, list()
+
+    def interp_Reciprocal(self, abstracts, node, optype, var_name):
+        return None, list()
+
+
+def get_shape_split_with_broadcasting(a: Abstraction, b:Abstraction):
+    """
+        Generating the shape and splits information after the operation of two tensors,
+            where broadcasting singleton dimension could be possible
+    :param a:
+    :param b:
+    :return:
+    """
+    shape = list()
+    splits = list()
+    assert a.get_dim() == b.get_dim()
+    for i in range(a.get_dim()):
+        if a.shape[i] >= b.shape[i]:
+            shape.append(a.shape[i])
+            splits.append(a.splits[i])
+        else:
+            shape.append(b.shape[i])
+            splits.append(b.splits[i])
+    return shape, splits
