@@ -6,6 +6,7 @@ import onnx.shape_inference
 import onnx.numpy_helper
 
 from interp.interp_operator import *
+from interp.interp_utils import AbstractionInitConfig
 
 class InterpModule():
 
@@ -110,7 +111,6 @@ class InterpModule():
 
             for i, vi in enumerate(list(node.input)):
                 for j, vj in enumerate(list(node.output)):
-                    print(vi, vj)
                     if vi not in self.edges: self.edges[vi] = list()
                     self.edges[vi].append((vj, i, j, node.op_type, node.name, node))
 
@@ -133,6 +133,8 @@ class InterpModule():
         if len(self.start_points) <= 5:
             print('  They are', self.start_points)
         print('Number of Op types:', len(self.node_types))
+        if len(self.node_types) <= 5:
+            print('  They are', self.node_types)
         print('=======================')
 
     def _shape_invertor(self, shape):
@@ -147,12 +149,26 @@ def load_onnx_from_file(path):
     return InterpModule(onnx_model)
 
 
-def init_input_vars():
-    # TODO
-    pass
 
+def analyze(module: InterpModule, init_config=None):
 
-def analyze(module: InterpModule):
-    # TODO
+    # independent abstraction variables
+    initial_abstracts = dict()
+
+    if init_config is None:
+        init_config = dict()
+
     for s in module.start_points:
-        pass
+        if s not in init_config:
+            if s in module.input_vars:
+                init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=False)
+            else:
+                init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=True)
+        else:
+            assert isinstance(init_config[s], AbstractionInitConfig)
+
+        now_t, now_shape = module.signature_dict[s]
+        now_raw_data = module.initializer_dict[s][1] if s in module.initializer_dict else None
+        initial_abstracts[s] = Abstraction(init_config[s], s, now_shape, now_t, now_raw_data)
+
+    initial_abstracts['keep_prob:0'].print()
