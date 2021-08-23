@@ -1,7 +1,7 @@
 
 class AbstractionInitConfig(object):
 
-    def __init__(self, diff, lb=0., ub=1., from_init=False, from_init_margin=0., stride=-1):
+    def __init__(self, diff: bool, lb=0., ub=1., from_init=False, from_init_margin=0., stride=-1):
         super(AbstractionInitConfig, self).__init__()
         # diff: whether requires_grad differentiable
         self.diff = diff
@@ -13,9 +13,18 @@ class AbstractionInitConfig(object):
         self.from_init = from_init
         # if from_init=True, the margin of abstraction from the init data, ususally set to 0
         self.from_init_margin = from_init_margin
-        # the stride of abstract, if it is not a list, then cast to all dimensions
+        # the stride of abstract, int or list of int (if it is not a list, then cast to all dimensions)
         # "-1" means stride = infty, i.e., the whole dimension is abstracted by a single element
         self.stride = stride
+
+    def load_from_dict(self, d):
+        self.diff = bool(d['diff'])
+        self.lb = float(d['lb'])
+        self.ub = float(d['ub'])
+        self.from_init = bool(d['from_init'])
+        self.from_init_margin = float(d['from_init_margin'])
+        self.stride = d['stride']
+
 
     def to_dict(self):
         return {

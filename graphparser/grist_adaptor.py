@@ -211,6 +211,7 @@ package_info = {
 
 run_ids = [1]
 
+# only for tensorflow models
 inputs_outputs = {
     "ID_1": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
     "ID_2": (['x-input', 'y-input'], ['cost/cost', 'cost/obj_function']),

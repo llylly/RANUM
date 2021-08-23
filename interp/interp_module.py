@@ -93,16 +93,6 @@ class InterpModule():
         for node in self.onnx_model.graph.node:
             if node.domain != '':
                 print(f"  found domain def: {node.domain}")
-            for v in node.input:
-                if v not in self.deg_out:
-                    self.deg_out[v] = 1
-                else:
-                    self.deg_out[v] += 1
-            for v in node.output:
-                if v not in self.deg_in:
-                    self.deg_in[v] = 1
-                else:
-                    self.deg_in[v] += 1
 
             for v in list(node.input) + list(node.output):
                 if v not in self.signature_dict:
@@ -113,6 +103,15 @@ class InterpModule():
                 for j, vj in enumerate(list(node.output)):
                     if vi not in self.edges: self.edges[vi] = list()
                     self.edges[vi].append((vj, i, j, node.op_type, node.name, node))
+
+                    if vi not in self.deg_out:
+                        self.deg_out[vi] = 1
+                    else:
+                        self.deg_out[vi] += 1
+                    if vj not in self.deg_in:
+                        self.deg_in[vj] = 1
+                    else:
+                        self.deg_in[vj] += 1
 
         for v in self.all_nodes:
             if v not in self.deg_in: self.deg_in[v] = 0
@@ -133,42 +132,91 @@ class InterpModule():
         if len(self.start_points) <= 5:
             print('  They are', self.start_points)
         print('Number of Op types:', len(self.node_types))
-        if len(self.node_types) <= 5:
-            print('  They are', self.node_types)
+        # if len(self.node_types) <= 5:
+        print('  They are', self.node_types)
         print('=======================')
 
+        """Space for analysis"""
+        self.initial_abstracts = None
+        self.abstracts = None
+        # key: var_name, value: tuple of (list of numerical error exceptions, set of caused tensors)
+        self.possible_numerical_errors = dict()
+
+
     def _shape_invertor(self, shape):
+        """
+            Converty shape in TensorShapeProto format to list of dims
+        :param shape:
+        :return:
+        """
         assert isinstance(shape, onnx.TensorShapeProto)
         ans = [now_dim.dim_param if now_dim.dim_param != '' else
                (None if now_dim.dim_value is None else now_dim.dim_value) for now_dim in shape.dim]
         return ans
+
+    def analyze(self, init_config=None):
+
+        # independent abstraction variables
+        self.initial_abstracts = dict()
+
+        if init_config is None:
+            init_config = dict()
+
+        print('initilize abstractions...', flush=True)
+        for s in self.start_points:
+            if s not in init_config:
+                if s in self.input_vars:
+                    init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=False)
+                else:
+                    init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=True)
+            else:
+                assert isinstance(init_config[s], AbstractionInitConfig)
+
+            now_t, now_shape = self.signature_dict[s]
+            now_raw_data = self.initializer_dict[s][1] if s in self.initializer_dict else None
+            self.initial_abstracts[s] = Abstraction()
+            self.initial_abstracts[s].load(init_config[s], s, now_shape, now_t, now_raw_data)
+
+        # whole abstract variables
+        self.abstracts = dict()
+        for k, v in self.initial_abstracts.items():
+            self.abstracts[k] = v
+
+        interpreter = Interpreter()
+
+        print('Topology sort based intepretation...', flush=True)
+        queue = list(self.start_points).copy()
+        cur_deg_in = self.deg_in.copy()
+        l = 0
+        while l < len(queue):
+            cur_var = queue[l]
+            for vj, ind_i, ind_j, node_optype, node_name, node in self.edges[cur_var]:
+                cur_deg_in[vj] -= 1
+                if cur_deg_in[vj] == 0:
+                    cur_abst, cur_exceps = interpreter.handle(
+                        [self.abstracts[x] for x in node.input], node, node_optype, vj
+                    )
+                    if len(cur_exceps) > 0:
+                        roots = list()
+                        for x in node.input:
+                            if x in self.possible_numerical_errors:
+                                roots.extend(self.possible_numerical_errors[x][1])
+                        roots = set(roots)
+                        if len(roots) == 0:
+                            roots = {node}
+                        self.possible_numerical_errors[vj] = (cur_exceps, roots)
+                    if cur_abst is None:
+                        print(f'! No abstraction generated for {vj}: '
+                              f'node name = {node_name}, type = {node_optype}')
+                    else:
+                        queue.append(vj)
+                        self.abstracts[vj] = cur_abst
+            l += 1
+
+        return self.possible_numerical_errors
 
 
 def load_onnx_from_file(path):
     onnx_model = onnx.load_model(path)
     return InterpModule(onnx_model)
 
-
-
-def analyze(module: InterpModule, init_config=None):
-
-    # independent abstraction variables
-    initial_abstracts = dict()
-
-    if init_config is None:
-        init_config = dict()
-
-    for s in module.start_points:
-        if s not in init_config:
-            if s in module.input_vars:
-                init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=False)
-            else:
-                init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=True)
-        else:
-            assert isinstance(init_config[s], AbstractionInitConfig)
-
-        now_t, now_shape = module.signature_dict[s]
-        now_raw_data = module.initializer_dict[s][1] if s in module.initializer_dict else None
-        initial_abstracts[s] = Abstraction(init_config[s], s, now_shape, now_t, now_raw_data)
-
-    initial_abstracts['keep_prob:0'].print()
