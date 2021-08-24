@@ -10,6 +10,9 @@ class Abstraction(object):
     """
 
     def __init__(self):
+        """
+            Vacant initializer, please use load() immediately to construct a legal Abstraction
+        """
         self.lb = self.ub = self.var_name = self.shape = self.splits = None
 
     def load(self,
@@ -18,6 +21,15 @@ class Abstraction(object):
              tensor_shape: list,
              tensor_type: str,
              tensor_data: None or np.ndarray):
+        """
+            Load the abstraction
+        :param config:
+        :param var_name:
+        :param tensor_shape:
+        :param tensor_type:
+        :param tensor_data:
+        :return:
+        """
 
         # # === DEBUG begin ===
         # print('config:', config.to_dict())
@@ -90,6 +102,12 @@ class Abstraction(object):
         self.shape = tensor_shape
 
     def split_by(self, ref_splits, inplace=True):
+        """
+            Further split the Abstraction tensor by reference splitting points
+        :param ref_splits:
+        :param inplace:
+        :return:
+        """
         assert len(ref_splits) == len(self.splits)
         if len(self.splits) == 0:
             # nothing to do
@@ -148,7 +166,14 @@ class Abstraction(object):
             return new_abst
 
     def extend_dim(self, targ_dim, inplace=True):
-        # inplace, add several singleton dims to abstraction tensors
+        """
+            Add several singleton dims to abstraction tensors
+            Inplace or not
+        :param targ_dim:
+        :param inplace:
+        :return:
+        """
+
         if inplace:
             targ = self
         else:
@@ -168,6 +193,18 @@ class Abstraction(object):
             targ.splits = [[0]] + targ.splits
             targ.var_name = targ.var_name + '_extend_dim'
         return targ
+
+    def force_resplit(self, new_splits, inplace=True):
+        """
+            Forced resplitting of current Abstraction tensor with new_splits
+            It might be costly and make the abstraction loose because we need to find out all the covered old tensors,
+                and query the minimum and maximum to construct each cell of the new Abstraction tensor
+        :param new_splits:
+        :param inplace:
+        :return:
+        """
+        # TODO
+        pass
 
     @staticmethod
     def summarize_data_and_assign(tensor_data, splits, dim=0):
@@ -334,7 +371,7 @@ class Interpreter(object):
 
 def get_shape_split_with_broadcasting(a: Abstraction, b:Abstraction):
     """
-        Generating the shape and splits information after the operation of two tensors,
+        Generating the shape and splits information after the broadcasting-supported operation of two tensors,
             where broadcasting singleton dimension could be possible
     :param a:
     :param b:

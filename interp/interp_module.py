@@ -6,7 +6,7 @@ import onnx.shape_inference
 import onnx.numpy_helper
 
 from interp.interp_operator import *
-from interp.interp_utils import AbstractionInitConfig
+from interp.interp_utils import AbstractionInitConfig, fine_grain_parameters, forbid_fine_grain_flow, discrete_types
 
 class InterpModule():
 
@@ -162,16 +162,52 @@ class InterpModule():
         if init_config is None:
             init_config = dict()
 
-        print('find variable for grounding...', flush=True)
-        # TODO
+        print('find variable for fine grain abstraction...', flush=True)
+        # this part requires topology sort in the reversed graph
+        # byproduct: reverse edges
+        rev_edges = dict()
+        # byproduct: op types involved for given variable
+        involved_op_types = dict()
+        for k, v in self.edges.items():
+            for item in v:
+                vj = item[0]
+                if vj not in rev_edges: rev_edges[vj] = list()
+                rev_edges[vj].append((k,) + item[1:])
+        cur_deg_in = self.deg_out.copy()
+        queue = [k for k,v in cur_deg_in.items() if v == 0]
+        require_fine_grain_vars = set()
+        l = 0
+        while l < len(queue):
+            cur_var = queue[l]
+            if cur_var in rev_edges:
+                for vi, ind_i, ind_j, node_optype, node_name, node in rev_edges[cur_var]:
+                    cur_deg_in[vi] -= 1
+                    if vi not in involved_op_types:
+                        involved_op_types[vi] = set()
+                    involved_op_types[vi].add(node_optype)
+                    if cur_var in require_fine_grain_vars and not node_optype in forbid_fine_grain_flow:
+                        require_fine_grain_vars.add(vi)
+                    if node_optype in fine_grain_parameters and ind_i in fine_grain_parameters[node_optype]:
+                        require_fine_grain_vars.add(vi)
+                    if cur_deg_in[vi] == 0:
+                        queue.append(vi)
+            l += 1
+        print('  ', len(require_fine_grain_vars), 'fine grain variables found')
 
         print('initilize abstractions...', flush=True)
+        fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
         for s in self.start_points:
             if s not in init_config:
-                if s in self.input_vars:
-                    init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=False)
+                if s in require_fine_grain_vars:
+                    init_config[s] = fine_grain_config
+                    init_config[s].diff = self.signature_dict[s][0] not in discrete_types
                 else:
-                    init_config[s] = AbstractionInitConfig(diff=True, stride=-1, from_init=True)
+                    if s in self.input_vars:
+                        # for input tensors, usually we don't use raw initialized data to load the Abstraction
+                        init_config[s] = AbstractionInitConfig(diff=self.signature_dict[s][0] not in discrete_types, stride=-1, from_init=False)
+                    else:
+                        # for weights, to get a better sense of the weight range, we use raw initialized data to load
+                        init_config[s] = AbstractionInitConfig(diff=self.signature_dict[s][0] not in discrete_types, stride=-1, from_init=True)
             else:
                 assert isinstance(init_config[s], AbstractionInitConfig)
 
@@ -187,7 +223,7 @@ class InterpModule():
 
         interpreter = Interpreter()
 
-        print('Topology sort based intepretation...', flush=True)
+        print('topology sort based intepretation...', flush=True)
         queue = list(self.start_points).copy()
         cur_deg_in = self.deg_in.copy()
         l = 0

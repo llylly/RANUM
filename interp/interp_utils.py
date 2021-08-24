@@ -51,3 +51,12 @@ class PossibleNumericalError(Exception):
 
 discrete_types = ['UINT8', 'INT8', 'UINT16', 'INT16', 'INT32', 'INT64', 'STRING', 'BOOL']
 
+fine_grain_parameters = {
+    # the parameters that need fine grain abstraction
+    # in the format of k:op_type, v:index_of_inputs(0-base) that needs fine grain abstraction
+    'Reshape': [1]
+}
+
+# The exact number of following defined op_types can be easily derived from either fine abstraction or corase abstraction
+# Thus, we don't need to backflow the fine grain requirement through those op_types
+forbid_fine_grain_flow = ['Shape']
