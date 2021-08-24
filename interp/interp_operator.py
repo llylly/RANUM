@@ -133,7 +133,7 @@ class Abstraction(object):
 
             new_lb = torch.index_select(new_lb, i, torch.tensor(new_index))
             new_ub = torch.index_select(new_ub, i, torch.tensor(new_index))
-            new_splits.append(new_index)
+            new_splits.append(new_s)
 
         if inplace:
             self.lb, self.ub = new_lb, new_ub
@@ -268,12 +268,12 @@ class Interpreter(object):
             abstB.lb = abstB.lb * coeff
             abstB.ub = abstB.ub * coeff
         else:
-            target_splits = abstA.splits
+            target_splits = abstA.splits.copy()
             target_splits[-1] = abstB.splits[-2]
             target_splits[:-2] = abstB.splits[:-2]
             abstA = abstA.split_by(target_splits, inplace=False)
 
-            target_splits = abstB.splits
+            target_splits = abstB.splits.copy()
             target_splits[-2] = abstA.splits[-1]
             target_splits[:-2] = abstA.splits[:-2]
             abstB = abstB.split_by(target_splits, inplace=False)
@@ -312,16 +312,20 @@ class Interpreter(object):
             now_splits.extend([abstA.splits[-2], abstB.splits[-1]])
             ans.splits = now_splits
 
-        print('A = ')
-        print(abstracts[0].print())
-        print('B = ')
-        print(abstracts[1].print())
-        print('A @ B = ')
-        print(ans.print())
+        # print('A = ')
+        # print(abstracts[0].print())
+        # print('B = ')
+        # print(abstracts[1].print())
+        # print('A @ B = ')
+        # print(ans.print())
 
         return ans, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name):
+        abst_data = abstracts[0]
+        abst_shape = abstracts[1]
+        abst_data.print()
+        abst_shape.print()
         return None, list()
 
     def interp_Reciprocal(self, abstracts, node, optype, var_name):

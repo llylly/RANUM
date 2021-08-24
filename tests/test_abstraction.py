@@ -3,7 +3,7 @@ import torch
 import numpy as np
 
 from interp.interp_utils import AbstractionInitConfig
-from interp.interp_operator import Abstraction
+from interp.interp_operator import Abstraction, Interpreter
 
 def summary(obj):
     print('var_name:', obj.var_name)
@@ -13,12 +13,21 @@ def summary(obj):
     print('ub_tensor shape:', obj.ub.shape)
     print('splits:', obj.splits)
     print('')
-    # === DEBUG end ===
+
+def abst_shape_check(obj: Abstraction):
+    target_size = [len(x) for x in obj.splits]
+    assert obj.get_dim() == len(obj.splits)
+    assert obj.lb.dim() == obj.get_dim()
+    assert obj.ub.dim() == obj.get_dim()
+    assert obj.lb.shape == torch.Size(target_size)
+    assert obj.ub.shape == torch.Size(target_size)
 
 def tf_equal(a, b, EPS=1e-5):
     return np.linalg.norm((a.detach().numpy() - np.array(b)).reshape(-1)) < EPS
 
 if __name__ == '__main__':
+
+    interp = Interpreter()
 
     conf1 = AbstractionInitConfig(diff=True, lb=-1, ub=1, from_init_margin=0.1, stride=5)
     abst1 = Abstraction()
@@ -65,4 +74,15 @@ if __name__ == '__main__':
                 assert abs(abst3.ub[i][j] - abst3.ub[i+1][j+1]) < 1e-6
                 assert abs(abst3.ub[i][j] - abst3.ub[i+1][j+1]) < 1e-6
 
+    conf5 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+    abst5 = Abstraction()
+    abst5.load(conf5, 'v5', [2, 2, 3, 5], 'FLOAT', np.array(range(2*2*3*5)).reshape((2,2,3,5)))
+    abst6 = Abstraction()
+    abst6.load(conf5, 'v6', [1, 1, 5, 6], 'FLOAT', np.array(range(1*1*5*6)).reshape((1,1,5,6)))
+
+    abst7, _ = interp.interp_MatMul([abst5, abst6], None, 'MatMul', 'abst')
+
+    abst_shape_check(abst7)
+
     print('test passed')
+

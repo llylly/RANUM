@@ -162,6 +162,9 @@ class InterpModule():
         if init_config is None:
             init_config = dict()
 
+        print('find variable for grounding...', flush=True)
+        # TODO
+
         print('initilize abstractions...', flush=True)
         for s in self.start_points:
             if s not in init_config:
