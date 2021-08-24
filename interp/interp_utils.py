@@ -11,7 +11,7 @@ class AbstractionInitConfig(object):
         self.ub = ub
         # if real tensor values are present, whether to use them to determine lower and upper bounds
         self.from_init = from_init
-        # if from_init=True, the margin of abstraction from the init data, ususally set to 0
+        # if from_init=True, the margin of abstraction from the init data, usually set to 0
         self.from_init_margin = from_init_margin
         # the stride of abstract, int or list of int (if it is not a list, then cast to all dimensions)
         # "-1" means stride = infty, i.e., the whole dimension is abstracted by a single element

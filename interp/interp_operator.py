@@ -1,8 +1,8 @@
-
 import numpy as np
 import torch
 
 from interp.interp_utils import AbstractionInitConfig
+
 
 class Abstraction(object):
     """
@@ -72,7 +72,7 @@ class Abstraction(object):
         else:
             self.splits = list()
             abst_shape = list()
-            for i,shape_i in enumerate(tensor_shape):
+            for i, shape_i in enumerate(tensor_shape):
                 if stride[i] == -1:
                     abst_shape.append(1)
                     self.splits.append([0])
@@ -84,7 +84,8 @@ class Abstraction(object):
                 try:
                     tensor_data = tensor_data.reshape(tensor_shape)
                 except Exception:
-                    raise Exception(f'Variable {var_name}: tensor data (shape:{tensor_data.shape}) cannot be casted to required shape({tensor_shape})')
+                    raise Exception(
+                        f'Variable {var_name}: tensor data (shape:{tensor_data.shape}) cannot be casted to required shape({tensor_shape})')
 
                 lb_data, ub_data = self.summarize_data_and_assign(tensor_data, self.splits)
                 lb_data = np.array(lb_data, dtype=np.float32) - from_init_margin
@@ -100,6 +101,42 @@ class Abstraction(object):
 
         self.var_name = var_name
         self.shape = tensor_shape
+
+    def smash(self, inplace=True):
+        """
+        smash the abstraction into a single value
+        :param inplace:
+        :return: None if inplace=True, otherwise, an abstraction of a single value
+        """
+        # TODO the flow of 1. check scalar, 2. calculate info, 3. update info can be modularized
+        if len(self.splits) == 0:
+            if inplace:
+                return True
+            else:
+                new_abst = Abstraction()
+                new_abst.lb = self.lb
+                new_abst.ub = self.ub
+                new_abst.splits = self.splits
+                new_abst.shape = self.shape
+                new_abst.var_name = self.var_name + '_smash'
+                return new_abst
+
+        lb = torch.min(self.lb)
+        ub = torch.max(self.ub)
+        new_splits = [[0]] * len(self.shape)
+        new_lb, new_ub = torch.ones([1] * len(self.shape)) * lb, torch.ones([1] * len(self.shape)) * ub
+
+        if inplace:
+            self.lb, self.ub = new_lb, new_ub
+            self.splits = new_splits
+        else:
+            new_abst = Abstraction()
+            new_abst.lb = new_lb
+            new_abst.ub = new_ub
+            new_abst.splits = new_splits
+            new_abst.shape = self.shape
+            new_abst.var_name = self.var_name + '_smash'
+            return new_abst
 
     def split_by(self, ref_splits, inplace=True):
         """
@@ -144,7 +181,7 @@ class Abstraction(object):
                         if (p1 < len1) and (ref_s[p2] >= old_s[p1]):
                             new_index.append(p1)
                         else:
-                            new_index.append(p1-1)
+                            new_index.append(p1 - 1)
                     p2 += 1
             # print(new_s)
             # print(new_index)
@@ -322,14 +359,14 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.lb = torch.minimum(torch.matmul(abstA.lb, abstB.lb),
-                 torch.minimum(torch.matmul(abstA.lb, abstB.ub),
-                 torch.minimum(torch.matmul(abstA.ub, abstB.lb),
-                               torch.matmul(abstA.ub, abstB.ub))))
+                               torch.minimum(torch.matmul(abstA.lb, abstB.ub),
+                                             torch.minimum(torch.matmul(abstA.ub, abstB.lb),
+                                                           torch.matmul(abstA.ub, abstB.ub))))
 
         ans.ub = torch.maximum(torch.matmul(abstA.lb, abstB.lb),
-                 torch.maximum(torch.matmul(abstA.lb, abstB.ub),
-                 torch.maximum(torch.matmul(abstA.ub, abstB.lb),
-                               torch.matmul(abstA.ub, abstB.ub))))
+                               torch.maximum(torch.matmul(abstA.lb, abstB.ub),
+                                             torch.maximum(torch.matmul(abstA.ub, abstB.lb),
+                                                           torch.matmul(abstA.ub, abstB.ub))))
         ans.var_name = var_name
 
         if abstA.get_dim() == 1:
@@ -369,7 +406,7 @@ class Interpreter(object):
         return None, list()
 
 
-def get_shape_split_with_broadcasting(a: Abstraction, b:Abstraction):
+def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
     """
         Generating the shape and splits information after the broadcasting-supported operation of two tensors,
             where broadcasting singleton dimension could be possible
