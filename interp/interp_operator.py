@@ -243,8 +243,23 @@ class Abstraction(object):
         # TODO
         pass
 
+    def is_exact(self, eps=1e-5):
+        """
+            Return whether the abstraction is precise
+        :param eps:
+        :return:
+        """
+        local_lb = self.lb.detach().reshape(-1)
+        local_ub = self.ub.detach().reshape(-1)
+        dif = torch.norm(local_ub - local_lb).item()
+        return dif < eps
+
     @staticmethod
     def summarize_data_and_assign(tensor_data, splits, dim=0):
+        """
+            this method aggregate the min and max of tensor_data according to "splits" blocking rule,
+            then construct abstraction from these mins and maxs
+        """
         # print(f'split and assign {tensor_data} {splits} dim={dim}')
         if dim == len(splits):
             return np.min(tensor_data), np.max(tensor_data)
@@ -395,15 +410,142 @@ class Interpreter(object):
 
         return ans, list()
 
-    def interp_Reshape(self, abstracts, node, optype, var_name):
+    def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):
+        """
+            Currently, we don't support allowzero != 0
+        :param abstracts:
+        :param node:
+        :param optype:
+        :param var_name:
+        :param smash: if mode == 'flatten_stretch' or 'stretch', whether to apply force_split to smash if numel >= smash;
+            particularly, smash == -1 disable this optimization
+        :return:
+        """
         abst_data = abstracts[0]
         abst_shape = abstracts[1]
-        abst_data.print()
-        abst_shape.print()
-        return None, list()
+        assert isinstance(abst_data, Abstraction)
+
+        assert abst_shape.is_exact()
+        desired_shape = abst_shape.lb.detach().type(torch.int).tolist()
+
+        # extract the desired shape from the abstraction
+        numel = 1
+        for item in abst_data.shape: numel *= item
+        tmp = numel
+        for ind,item in enumerate(desired_shape):
+            if item != -1:
+                if item == 0:
+                    item = abst_data.shape[ind]
+                tmp /= item
+        desired_shape = [int(tmp) if x == -1 else (abst_data.shape[ind] if x == 0 else x)
+                         for ind,x in enumerate(desired_shape)]
+
+        print('prev    shape:', abst_data.shape)
+        print('desired shape:', desired_shape)
+
+        assert get_numel(abst_data.shape) == get_numel(desired_shape)
+
+        """
+            There are three possible cases regarding reshape that need to be processed:
+                - flatten: starting from some dimension i and ends until the last dimension, all flatten to one dimension
+                - stretch: stretch the last dimension to multiple dimensions
+                - flatten_stretch: if not belong to the above two cases, then use the flatten_stretch mode
+                    in this case, we may need to apply some heuristics to reduce the granularity via force_split
+        """
+        mode = 'flatten_stretch'
+        start_dim = None
+        if abst_data.get_dim() > len(desired_shape) and all([x == y for x,y in zip(abst_data.shape, desired_shape[:-1])]):
+            mode = 'flatten'
+            start_dim = len(desired_shape) - 1
+        elif abst_data.get_dim() < len(desired_shape) and all([x == y for x,y in zip(abst_data.shape[:-1], desired_shape)]):
+            mode = 'stretch'
+            start_dim = abst_data.get_dim() - 1
+        elif abst_data.get_dim() == len(desired_shape) and all([x == y for x,y in zip(abst_data, desired_shape)]):
+            # mode = 'equal'
+            return abst_data, list()
+        else:
+            mode = 'flatten_stretch'
+            start_dim = [x == y for x,y in zip(abst_data.shape, desired_shape)].index(False)
+
+        if mode in ['flatten', 'flatten_stretch']:
+            ans = self.general_flatten(abst_data, start_dim)
+        if mode in ['stretch', 'flatten_stretch']:
+            ans = self.general_stretch(abst_data, start_dim)
+
+        if mode in ['stretch', 'flatten_stretch'] \
+                and smash != -1 and torch.numel(ans.lb) >= smash and torch.numel(ans.lb) >= 2. * torch.numel(abst_data):
+            # smash triggering policy
+            # TODO: smash via force_split
+            pass
+
+        # ans.print()
+
+        return ans, list()
 
     def interp_Reciprocal(self, abstracts, node, optype, var_name):
         return None, list()
+
+
+    def general_flatten(self, abstract: Abstraction, start_dim=0):
+        t = start_dim
+        for i in range(start_dim, len(abstract.shape)):
+            if len(abstract.splits[i]) > 1:
+                t = i
+
+        flatten_orig_lb = abstract.lb.reshape(list(abstract.lb.shape[:start_dim]) + [-1])
+        flatten_orig_ub = abstract.ub.reshape(list(abstract.ub.shape[:start_dim]) + [-1])
+
+        abst_last_flat_dim = abstract.lb.shape[t]
+        new_abst_last_dim = abst_last_flat_dim
+        for i in range(start_dim, t):
+            new_abst_last_dim *= abstract.shape[i]
+
+        new_last_dim = 1
+        for i in range(start_dim, len(abstract.shape)):
+            new_last_dim *= abstract.shape[i]
+        new_unit = 1
+        for i in range(t, len(abstract.shape)):
+            new_unit *= abstract.shape[i]
+
+        indexes = list()
+        for i in range(new_abst_last_dim):
+            tmp = int(i / abst_last_flat_dim)
+            orig_indexes = list()
+            for now_dim in range(t-1, start_dim-1, -1):
+                # (t-1), (t-2), ..., start_dim
+                orig_indexes.append(tmp % abstract.shape[now_dim])
+                tmp = int(tmp / abstract.shape[now_dim])
+            orig_indexes = orig_indexes[::-1]
+            # print(i, orig_indexes)
+            abst_indexes = [sum([now_ind >= x for x in abstract.splits[j + start_dim]])-1 for j,now_ind in enumerate(orig_indexes)]
+            abst_flatten_index = 0
+            for j in range(start_dim, t):
+                abst_flatten_index += abst_indexes[j - start_dim]
+                abst_flatten_index *= abstract.lb.shape[j]
+            abst_flatten_index += (i % abst_last_flat_dim)
+            indexes.append(abst_flatten_index)
+
+        # print(t)
+        # print(abst_last_flat_dim)
+        # print(new_abst_last_dim)
+        # print(new_last_dim)
+        # print(new_unit)
+        # print(indexes)
+
+        ans = Abstraction()
+        ans.shape = abstract.shape[:start_dim] + [new_last_dim]
+        ans.splits = abstract.splits[:start_dim] + \
+                     [np.hstack([np.hstack([np.array(abstract.splits[start_dim]) * int(new_unit / abstract.shape[t]) +
+                                            time * new_unit for time in range(int(new_last_dim / new_unit))])]).tolist()]
+        ans.lb = flatten_orig_lb.index_select(dim=start_dim, index=torch.tensor(indexes))
+        ans.ub = flatten_orig_ub.index_select(dim=start_dim, index=torch.tensor(indexes))
+        ans.var_name = abstract.var_name + f'_general_flatten_{start_dim}'
+
+        return ans
+
+    def general_stretch(self, abstract, start_dim=0):
+        pass
+
 
 
 def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
@@ -425,3 +567,8 @@ def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
             shape.append(b.shape[i])
             splits.append(b.splits[i])
     return shape, splits
+
+def get_numel(shape_list):
+    ret = 1
+    for s in shape_list: ret *= s
+    return ret

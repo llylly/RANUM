@@ -17,7 +17,52 @@ def summary(obj: Abstraction):
 
 
 def tf_equal(a, b, EPS=1e-5):
+    # tensor float equal
     return np.linalg.norm((a.detach().numpy() - np.array(b)).reshape(-1)) < EPS
+
+
+def correct_abstraction(abst: Abstraction, arr):
+    """
+        Return whether abst correctly abstracts the concrete tensor arr
+    :param abst:
+    :param arr:
+    :return:
+    """
+
+    if isinstance(arr, torch.Tensor):
+        arr = arr.detach().numpy()
+
+    lb = ub = arr
+    # print(lb, ub)
+    for i, item in enumerate(abst.splits):
+        new_lb = list()
+        new_ub = list()
+        for j in range(len(item)):
+            if j < len(item) - 1:
+                now_item_l = np.take(lb, list(range(item[j], item[j+1])), axis=i)
+                now_item_u = np.take(ub, list(range(item[j], item[j+1])), axis=i)
+            else:
+                now_item_l = np.take(lb, list(range(item[j], abst.shape[i])), axis=i)
+                now_item_u = np.take(ub, list(range(item[j], abst.shape[i])), axis=i)
+            new_lb.append(now_item_l.min(axis=i))
+            new_ub.append(now_item_u.max(axis=i))
+            # print(new_lb, new_ub)
+        lb = np.stack(new_lb, axis=i)
+        ub = np.stack(new_ub, axis=i)
+        # print(lb.shape, ub.shape)
+
+    # print(abst.splits)
+    # print(lb)
+    # print(abst.lb.detach().numpy())
+
+    abst_lb = abst.lb.detach().numpy().reshape(-1)
+    abst_ub = abst.ub.detach().numpy().reshape(-1)
+    lb = lb.reshape(-1)
+    ub = ub.reshape(-1)
+
+
+    return all(abst_lb <= lb) and all(ub <= abst_ub)
+
 
 
 class TestAbstraction(unittest.TestCase):
@@ -33,12 +78,12 @@ class TestAbstraction(unittest.TestCase):
         conf1 = AbstractionInitConfig(diff=True, lb=-1, ub=1, from_init_margin=0.1, stride=5)
         abst1 = Abstraction()
         abst1.load(conf1, 'v1', [10, 10], 'FLOAT', None)
-        summary(abst1)
+        # summary(abst1)
 
         conf2 = AbstractionInitConfig(diff=True, lb=-1, ub=1, from_init_margin=0.1, stride=5, from_init=True)
         abst2 = Abstraction()
         abst2.load(conf2, 'v2', [10, 10], 'FLOAT', np.array(range(100)).reshape(10, 10))
-        summary(abst2)
+        # summary(abst2)
 
         # checker
         self.assertTrue((abst1.lb.detach().numpy() == np.array([[-1., -1.], [-1., -1.]])).all())
@@ -59,11 +104,11 @@ class TestAbstraction(unittest.TestCase):
         abst4 = Abstraction()
         abst4.load(conf4, 'v3', [12, 12], 'FLOAT', np.array(range(12 * 12)).reshape(12, 12))
 
-        summary(abst3)
+        # summary(abst3)
 
         abst3.split_by(abst4.splits)
 
-        summary(abst3)
+        # summary(abst3)
         local_EPS = 1e-6
         self.assertEqual(6, abst3.lb.shape[0])
         self.assertEqual(6, abst3.lb.shape[1])
@@ -91,7 +136,11 @@ class TestAbstraction(unittest.TestCase):
         abst1.smash()
         self.assertTrue(abst1.lb.requires_grad and abst1.ub.requires_grad)
 
-    def test_MatMul(self):
+    def test_MatMul1(self):
+        """
+            Normal matrix multiplication
+        :return:
+        """
         interp = Interpreter()
 
         stride = 2
@@ -106,16 +155,99 @@ class TestAbstraction(unittest.TestCase):
         self.abst_shape_check(abst7)
         self.assertEqual(abst7.lb.shape[2], (3 + 1) // stride)
         self.assertEqual(abst7.lb.shape[3], (6 + 1) // stride)
-        summary(abst7)
+        # summary(abst7)
         abst5.smash()
         abst6.smash()
         abst8, _ = interp.interp_MatMul([abst5, abst6], None, 'MatMul', 'abst_smash')
-        summary(abst8)
+        # summary(abst8)
 
         smashed_lb = abst8.lb[0][0][0][0].item()
         smashed_ub = abst8.ub[0][0][0][0].item()
         self.assertTrue((abst7.lb >= smashed_lb).all().item())
         self.assertTrue((abst7.ub <= smashed_ub).all().item())
+
+    def test_MatMul2(self):
+        """
+            The boundary case: left dot-product and right dot-product
+        :return:
+        """
+        interp = Interpreter()
+
+        stride = 2
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+        abst1 = Abstraction()
+        a = np.array(range(5))
+        abst1.load(conf1, 'v1', [5], 'FLOAT', a)
+        abst2 = Abstraction()
+        b = np.array(range(5)) * 3.
+        abst2.load(conf1, 'v2', [5], 'FLOAT', b)
+        abst3 = Abstraction()
+        c = np.array(range(25)).reshape((5,5)) + 1.
+        abst3.load(conf1, 'v3', [5,5], 'FLOAT', c)
+
+        out1, _ = interp.interp_MatMul([abst1, abst3], None, 'MatMul', 'out1')
+        out2, _ = interp.interp_MatMul([abst3, abst2], None, 'Matmul', 'out2')
+
+        gt1 = Abstraction()
+        gt1.load(conf1, 'gt1', [5], 'FLOAT', a @ c)
+        gt2 = Abstraction()
+        gt2.load(conf1, 'gt2', [5], 'FLOAT', c @ b)
+
+        self.assertTrue((out1.lb <= gt1.lb).all().item())
+        self.assertTrue((gt1.ub <= out1.ub).all().item())
+        self.assertTrue((out2.lb <= gt2.lb).all().item())
+        self.assertTrue((gt2.ub <= out2.ub).all().item())
+
+    def test_Reshape1(self):
+        """
+            Test general flatten
+        :return:
+        """
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf2 = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        targ_shape = [5, 5, -1]
+
+        a = np.array(list(range(5 * 5 * 5 * 5 * 2))).reshape((5, 5, 5, 5, 2))
+        abst1 = Abstraction()
+        abst1.load(conf1, 'v1', [5,5,5,5,2], 'FLOAT', a)
+
+        b = a.reshape(tuple(targ_shape))
+        abst2 = Abstraction()
+        abst2.load(conf2, 'vshape', [3], 'INT', np.array(targ_shape))
+        abst2, _ = interp.interp_Reshape([abst1, abst2], None, None, None)
+        self.assertTrue(correct_abstraction(abst2, b))
+
+        # =========
+
+        targ_shape = [-1]
+        c = a.reshape(tuple(targ_shape))
+        abst3 = Abstraction()
+        abst3.load(conf2, 'vshape', [1], 'INT', np.array(targ_shape))
+        abst3, _ = interp.interp_Reshape([abst1, abst3], None, None, None)
+        self.assertTrue(correct_abstraction(abst3, c))
+
+        # summary(abst3)
+
+        # ============
+
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3,6])
+
+        targ_shape = [-1]
+
+        a = np.array(list(range(6 * 6))).reshape((6, 6))
+        abst1 = Abstraction()
+        abst1.load(conf3, 'v2', [6,6], 'FLOAT', a)
+
+        d = a.reshape(tuple(targ_shape))
+        abst4 = Abstraction()
+        abst4.load(conf2, 'vshape', [1], 'INT', np.array(targ_shape))
+        abst4, _ = interp.interp_Reshape([abst1, abst4], None, None, None)
+        self.assertTrue(correct_abstraction(abst4, d))
+
+        # summary(abst4)
+
 
 
 if __name__ == '__main__':
