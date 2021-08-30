@@ -231,7 +231,7 @@ class Abstraction(object):
             targ.ub = targ.ub.unsqueeze(dim=0)
             targ.shape = [1] + targ.shape
             targ.splits = [[0]] + targ.splits
-            targ.var_name = targ.var_name + '_extend_dim'
+        targ.var_name = targ.var_name + '_extend_dim'
         return targ
 
     def force_resplit(self, new_splits, inplace=True):
@@ -243,8 +243,43 @@ class Abstraction(object):
         :param inplace:
         :return:
         """
-        # TODO
-        pass
+
+        now_lb, now_ub = self.lb, self.ub
+
+        for dim, (old_split, new_split) in enumerate(zip(self.splits, new_splits)):
+            # print(dim, len(old_split), len(new_split))
+
+            if len(old_split) == len(new_split) and all([x == y for x,y in zip(old_split, new_split)]):
+                # skip this dim
+                continue
+
+            ts_list_lb, ts_list_ub = list(), list()
+            for i,l in enumerate(new_split):
+                if l == new_split[-1]:
+                    r = self.shape[dim]
+                else:
+                    r = new_split[i + 1]
+                old_l = bisect.bisect_right(old_split, l) - 1
+                old_r = bisect.bisect_left(old_split, r)
+                ts_list_lb.append(now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r))).min(dim=dim)[0])
+                ts_list_ub.append(now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r))).max(dim=dim)[0])
+
+            now_lb = torch.stack(ts_list_lb, dim=dim)
+            now_ub = torch.stack(ts_list_ub, dim=dim)
+
+        if inplace:
+            self.lb, self.ub = now_lb, now_ub
+            self.splits = new_splits.copy()
+            self.var_name = self.var_name + '_force_resplit'
+            ans = self
+        else:
+            ans = Abstraction()
+            ans.lb, ans.ub = now_lb, now_ub
+            ans.splits = new_splits.copy()
+            ans.var_name = self.var_name + '_force_resplit'
+            ans.shape = self.shape
+
+        return ans
 
     def is_exact(self, eps=1e-5):
         """
@@ -454,8 +489,8 @@ class Interpreter(object):
         desired_shape = [int(tmp) if x == -1 else (abst_data.shape[ind] if x == 0 else x)
                          for ind,x in enumerate(desired_shape)]
 
-        print('prev    shape:', abst_data.shape)
-        print('desired shape:', desired_shape)
+        # print('prev    shape:', abst_data.shape)
+        # print('desired shape:', desired_shape)
 
         assert get_numel(abst_data.shape) == get_numel(desired_shape)
 
@@ -487,15 +522,17 @@ class Interpreter(object):
         if mode in ['stretch', 'flatten_stretch']:
             ans = self.general_stretch(ans, start_dim, desired_shape)
 
-        print('prev abst numel:', abst_data.get_abst_tensor_numel())
-        print('now  abst numel:', ans.get_abst_tensor_numel())
+        # print('prev abst numel:', abst_data.get_abst_tensor_numel())
+        # print('now  abst numel:', ans.get_abst_tensor_numel())
 
         if mode in ['stretch', 'flatten_stretch'] \
                 and smash != -1 and ans.get_abst_tensor_numel() >= smash and ans.get_abst_tensor_numel() >= 8. * abst_data.get_abst_tensor_numel():
-            # smash triggering policy: answer's numel >= threshold, and current operation enlarges the numel by 8 times
-            # force split policy: choose the dimension that splits the most to shrink by 2, until the numel is within 4 times of input tensor's
+            """
+                smash triggering policy: answer's numel >= threshold, and current operation enlarges the numel by 8 times
+                force split policy: choose the dimension that splits the most to shrink by 2, until the numel is within 4 times of input tensor's
+            """
 
-            print('force smashing triggered')
+            # print('force smashing triggered')
 
             target_splits = ans.splits.copy()
             while get_numel([len(x) for x in target_splits]) >= 4. * abst_data.get_abst_tensor_numel():
@@ -504,11 +541,8 @@ class Interpreter(object):
                     if max_dim == -1 or len(split) > len(target_splits[max_dim]):
                         max_dim = dim_i
                 target_splits[max_dim] = [x for i,x in enumerate(target_splits[max_dim]) if i % 2 == 0]
-                print(target_splits)
 
             ans = ans.force_resplit(target_splits)
-
-        # ans.print()
 
         return ans, list()
 

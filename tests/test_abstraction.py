@@ -351,7 +351,6 @@ class TestAbstraction(unittest.TestCase):
         :return:
         """
 
-
         interp = Interpreter()
         interp.smash = 100
 
@@ -362,10 +361,26 @@ class TestAbstraction(unittest.TestCase):
         abst1 = Abstraction().load(conf1, 'v1', [40,40], 'FLOAT', a)
 
         targ_shape = [1,1600]
+        b = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [2], 'INT', np.array(targ_shape))
 
         abst2, _ = interp.interp_Reshape([abst1, abst_shape], None, None, None)
-        summary(abst2)
+        self.assertTrue(correct_abstraction(abst2, b))
+
+        # ===================
+
+        c = np.array(list(range(35 * 35))).reshape((35, 35))
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst3 = Abstraction().load(conf3, 'v2', [35,35], 'FLOAT', c)
+        # summary(abst3)
+
+        abst3.force_resplit([list(range(0,35,7)), list(range(0,35,7))])
+        self.assertTrue(correct_abstraction(abst3, c))
+
+        abst3.force_resplit([list(range(0,35,2)), list(range(0,35,2))])
+        self.assertTrue(correct_abstraction(abst3, c))
+
+        # summary(abst3)
 
 
 if __name__ == '__main__':
