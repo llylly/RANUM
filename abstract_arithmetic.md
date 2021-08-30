@@ -40,5 +40,30 @@ Then, we can determine the flattened abstraction tensor's shape: $\left[a_1, a_2
 
 For each element $j \in \{0,1,...,\prod_{i=s}^{t-1} a_i \cdot |\mathcal{S}_t|-1\}$, we need to first compute $\mathrm{ind} = \dfrac{j}{|\mathcal{S}_t|}$, and use $\mathrm{ind}$ to obtain the indexes for $s$ ... ($t-1$) dimension, then map to the abstraction's indexes via $\mathcal{S}_i$, and finally extract the corresponding elements from the abstraction.
 
+#### General Stretch
+
+Suppose the source shape is $[a_1, a_2, ..., a_d]$.
+
+Suppose the target shape is $[b_1, b_2, ..., b_d, ..., b_{d'}]$.
+
+The constraints are $a_i = b_i, 1\le i <d$ and $\prod_{i=d}^{d'} b_i = a_d$.
+
+We first exam all element (i.e., split point) $e$ in $\mathcal{S}_d$ to construct the split points of the target shape.
+
+For each element $e$, we can figure out the corresponding split points in the target shape, and we denote them as $e'=[e'_d, e'_{d+1}, ..., e'_{d_e}]$. Note that $d_e \le d'$.
+
+For example, suppose the source shape is $[4,4]$ and the target shape is $[16]$. For the split point $e=7$ (zero-indexed), the new split points $e'=[1]$ because splitting $7$ and $8$ corresponds to splitting $[0,1]\times [0,3]$ and $[2,3] \times [0,3]$ in the target shape. For the split point $e=14$, the new split points $e'=[2,2]$ because we need to split $2$ from $3$ both on axis 0 and 1 to isolate $0...14$ from $15$.
+
+We let the new split point sets $\mathcal{S}'_i$ to consume the split points of $e'$, i.e., $\mathcal{S}_i' \gets \mathcal{S}_i' \cup \{e'_i\}$.
+
+After the new split points are determined, we construct the new abstraction tensor as a $d$-dimensional tensor, and figure out the index mappings from each cell in the new abstraction tensor to cell of old abstraction tensor.
+
+Then, we use index_select to reads in the data from the old abstraction tensor, and then reshape the new abstraction tensor to the desired $d'$-dimensional tensor.
+
+#### Force Split
 
 
+
+#### Reshape
+
+Finally, we are ready to define the semantics of Reshape abstraction.

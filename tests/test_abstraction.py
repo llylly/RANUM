@@ -7,13 +7,7 @@ from interp.interp_operator import Abstraction, Interpreter
 
 
 def summary(obj: Abstraction):
-    print('var_name:', obj.var_name)
-    print('lb_tensor:', obj.lb)
-    print('lb_tensor shape:', obj.lb.shape)
-    print('ub_tensor:', obj.ub)
-    print('ub_tensor shape:', obj.ub.shape)
-    print('splits:', obj.splits)
-    print('')
+    obj.print()
 
 
 def tf_equal(a, b, EPS=1e-5):
@@ -248,6 +242,130 @@ class TestAbstraction(unittest.TestCase):
 
         # summary(abst4)
 
+    def test_Reshape2(self):
+        """
+            Test general stretch
+        :return:
+        """
+        interp = Interpreter()
+        conf_shape = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+
+        a = np.array(list(range(3 * 3 * 9))).reshape((3,3,9))
+        abst1 = Abstraction()
+        abst1.load(conf1, 'v1', [3,3,9], 'FLOAT', a)
+
+        targ_shape = [3,3,3,3]
+        b = a.reshape(tuple(targ_shape))
+        abst_shape = Abstraction()
+        abst_shape.load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
+
+        abst2, _ = interp.interp_Reshape([abst1, abst_shape], None, None, None)
+        self.assertTrue(correct_abstraction(abst2, b))
+
+        # =============
+
+        a = np.array(list(range(3 * 3 * 16))).reshape((3,3,16))
+        abst3 = Abstraction().load(conf1, 'v2', [3,3,16], 'FLOAT', a)
+
+        targ_shape = [3,3,4,4]
+        c = a.reshape(tuple(targ_shape))
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
+
+        abst4, _ = interp.interp_Reshape([abst3, abst_shape], None, None, None)
+        self.assertTrue(correct_abstraction(abst4, c))
+
+        # =============
+
+        targ_shape = [3,3,2,2,4]
+        d = a.reshape(tuple(targ_shape))
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [5], 'INT', np.array(targ_shape))
+
+        abst5, _ = interp.interp_Reshape([abst3, abst_shape], None, None, None)
+
+        self.assertTrue(correct_abstraction(abst5, d))
+
+        # =============
+
+        targ_shape = [3,3,2,2,2,2]
+        e = a.reshape(tuple(targ_shape))
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [6], 'INT', np.array(targ_shape))
+
+        abst6, _ = interp.interp_Reshape([abst3, abst_shape], None, None, None)
+        self.assertTrue(correct_abstraction(abst6, e))
+
+        # =============
+
+        f = np.array(list(range(3 * 3 * 24))).reshape((3,3,24))
+        abst7 = Abstraction().load(conf1, 'v3', [3,3,24], 'FLOAT', f)
+
+        targ_shape = [3,3,4,6]
+        g = f.reshape(tuple(targ_shape))
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
+
+        abst8, _ = interp.interp_Reshape([abst7, abst_shape], None, None, None)
+        self.assertTrue(correct_abstraction(abst8, g))
+
+    def test_Reshape3(self):
+        """
+            Test irregular reshape
+        :return:
+        """
+        interp = Interpreter()
+        conf_shape = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        a = np.array(list(range(5 * 5 * 12 * 12))).reshape((5,5,12,12))
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        abst1 = Abstraction().load(conf1, 'v1', [5,5,12,12], 'FLOAT', a)
+
+        targ_shape = [5,5,3,48]
+        b = a.reshape(tuple(targ_shape))
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
+
+        abst2, _ = interp.interp_Reshape([abst1, abst_shape], None, None, None)
+        self.assertTrue(correct_abstraction(abst2, b))
+
+        # =============
+
+        targ_shape = [5,5,6,24]
+        c = a.reshape(tuple(targ_shape))
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
+
+        targ_shape_1 = [5,5,144]
+        d = a.reshape(tuple(targ_shape_1))
+        abst_shape_1 = Abstraction().load(conf_shape, 'vshape_1', [3], 'INT', np.array(targ_shape_1))
+
+        abst4, _ = interp.interp_Reshape([abst2, abst_shape_1], None, None, None)
+        self.assertTrue(correct_abstraction(abst4, d))
+
+        # =============
+
+        abst3, _ = interp.interp_Reshape([abst2, abst_shape], None, None, None)
+        self.assertTrue(correct_abstraction(abst3, c))
+
+    def test_Reshape4(self):
+        """
+            Test reshape with forced resplit
+        :return:
+        """
+
+
+        interp = Interpreter()
+        interp.smash = 100
+
+        conf_shape = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        a = np.array(list(range(1600))).reshape((40, 40))
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=10)
+        abst1 = Abstraction().load(conf1, 'v1', [40,40], 'FLOAT', a)
+
+        targ_shape = [1,1600]
+        abst_shape = Abstraction().load(conf_shape, 'vshape', [2], 'INT', np.array(targ_shape))
+
+        abst2, _ = interp.interp_Reshape([abst1, abst_shape], None, None, None)
+        summary(abst2)
 
 
 if __name__ == '__main__':
