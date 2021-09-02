@@ -580,6 +580,38 @@ class TestAbstraction(unittest.TestCase):
         abst_z, _ = interp.interp_Tanh([abst_x], node, 'Tanh', 'y')
         self.assertTrue(correct_abstraction(abst_z, np.tanh(x), True))
 
+    def test_AddSubMulDiv(self):
+        interp = Interpreter()
+        x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+        y = np.random.randn(1, 10, 1).astype(np.float32)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        ops = [lambda x, y: x + y, lambda x, y: x - y, lambda x, y: x * y, lambda x, y: x / y]
+        op_names = ["Add", "Sub", "Mul", "Div"]
+        op_interps = [interp.interp_Add, interp.interp_Sub, interp.interp_Mul, interp.interp_Div]
+        for op, op_name, op_interp in zip(ops, op_names, op_interps):
+            node = helper.make_node(
+                op_name, ['x', 'y'], ['a'], op_name + "0"
+            )
+            if op_name == "Div": # Test div without errors
+                abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', abs(y) + 1)
+                z = op(x, abs(y) + 1)
+            else:
+                abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
+                z = op(x, y)
+            abst_z, _ = op_interp([abst_x, abst_y], node, op_name, 'z')
+            self.assertTrue(correct_abstraction(abst_z, z, False))
+
+            # test div with an error
+            if op_name == "Div":
+                y = abs(y) + 1
+                y[0, np.random.randint(10), 0] = -1
+                abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
+                abst_z, exceptions = op_interp([abst_x, abst_y], node, op_name, 'z')
+                self.assertIsNone(abst_z)
+                self.assertEqual(1, len(exceptions))
+
 
 if __name__ == '__main__':
     unittest.main()

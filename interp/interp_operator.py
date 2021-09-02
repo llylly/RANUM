@@ -404,6 +404,43 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_Mul(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        choices = torch.stack([abst0.lb * abst1.lb, abst0.lb * abst1.ub, abst0.ub * abst1.lb, abst0.ub * abst1.ub],
+                              dim=0)
+        ans.lb = torch.min(choices, dim=0)[0]
+        ans.ub = torch.max(choices, dim=0)[0]
+        ans.var_name = var_name
+
+        return ans, list()
+
+    def interp_Div(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+        if ((abst1.lb <= 0) & (abst1.ub >= 0)).any():
+            return None, [
+                PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub], PossibleNumericalError.CONTAINS_ZERO)]
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        choices = torch.stack([abst0.lb / abst1.lb, abst0.lb / abst1.ub, abst0.ub / abst1.lb, abst0.ub / abst1.ub],
+                              dim=0)
+        ans.lb = torch.min(choices, dim=0)[0]
+        ans.ub = torch.max(choices, dim=0)[0]
+        ans.var_name = var_name
+
+        return ans, list()
+
     def interp_MatMul(self, abstracts, node, optype, var_name):
         abstA, abstB = abstracts[0], abstracts[1]
         assert isinstance(abstA, Abstraction)
