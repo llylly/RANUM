@@ -797,6 +797,41 @@ class Interpreter(object):
         now_abst.var_name = var_name
         return now_abst, list()
 
+    def interp_Concat(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        axis = attr['axis']
+
+        # we need to finer split each Abstraction's other dimensions by other Abstraction's splits to align the shapes
+        new_splits = list([set() for _ in abstracts[0].shape])
+        for abst in abstracts:
+            for dim, split in enumerate(abst.splits):
+                if dim != axis:
+                    new_splits[dim] = new_splits[dim].union(split)
+        new_splits = [sorted(list(item)) for item in new_splits]
+        for i,abst in enumerate(abstracts):
+            new_splits[axis] = abst.splits[axis]
+            abstracts[i] = abst.split_by(new_splits, inplace=False)
+
+        # for i,abst in enumerate(abstracts):
+        #     print(i, abst.shape, abst.splits)
+
+        # start the real concatenation
+        ret = Abstraction()
+        ret.lb = torch.cat([item.lb for item in abstracts], dim=axis)
+        ret.ub = torch.cat([item.ub for item in abstracts], dim=axis)
+        ret.shape = abstracts[0].shape.copy()
+        ret.shape[axis] = sum([abst.shape[axis] for abst in abstracts])
+        ret.splits = abstracts[0].splits.copy()
+        axis_new_split = list()
+        cum = 0
+        for i, abst in enumerate(abstracts):
+            axis_new_split.extend([j + cum for j in abst.splits[axis]])
+            cum += abst.shape[axis]
+        ret.splits[axis] = axis_new_split
+        ret.var_name = var_name
+
+        return ret, list()
+
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
         for i in range(start_dim, len(abstract.shape)):

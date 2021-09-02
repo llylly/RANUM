@@ -526,6 +526,23 @@ class TestAbstraction(unittest.TestCase):
 
         self.assertTrue(correct_abstraction(abst_y_new, x.reshape((20, 1, 10, 1, 5))))
 
+    def test_Concat(self):
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=30)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=40)
+
+        x = np.random.randn(260, 5, 260).astype(np.float32)
+        y = np.random.randn(260, 3, 260).astype(np.float32)
+
+        abst_x = Abstraction().load(conf1, 'x', [260, 5, 260], 'FLOAT', x)
+        abst_y = Abstraction().load(conf2, 'y', [260, 3, 260], 'FLOAT', y)
+
+        node = helper.make_node(
+            'Concat', ['v1'], ['s'], 'concat', axis=1
+        )
+
+        abst_z, _ = interp.interp_Concat([abst_x, abst_y], node, 'Concat', 'z')
+        self.assertTrue(correct_abstraction(abst_z, np.concatenate([x,y], axis=1)))
 
 
 if __name__ == '__main__':
