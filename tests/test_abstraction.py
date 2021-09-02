@@ -468,9 +468,63 @@ class TestAbstraction(unittest.TestCase):
         # summary(abst_slice)
         self.assertTrue(correct_abstraction(abst_slice, x[:,20:-1000:-3,20:-1000:-2]))
 
+    def test_Squeeze(self):
+        interp = Interpreter()
+        conf_def = AbstractionInitConfig(diff=True, from_init=True, stride=4)
+        conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        x = np.random.randn(20, 10, 1, 5, 3, 1, 2).astype(np.float32)
+        axes = [2, -2]
+        node = helper.make_node(
+            'Squeeze', ['v1'], ['s'], 'squeeze'
+        )
+
+        abst_x = Abstraction().load(conf_def, 'v1', [20, 10, 1, 5, 3, 1, 2], 'FLOAT', x)
+        abst_axes = Abstraction().load(conf_precise, 'vaxes', [2], 'INT', np.array([2, 5]))
+
+        abst_y, _ = interp.interp_Squeeze([abst_x, abst_axes], node, 'Squeeze', 'y')
+
+        node = helper.make_node(
+            'Squeeze', ['v1'], ['s'], 'squeeze', axes=axes
+        )
+        abst_y_new, _ = interp.interp_Squeeze([abst_x], node, 'Squeeze', 'y')
 
 
+        node = helper.make_node(
+            'Squeeze', ['v1'], ['s'], 'squeeze'
+        )
+        abst_y_new_new, _ = interp.interp_Squeeze([abst_x], node, 'Squeeze', 'y')
 
+        self.assertTrue(correct_abstraction(abst_y, x.squeeze(axes[0]).squeeze(axes[1])))
+        self.assertTrue(correct_abstraction(abst_y_new, x.squeeze(axes[0]).squeeze(axes[1])))
+        self.assertTrue(correct_abstraction(abst_y_new_new, x.squeeze(axes[0]).squeeze(axes[1])))
+
+    def test_Unsqueeze(self):
+        interp = Interpreter()
+        conf_def = AbstractionInitConfig(diff=True, from_init=True, stride=4)
+        conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        x = np.random.randn(20, 10, 5).astype(np.float32)
+        axes = [2, -2]
+        node = helper.make_node(
+            'Unsqueeze', ['v1'], ['s'], 'unsqueeze'
+        )
+
+
+        abst_x = Abstraction().load(conf_def, 'v1', [20, 10, 5], 'FLOAT', x)
+        abst_axes = Abstraction().load(conf_precise, 'vaxes', [2], 'INT', np.array([2, -2]))
+
+        abst_y, _ = interp.interp_Unsqueeze([abst_x, abst_axes], node, 'Unsqueeze', 'y')
+
+        self.assertTrue(correct_abstraction(abst_y, x.reshape((20, 1, 10, 1, 5))))
+
+        node = helper.make_node(
+            'Unsqueeze', ['v1'], ['s'], 'unsqueeze', axes=axes
+        )
+
+        abst_y_new, _ = interp.interp_Unsqueeze([abst_x, abst_axes], node, 'Unsqueeze', 'y')
+
+        self.assertTrue(correct_abstraction(abst_y_new, x.reshape((20, 1, 10, 1, 5))))
 
 
 

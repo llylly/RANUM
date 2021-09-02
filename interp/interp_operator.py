@@ -746,6 +746,57 @@ class Interpreter(object):
         now_abst.var_name = var_name
         return now_abst, list()
 
+    def interp_Squeeze(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        if 'axes' in attr:
+            axes = attr['axes']
+        elif len(abstracts) > 1:
+            axes = abstracts[1]
+            assert axes.is_exact()
+            axes = axes.lb.detach().cpu().type(torch.int32).tolist()
+        else:
+            axes = [i for i,s in enumerate(abstracts[0].shape) if s == 1][::-1]
+        # make sure the axes are deleted from back to front so that the dim indices do not shift
+        axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i for i in axes], reverse=True)
+        now_abst = Abstraction()
+        now_abst.shape = abstracts[0].shape.copy()
+        now_abst.splits = abstracts[0].splits.copy()
+        now_abst.lb = abstracts[0].lb
+        now_abst.ub = abstracts[0].ub
+        for axis in axes:
+            assert now_abst.shape[axis] == 1
+            del now_abst.shape[axis]
+            del now_abst.splits[axis]
+            now_abst.lb = now_abst.lb.squeeze(dim=axis)
+            now_abst.ub = now_abst.ub.squeeze(dim=axis)
+        now_abst.var_name = var_name
+        return now_abst, list()
+
+    def interp_Unsqueeze(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        if 'axes' in attr:
+            axes = attr['axes']
+        elif len(abstracts) > 1:
+            axes = abstracts[1]
+            assert axes.is_exact()
+            axes = axes.lb.detach().cpu().type(torch.int32).tolist()
+        else:
+            axes = [i for i,s in enumerate(abstracts[0].shape) if s == 1][::-1]
+        # make sure the axes are deleted from back to front so that the dim indices do not shift
+        axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i for i in axes], reverse=True)
+        now_abst = Abstraction()
+        now_abst.shape = abstracts[0].shape.copy()
+        now_abst.splits = abstracts[0].splits.copy()
+        now_abst.lb = abstracts[0].lb
+        now_abst.ub = abstracts[0].ub
+        for axis in axes:
+            (now_abst.shape).insert(axis, 1)
+            (now_abst.splits).insert(axis, [0])
+            now_abst.lb = now_abst.lb.unsqueeze(dim=axis)
+            now_abst.ub = now_abst.ub.unsqueeze(dim=axis)
+        now_abst.var_name = var_name
+        return now_abst, list()
+
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
         for i in range(start_dim, len(abstract.shape)):

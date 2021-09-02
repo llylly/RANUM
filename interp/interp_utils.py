@@ -79,7 +79,8 @@ fine_grain_parameters = {
     # the parameters that need fine grain abstraction
     # in the format of k:op_type, v:index_of_inputs(0-base) that needs fine grain abstraction
     'Reshape': [1],
-    'Slice': [1,2,3,4]
+    'Slice': [1,2,3,4],
+    'Squeeze': [1]
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or corase abstraction
