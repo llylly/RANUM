@@ -39,15 +39,16 @@ class AbstractionInitConfig(object):
         }
 
 class PossibleNumericalError(Exception):
-
-    def __init__(self, optype, varname, cur_range, err_cond):
+    CONTAINS_ZERO = 0
+    code2str = {0: "Range contains zero."}
+    def __init__(self, optype, var_name, cur_range, err_cond):
         self.optype = optype
-        self.varname = varname
+        self.var_name = var_name
         self.cur_range = cur_range
         self.err_cond = err_cond
-        self.message = f'Possible numerical error on op {self.optype} (variable: {self.varname}): \n' \
+        self.message = f'Possible numerical error on op {self.optype} (variable: {self.var_name}): \n' \
                        f'  range from analysis is {self.cur_range};\n ' \
-                       f'  triggered numerical error condition {self.err_cond}'
+                       f'  triggered numerical error condition {self.code2str[self.err_cond]}'
         super(PossibleNumericalError, self).__init__(self.message)
 
 

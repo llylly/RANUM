@@ -3,8 +3,8 @@ import torch
 import bisect
 
 import onnx
-from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel
-
+from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
+    PossibleNumericalError
 
 
 class Abstraction(object):
@@ -264,20 +264,24 @@ class Abstraction(object):
         for dim, (old_split, new_split) in enumerate(zip(self.splits, new_splits)):
             # print(dim, len(old_split), len(new_split))
 
-            if len(old_split) == len(new_split) and all([x == y for x,y in zip(old_split, new_split)]):
+            if len(old_split) == len(new_split) and all([x == y for x, y in zip(old_split, new_split)]):
                 # skip this dim
                 continue
 
             ts_list_lb, ts_list_ub = list(), list()
-            for i,l in enumerate(new_split):
+            for i, l in enumerate(new_split):
                 if l == new_split[-1]:
                     r = self.shape[dim]
                 else:
                     r = new_split[i + 1]
                 old_l = bisect.bisect_right(old_split, l) - 1
                 old_r = bisect.bisect_left(old_split, r)
-                ts_list_lb.append(now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_lb.device)).min(dim=dim)[0])
-                ts_list_ub.append(now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_ub.device)).max(dim=dim)[0])
+                ts_list_lb.append(
+                    now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_lb.device)).min(
+                        dim=dim)[0])
+                ts_list_ub.append(
+                    now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_ub.device)).max(
+                        dim=dim)[0])
 
             now_lb = torch.stack(ts_list_lb, dim=dim)
             now_ub = torch.stack(ts_list_ub, dim=dim)
@@ -472,7 +476,29 @@ class Interpreter(object):
         return ans, list()
 
     def interp_Reciprocal(self, abstracts, node, optype, var_name):
-        return None, list()
+        abst = abstracts[0]
+        ans = Abstraction()
+        if ((abst.lb <= 0) & (abst.ub >= 0)).any():
+            return None, [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.CONTAINS_ZERO)]
+
+        e1, e2 = 1 / abst.lb, 1 / abst.ub
+        ans.lb = torch.minimum(e1, e2)
+        ans.ub = torch.maximum(e1, e2)
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        return ans, list()
+
+    def interp_Tanh(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.tanh(abst.lb)
+        ans.ub = torch.tanh(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        return ans, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):
         """
@@ -493,19 +519,19 @@ class Interpreter(object):
         desired_shape = abst_shape.lb.detach().type(torch.int).tolist()
 
         # smash policy init
-        if smash == -1: smash = self.smash # inherent the policy from class setting
+        if smash == -1: smash = self.smash  # inherent the policy from class setting
 
         # extract the desired shape from the abstraction
         numel = 1
         for item in abst_data.shape: numel *= item
         tmp = numel
-        for ind,item in enumerate(desired_shape):
+        for ind, item in enumerate(desired_shape):
             if item != -1:
                 if item == 0:
                     item = abst_data.shape[ind]
                 tmp /= item
         desired_shape = [int(tmp) if x == -1 else (abst_data.shape[ind] if x == 0 else x)
-                         for ind,x in enumerate(desired_shape)]
+                         for ind, x in enumerate(desired_shape)]
 
         # print('prev    shape:', abst_data.shape)
         # print('desired shape:', desired_shape)
@@ -521,18 +547,21 @@ class Interpreter(object):
         """
         mode = 'flatten_stretch'
         start_dim = None
-        if abst_data.get_dim() > len(desired_shape) and all([x == y for x,y in zip(abst_data.shape, desired_shape[:-1])]):
+        if abst_data.get_dim() > len(desired_shape) and all(
+                [x == y for x, y in zip(abst_data.shape, desired_shape[:-1])]):
             mode = 'flatten'
             start_dim = len(desired_shape) - 1
-        elif abst_data.get_dim() < len(desired_shape) and all([x == y for x,y in zip(abst_data.shape[:-1], desired_shape)]):
+        elif abst_data.get_dim() < len(desired_shape) and all(
+                [x == y for x, y in zip(abst_data.shape[:-1], desired_shape)]):
             mode = 'stretch'
             start_dim = abst_data.get_dim() - 1
-        elif abst_data.get_dim() == len(desired_shape) and all([x == y for x,y in zip(abst_data.shape, desired_shape)]):
+        elif abst_data.get_dim() == len(desired_shape) and all(
+                [x == y for x, y in zip(abst_data.shape, desired_shape)]):
             # equal shape
             return abst_data, list()
         else:
             mode = 'flatten_stretch'
-            start_dim = [x == y for x,y in zip(abst_data.shape, desired_shape)].index(False)
+            start_dim = [x == y for x, y in zip(abst_data.shape, desired_shape)].index(False)
 
         ans = abst_data
         if mode in ['flatten', 'flatten_stretch']:
@@ -558,7 +587,7 @@ class Interpreter(object):
                 for dim_i, split in enumerate(target_splits):
                     if max_dim == -1 or len(split) > len(target_splits[max_dim]):
                         max_dim = dim_i
-                target_splits[max_dim] = [x for i,x in enumerate(target_splits[max_dim]) if i % 2 == 0]
+                target_splits[max_dim] = [x for i, x in enumerate(target_splits[max_dim]) if i % 2 == 0]
 
             ans = ans.force_resplit(target_splits)
 
@@ -680,14 +709,14 @@ class Interpreter(object):
         now_abst.lb = abstracts[0].lb
         now_abst.ub = abstracts[0].ub
         for axis_ind, now_axis in enumerate(axes):
-            now_axis = np.clip(now_axis, a_min=-now_abst.get_dim(), a_max=now_abst.get_dim()-1)
+            now_axis = np.clip(now_axis, a_min=-now_abst.get_dim(), a_max=now_abst.get_dim() - 1)
             if now_axis < 0:
                 now_axis = now_abst.get_dim() + now_axis
             # now we assure now_axis >= 0
 
             now_start, now_end, now_step = starts[axis_ind], ends[axis_ind], steps[axis_ind]
-            now_start = np.clip(now_start, a_min=-now_abst.shape[now_axis], a_max=now_abst.shape[now_axis]-1)
-            now_end   = np.clip(now_end,   a_min=-now_abst.shape[now_axis]-1, a_max=now_abst.shape[now_axis])
+            now_start = np.clip(now_start, a_min=-now_abst.shape[now_axis], a_max=now_abst.shape[now_axis] - 1)
+            now_end = np.clip(now_end, a_min=-now_abst.shape[now_axis] - 1, a_max=now_abst.shape[now_axis])
             if now_start < 0:
                 now_start = now_abst.shape[now_axis] + now_start
             if now_end < 0:
@@ -704,11 +733,16 @@ class Interpreter(object):
                     now_abst = squeeze_axis(now_axis, now_abst)
                 else:
                     abst_start = bisect.bisect_right(now_abst.splits[now_axis], now_start) - 1
-                    abst_end = bisect.bisect_right(now_abst.splits[now_axis], now_end-1)
+                    abst_end = bisect.bisect_right(now_abst.splits[now_axis], now_end - 1)
                     # [abst_start, abst_end)
-                    now_abst.lb = torch.index_select(now_abst.lb, dim=now_axis, index=torch.tensor(range(abst_start, abst_end)).to(now_abst.lb.device))
-                    now_abst.ub = torch.index_select(now_abst.ub, dim=now_axis, index=torch.tensor(range(abst_start, abst_end)).to(now_abst.ub.device))
-                    now_abst.splits[now_axis] = [max(x - now_start, 0) for x in now_abst.splits[now_axis][abst_start:abst_end]]
+                    now_abst.lb = torch.index_select(now_abst.lb, dim=now_axis,
+                                                     index=torch.tensor(range(abst_start, abst_end)).to(
+                                                         now_abst.lb.device))
+                    now_abst.ub = torch.index_select(now_abst.ub, dim=now_axis,
+                                                     index=torch.tensor(range(abst_start, abst_end)).to(
+                                                         now_abst.ub.device))
+                    now_abst.splits[now_axis] = [max(x - now_start, 0) for x in
+                                                 now_abst.splits[now_axis][abst_start:abst_end]]
                     now_abst.shape[now_axis] = now_end - now_start
             else:
                 selected = list()
@@ -722,7 +756,8 @@ class Interpreter(object):
                         update = True
                     else:
                         if now_step > 1:
-                            while now_abst_index < len(now_abst.splits[now_axis]) - 1 and now_abst.splits[now_axis][now_abst_index + 1] <= now_real_index:
+                            while now_abst_index < len(now_abst.splits[now_axis]) - 1 and now_abst.splits[now_axis][
+                                now_abst_index + 1] <= now_real_index:
                                 now_abst_index += 1
                                 update = True
                         else:
@@ -738,8 +773,10 @@ class Interpreter(object):
                 if len(selected) == 0:
                     now_abst = squeeze_axis(now_axis, now_abst)
                 else:
-                    now_abst.lb = torch.index_select(now_abst.lb, dim=now_axis, index=torch.tensor(selected).to(now_abst.lb.device))
-                    now_abst.ub = torch.index_select(now_abst.ub, dim=now_axis, index=torch.tensor(selected).to(now_abst.ub.device))
+                    now_abst.lb = torch.index_select(now_abst.lb, dim=now_axis,
+                                                     index=torch.tensor(selected).to(now_abst.lb.device))
+                    now_abst.ub = torch.index_select(now_abst.ub, dim=now_axis,
+                                                     index=torch.tensor(selected).to(now_abst.ub.device))
                     now_abst.splits[now_axis] = new_splits
                     now_abst.shape[now_axis] = shape_counter
 
@@ -755,7 +792,7 @@ class Interpreter(object):
             assert axes.is_exact()
             axes = axes.lb.detach().cpu().type(torch.int32).tolist()
         else:
-            axes = [i for i,s in enumerate(abstracts[0].shape) if s == 1][::-1]
+            axes = [i for i, s in enumerate(abstracts[0].shape) if s == 1][::-1]
         # make sure the axes are deleted from back to front so that the dim indices do not shift
         axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i for i in axes], reverse=True)
         now_abst = Abstraction()
@@ -781,7 +818,7 @@ class Interpreter(object):
             assert axes.is_exact()
             axes = axes.lb.detach().cpu().type(torch.int32).tolist()
         else:
-            axes = [i for i,s in enumerate(abstracts[0].shape) if s == 1][::-1]
+            axes = [i for i, s in enumerate(abstracts[0].shape) if s == 1][::-1]
         # make sure the axes are deleted from back to front so that the dim indices do not shift
         axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i for i in axes], reverse=True)
         now_abst = Abstraction()
@@ -808,7 +845,7 @@ class Interpreter(object):
                 if dim != axis:
                     new_splits[dim] = new_splits[dim].union(split)
         new_splits = [sorted(list(item)) for item in new_splits]
-        for i,abst in enumerate(abstracts):
+        for i, abst in enumerate(abstracts):
             new_splits[axis] = abst.splits[axis]
             abstracts[i] = abst.split_by(new_splits, inplace=False)
 
@@ -857,18 +894,19 @@ class Interpreter(object):
         for i in range(new_abst_last_dim):
             tmp = int(i / abst_last_flat_dim)
             orig_indexes = list()
-            for now_dim in range(t-1, start_dim-1, -1):
+            for now_dim in range(t - 1, start_dim - 1, -1):
                 # (t-1), (t-2), ..., start_dim
                 orig_indexes.append(tmp % abstract.shape[now_dim])
                 tmp = int(tmp / abstract.shape[now_dim])
             orig_indexes = orig_indexes[::-1]
             # print(i, orig_indexes)
             # future work: optimize via binary search
-            abst_indexes = [sum([now_ind >= x for x in abstract.splits[j + start_dim]])-1 for j,now_ind in enumerate(orig_indexes)]
+            abst_indexes = [sum([now_ind >= x for x in abstract.splits[j + start_dim]]) - 1 for j, now_ind in
+                            enumerate(orig_indexes)]
             abst_flatten_index = 0
             for j in range(start_dim, t):
                 abst_flatten_index += abst_indexes[j - start_dim]
-                abst_flatten_index *= abstract.lb.shape[j+1]
+                abst_flatten_index *= abstract.lb.shape[j + 1]
             abst_flatten_index += (i % abst_last_flat_dim)
             indexes.append(abst_flatten_index)
             # print(i, abst_flatten_index)
@@ -885,7 +923,8 @@ class Interpreter(object):
         ans.shape = abstract.shape[:start_dim] + [new_last_dim]
         ans.splits = abstract.splits[:start_dim] + \
                      [np.hstack([np.hstack([np.array(abstract.splits[t]) * int(new_unit / abstract.shape[t]) +
-                                            time * new_unit for time in range(int(new_last_dim / new_unit))])]).tolist()]
+                                            time * new_unit for time in
+                                            range(int(new_last_dim / new_unit))])]).tolist()]
         ans.lb = flatten_orig_lb.index_select(dim=start_dim, index=torch.tensor(indexes).to(flatten_orig_lb.device))
         ans.ub = flatten_orig_ub.index_select(dim=start_dim, index=torch.tensor(indexes).to(flatten_orig_ub.device))
         ans.var_name = abstract.var_name + f'_general_flatten_{start_dim}'
@@ -894,7 +933,7 @@ class Interpreter(object):
 
     def general_stretch(self, abstract, start_dim, target_shape):
         assert start_dim == abstract.get_dim() - 1
-        assert all([x == y for x,y in zip(abstract.shape[:start_dim], target_shape[:start_dim])])
+        assert all([x == y for x, y in zip(abstract.shape[:start_dim], target_shape[:start_dim])])
         numels_to_stretch = 1
         for item in target_shape[start_dim:]:
             numels_to_stretch *= item
@@ -902,8 +941,8 @@ class Interpreter(object):
 
         split_points = [list() for _ in target_shape[start_dim:]]
         for item in abstract.splits[start_dim]:
-            for now_dim in range(len(target_shape)-1, start_dim-1, -1):
-                split_points[now_dim-start_dim].append(item % target_shape[now_dim])
+            for now_dim in range(len(target_shape) - 1, start_dim - 1, -1):
+                split_points[now_dim - start_dim].append(item % target_shape[now_dim])
                 item = int(item / target_shape[now_dim])
         split_points = [sorted(list(set(item))) for item in split_points]
         tot_numel = get_numel([len(x) for x in split_points])
@@ -911,7 +950,7 @@ class Interpreter(object):
         index_mapping = list()
         for i in range(tot_numel):
             cur_mapping = [None for _ in range(start_dim, len(target_shape))]
-            for now_dim in range(len(target_shape)-1, start_dim-1, -1):
+            for now_dim in range(len(target_shape) - 1, start_dim - 1, -1):
                 cur_mapping[now_dim - start_dim] = i % len(split_points[now_dim - start_dim])
                 i = int(i / len(split_points[now_dim - start_dim]))
             # print(i, cur_mapping)
@@ -929,8 +968,9 @@ class Interpreter(object):
         tmp = list()
         for l, r in index_mapping:
             # future work: optimize via binary search
-            real_index_l = max([i for i,item in enumerate(abstract.splits[start_dim]) if l >= item])
-            real_index_r = min([i for i,item in enumerate(abstract.splits[start_dim] + [abstract.shape[start_dim]]) if r < item]) - 1
+            real_index_l = max([i for i, item in enumerate(abstract.splits[start_dim]) if l >= item])
+            real_index_r = min(
+                [i for i, item in enumerate(abstract.splits[start_dim] + [abstract.shape[start_dim]]) if r < item]) - 1
             # print(real_index_l, real_index_r)
             assert real_index_l == real_index_r
             tmp.append(real_index_l)
@@ -946,7 +986,6 @@ class Interpreter(object):
         ans.var_name = abstract.var_name + '_general_stretch'
 
         return ans
-
 
 
 def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):

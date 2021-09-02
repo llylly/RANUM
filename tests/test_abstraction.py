@@ -13,10 +13,12 @@ def summary(obj: Abstraction):
 
 def tf_equal(a, b, EPS=1e-5):
     # tensor float equal
-    return np.linalg.norm((a.detach().numpy() - np.array(b)).reshape(-1)) < EPS
+    if isinstance(a, torch.Tensor):
+        a = a.detach().numpy()
+    return np.linalg.norm((a - np.array(b)).reshape(-1)) < EPS
 
 
-def correct_abstraction(abst: Abstraction, arr):
+def correct_abstraction(abst: Abstraction, arr, tight=False):
     """
         Return whether abst correctly abstracts the concrete tensor arr
     :param abst:
@@ -56,7 +58,10 @@ def correct_abstraction(abst: Abstraction, arr):
     ub = ub.reshape(-1)
 
 
-    return all(abst_lb <= lb) and all(ub <= abst_ub)
+    if not tight:
+        return all(abst_lb <= lb) and all(ub <= abst_ub)
+    else:
+        return tf_equal(abst_lb, lb) and tf_equal(abst_ub, ub)
 
 
 
@@ -543,6 +548,37 @@ class TestAbstraction(unittest.TestCase):
 
         abst_z, _ = interp.interp_Concat([abst_x, abst_y], node, 'Concat', 'z')
         self.assertTrue(correct_abstraction(abst_z, np.concatenate([x,y], axis=1)))
+
+    def test_Reciprocal(self):
+        interp = Interpreter()
+        # test without errors
+        x = np.abs(np.random.randn(10, 20, 30)).astype(np.float32) + 1
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
+        node = helper.make_node(
+            'Reciprocal', ['x'], ['a'], 'Reciprocal0'
+        )
+        abst_z, exceptions = interp.interp_Reciprocal([abst_x], node, 'Reciprocal', 'y')
+        self.assertTrue(correct_abstraction(abst_z, 1 / x, True))
+        self.assertEqual(0, len(exceptions))
+
+        # test with an error
+        x[np.random.randint(10), np.random.randint(20), np.random.randint(30)] = -1
+        abst_x2 = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
+        abst_z, exceptions = interp.interp_Reciprocal([abst_x2], node, 'Reciprocal', 'z')
+        self.assertIsNone(abst_z)
+        self.assertEqual(1, len(exceptions))
+
+    def test_Tanh(self):
+        interp = Interpreter()
+        x = np.random.randn(10, 20, 30).astype(np.float32)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
+        node = helper.make_node(
+            'Tanh', ['x'], ['a'], 'Tanh0'
+        )
+        abst_z, _ = interp.interp_Tanh([abst_x], node, 'Tanh', 'y')
+        self.assertTrue(correct_abstraction(abst_z, np.tanh(x), True))
 
 
 if __name__ == '__main__':
