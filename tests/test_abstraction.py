@@ -1,6 +1,7 @@
 import unittest
 import torch
 import numpy as np
+from onnx import helper
 
 from interp.interp_utils import AbstractionInitConfig
 from interp.interp_operator import Abstraction, Interpreter
@@ -381,6 +382,96 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(correct_abstraction(abst3, c))
 
         # summary(abst3)
+
+    def test_Shape(self):
+
+        interp = Interpreter()
+
+        a = np.zeros((5,6,7,8))
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=-1)
+        abst1 = Abstraction().load(conf1, 'v1', [5,6,7,8], 'FLOAT', a)
+
+        node = helper.make_node('Shape', ['v1'], ['s'], name='shape',
+                                start=1)
+
+        abst_shape, _ = interp.interp_Shape([abst1], node, 'Shape', 'shape')
+        self.assertTrue(correct_abstraction(abst_shape, np.array([6,7,8])))
+
+        node = helper.make_node('Shape', ['v2'], ['s'], name='shape',
+                                end=-1)
+
+        abst_shape, _ = interp.interp_Shape([abst1], node, 'Shape', 'shape')
+        self.assertTrue(correct_abstraction(abst_shape, np.array([5,6,7])))
+
+
+        node = helper.make_node('Shape', ['v2'], ['s'], name='shape',
+                                start=1, end=-1)
+
+        abst_shape, _ = interp.interp_Shape([abst1], node, 'Shape', 'shape')
+        self.assertTrue(correct_abstraction(abst_shape, np.array([6,7])))
+
+    def test_Slice(self):
+        interp = Interpreter()
+        conf_def = AbstractionInitConfig(diff=True, from_init=True, stride=4)
+        conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        x = np.random.randn(20, 10, 5).astype(np.float32)
+        y = x[0:3, 0:10]
+
+        abst_x = Abstraction().load(conf_def, 'v1', [20, 10, 5], 'FLOAT', x)
+        # summary(abst_x)
+        node = helper.make_node(
+            'Slice', ['v1'], ['s'], 'slice', starts=[0, 0], ends=[3, 10], steps=[1, 1]
+        )
+        abst_slice, _ = interp.interp_Slice([abst_x], node, 'Slice', 'slice')
+        self.assertTrue(correct_abstraction(abst_slice, y))
+
+        abst_starts = Abstraction().load(conf_precise, 'starts', [2], 'INT', np.array([0,0]))
+        abst_ends = Abstraction().load(conf_precise, 'ends', [2], 'INT', np.array([3,10]))
+        abst_axes = Abstraction().load(conf_precise, 'axes', [2], 'INT', np.array([0,1]))
+        abst_steps = Abstraction().load(conf_precise, 'steps', [2], 'INT', np.array([1,1]))
+        new_node = helper.make_node(
+            'Slice', ['v1'], ['s'], 'slice'
+        )
+        new_abst_slice, _ = interp.interp_Slice([abst_x, abst_starts, abst_ends, abst_axes, abst_steps], new_node, 'Slice', 'new_slice')
+        self.assertTrue(correct_abstraction(new_abst_slice, y))
+
+        starts = [10, 2]
+        ends = [1000, 1000]
+        steps = [2, 3]
+        axis = [0, 1]
+        node = helper.make_node(
+            'Slice', ['v2'], ['s'], 'slice', starts=starts, ends=ends, steps=steps
+        )
+        abst_slice, _ = interp.interp_Slice([abst_x], node, 'Slice', 'slice')
+        # summary(abst_slice)
+        self.assertTrue(correct_abstraction(abst_slice, x[10:1000:2, 2:1000:3]))
+
+        starts = [20, 20, 20]
+        ends = [-10000, -10000, -10000]
+        steps = [-1, -2, -1]
+        node = helper.make_node(
+            'Slice', ['v2'], ['s'], 'slice', starts=starts, ends=ends, steps=steps
+        )
+        abst_slice, _ = interp.interp_Slice([abst_x], node, 'Slice', 'slice')
+        # summary(abst_slice)
+        self.assertTrue(correct_abstraction(abst_slice, x[20:-10000:-1, 20:-10000:-2, 20:-10000:-1]))
+
+        starts = [20,20]
+        ends = [-1000,-1000]
+        steps = [-3,-2]
+        axes=[1,2]
+        node = helper.make_node(
+            'Slice', ['v2'], ['s'], 'slice', starts=starts, ends=ends, steps=steps, axes=axes
+        )
+        abst_slice, _ = interp.interp_Slice([abst_x], node, 'Slice', 'slice')
+        # summary(abst_slice)
+        self.assertTrue(correct_abstraction(abst_slice, x[:,20:-1000:-3,20:-1000:-2]))
+
+
+
+
+
 
 
 if __name__ == '__main__':

@@ -1,3 +1,5 @@
+import onnx
+from onnx.helper import get_attribute_value
 
 class AbstractionInitConfig(object):
 
@@ -49,14 +51,39 @@ class PossibleNumericalError(Exception):
         super(PossibleNumericalError, self).__init__(self.message)
 
 
+def get_numel(shape_list):
+    ret = 1
+    for s in shape_list: ret *= s
+    return ret
+
+def parse_attribute(node):
+    """
+        Parse the onnx node instance's attribute field to dict
+    :param node:
+    :return:
+    """
+    ans = dict()
+    for item in node.attribute:
+        ans[item.name] = get_attribute_value(item)
+    return ans
+
+
 discrete_types = ['UINT8', 'INT8', 'UINT16', 'INT16', 'INT32', 'INT64', 'STRING', 'BOOL']
+
+unsupported_types = ['STRING']
+
+datatype_mapping = dict([(id, x.name) for id, x in enumerate(onnx.TensorProto.DataType._enum_type.values)])
+
 
 fine_grain_parameters = {
     # the parameters that need fine grain abstraction
     # in the format of k:op_type, v:index_of_inputs(0-base) that needs fine grain abstraction
-    'Reshape': [1]
+    'Reshape': [1],
+    'Slice': [1,2,3,4]
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or corase abstraction
 # Thus, we don't need to backflow the fine grain requirement through those op_types
 forbid_fine_grain_flow = ['Shape']
+
+

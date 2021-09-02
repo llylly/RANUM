@@ -2,7 +2,9 @@ import numpy as np
 import torch
 import bisect
 
-from interp.interp_utils import AbstractionInitConfig
+import onnx
+from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel
+
 
 
 class Abstraction(object):
@@ -21,7 +23,8 @@ class Abstraction(object):
              var_name: str,
              tensor_shape: list,
              tensor_type: str,
-             tensor_data: None or np.ndarray):
+             tensor_data: None or np.ndarray,
+             cuda=False):
         """
             Load the abstraction
         :param config:
@@ -48,60 +51,72 @@ class Abstraction(object):
         from_init_margin = config.from_init_margin
         stride = config.stride
 
-        if len(tensor_shape) == 0:
-            stride = 1
+        if tensor_type in unsupported_types:
+            # if the tensor type is not supported, just create null tensors as placeholders
+            self.lb = torch.tensor(data=[])
+            self.ub = torch.tensor(data=[])
+            self.splits = list()
+            self.shape = list()
         else:
-            if isinstance(stride, int):
-                stride = [stride for _ in tensor_shape]
-            try:
-                assert len(stride) == len(tensor_shape)
-            except:
-                raise Exception(f'Variable {var_name}: stride config {stride} should much {tensor_shape}')
-
-        if len(tensor_shape) == 0:
-            # scalar
-            if from_init and tensor_data is not None:
-                tensor_data = tensor_data.reshape(())
-                self.lb, self.ub = \
-                    torch.tensor(tensor_data - from_init_margin, dtype=torch.float32, requires_grad=diff), \
-                    torch.tensor(tensor_data + from_init_margin, dtype=torch.float32, requires_grad=diff)
+            # support legal types
+            if len(tensor_shape) == 0:
+                stride = 1
             else:
-                self.lb, self.ub = \
-                    torch.tensor(lb, dtype=torch.float32, requires_grad=diff), \
-                    torch.tensor(ub, dtype=torch.float32, requires_grad=diff)
-            self.splits = list()
-        else:
-            self.splits = list()
-            abst_shape = list()
-            for i, shape_i in enumerate(tensor_shape):
-                if stride[i] == -1:
-                    abst_shape.append(1)
-                    self.splits.append([0])
-                else:
-                    abst_shape.append(int((shape_i + stride[i] - 1) / stride[i]))
-                    self.splits.append([stride[i] * x for x in range(abst_shape[-1])])
-
-            if from_init and tensor_data is not None:
+                if isinstance(stride, int):
+                    stride = [stride for _ in tensor_shape]
                 try:
-                    tensor_data = tensor_data.reshape(tensor_shape)
-                except Exception:
-                    raise Exception(
-                        f'Variable {var_name}: tensor data (shape:{tensor_data.shape}) cannot be casted to required shape({tensor_shape})')
+                    assert len(stride) == len(tensor_shape)
+                except:
+                    raise Exception(f'Variable {var_name}: stride config {stride} should much {tensor_shape}')
 
-                lb_data, ub_data = self.summarize_data_and_assign(tensor_data, self.splits)
-                lb_data = np.array(lb_data, dtype=np.float32) - from_init_margin
-                ub_data = np.array(ub_data, dtype=np.float32) + from_init_margin
-                self.lb, self.ub = \
-                    torch.tensor(lb_data, dtype=torch.float32, requires_grad=diff), \
-                    torch.tensor(ub_data, dtype=torch.float32, requires_grad=diff)
-
+            if len(tensor_shape) == 0:
+                # scalar
+                if from_init and tensor_data is not None:
+                    tensor_data = tensor_data.reshape(())
+                    self.lb, self.ub = \
+                        torch.tensor(tensor_data - from_init_margin, dtype=torch.float32, requires_grad=diff), \
+                        torch.tensor(tensor_data + from_init_margin, dtype=torch.float32, requires_grad=diff)
+                else:
+                    self.lb, self.ub = \
+                        torch.tensor(lb, dtype=torch.float32, requires_grad=diff), \
+                        torch.tensor(ub, dtype=torch.float32, requires_grad=diff)
+                self.splits = list()
             else:
-                self.lb, self.ub = \
-                    torch.tensor(lb * np.ones(abst_shape), dtype=torch.float32, requires_grad=diff), \
-                    torch.tensor(ub * np.ones(abst_shape), dtype=torch.float32, requires_grad=diff)
+                self.splits = list()
+                abst_shape = list()
+                for i, shape_i in enumerate(tensor_shape):
+                    if stride[i] == -1:
+                        abst_shape.append(1)
+                        self.splits.append([0])
+                    else:
+                        abst_shape.append(int((shape_i + stride[i] - 1) / stride[i]))
+                        self.splits.append([stride[i] * x for x in range(abst_shape[-1])])
+
+                if from_init and tensor_data is not None:
+                    try:
+                        tensor_data = tensor_data.reshape(tensor_shape)
+                    except Exception:
+                        raise Exception(
+                            f'Variable {var_name}: tensor data (shape:{tensor_data.shape}) cannot be casted to required shape({tensor_shape})')
+
+                    lb_data, ub_data = self.summarize_data_and_assign(tensor_data, self.splits)
+                    lb_data = np.array(lb_data, dtype=np.float32) - from_init_margin
+                    ub_data = np.array(ub_data, dtype=np.float32) + from_init_margin
+                    self.lb, self.ub = \
+                        torch.tensor(lb_data, dtype=torch.float32, requires_grad=diff), \
+                        torch.tensor(ub_data, dtype=torch.float32, requires_grad=diff)
+
+                else:
+                    self.lb, self.ub = \
+                        torch.tensor(lb * np.ones(abst_shape), dtype=torch.float32, requires_grad=diff), \
+                        torch.tensor(ub * np.ones(abst_shape), dtype=torch.float32, requires_grad=diff)
+
+            self.shape = tensor_shape
 
         self.var_name = var_name
-        self.shape = tensor_shape
+        if cuda:
+            self.lb = self.lb.cuda()
+            self.ub = self.ub.cuda()
 
         return self
 
@@ -189,8 +204,8 @@ class Abstraction(object):
             # print(new_s)
             # print(new_index)
 
-            new_lb = torch.index_select(new_lb, i, torch.tensor(new_index))
-            new_ub = torch.index_select(new_ub, i, torch.tensor(new_index))
+            new_lb = torch.index_select(new_lb, i, torch.tensor(new_index).to(new_lb.device))
+            new_ub = torch.index_select(new_ub, i, torch.tensor(new_index).to(new_ub.device))
             new_splits.append(new_s)
 
         if inplace:
@@ -261,8 +276,8 @@ class Abstraction(object):
                     r = new_split[i + 1]
                 old_l = bisect.bisect_right(old_split, l) - 1
                 old_r = bisect.bisect_left(old_split, r)
-                ts_list_lb.append(now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r))).min(dim=dim)[0])
-                ts_list_ub.append(now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r))).max(dim=dim)[0])
+                ts_list_lb.append(now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_lb.device)).min(dim=dim)[0])
+                ts_list_ub.append(now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_ub.device)).max(dim=dim)[0])
 
             now_lb = torch.stack(ts_list_lb, dim=dim)
             now_ub = torch.stack(ts_list_ub, dim=dim)
@@ -393,13 +408,13 @@ class Interpreter(object):
         if abstA.get_dim() == 1:
             abstA = abstA.split_by([abstB.splits[-2]], inplace=False)
             coeff = np.array(abstA.splits[0][1:] + [abstA.shape[0]]) - np.array(abstA.splits[0])
-            coeff = torch.tensor(coeff)
+            coeff = torch.tensor(coeff).to(abstA.lb.device)
             abstA.lb = abstA.lb * coeff
             abstA.ub = abstA.ub * coeff
         elif abstB.get_dim() == 1:
             abstB = abstB.split_by([abstA.splits[-1]], inplace=False)
             coeff = np.array(abstB.splits[0][1:] + [abstB.shape[0]]) - np.array(abstB.splits[0])
-            coeff = torch.tensor(coeff)
+            coeff = torch.tensor(coeff).to(abstB.lb.device)
             abstB.lb = abstB.lb * coeff
             abstB.ub = abstB.ub * coeff
         else:
@@ -414,7 +429,7 @@ class Interpreter(object):
             abstB = abstB.split_by(target_splits, inplace=False)
 
             coeff = np.array(abstA.splits[-1][1:] + [abstA.shape[-1]]) - np.array(abstA.splits[-1])
-            coeff = torch.tensor(coeff)
+            coeff = torch.tensor(coeff).to(abstA.lb.device)
             abstA.lb = abstA.lb * coeff
             abstA.ub = abstA.ub * coeff
 
@@ -455,6 +470,9 @@ class Interpreter(object):
         # print(ans.print())
 
         return ans, list()
+
+    def interp_Reciprocal(self, abstracts, node, optype, var_name):
+        return None, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):
         """
@@ -544,11 +562,189 @@ class Interpreter(object):
 
             ans = ans.force_resplit(target_splits)
 
+        if var_name is not None:
+            ans.var_name = var_name
+
         return ans, list()
 
-    def interp_Reciprocal(self, abstracts, node, optype, var_name):
-        return None, list()
+    def interp_Shape(self, abstracts, node, optype, var_name, cuda=False):
+        start = 0
+        end = None
+        if len(node.attribute) > 0:
+            attr = parse_attribute(node)
+            start = attr.get('start', 0)
+            end = attr.get('end', None)
 
+        in_tensor = abstracts[0]
+        in_tensor_shape = in_tensor.shape
+
+        if end is None:
+            in_tensor_shape = in_tensor_shape[start:]
+        else:
+            in_tensor_shape = in_tensor_shape[start: end]
+
+        ans = Abstraction()
+        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float)
+        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float)
+        ans.shape = [len(in_tensor_shape)]
+        ans.splits = [list(range(len(in_tensor_shape)))]
+        ans.var_name = var_name
+
+        if cuda:
+            ans.lb = ans.lb.cuda()
+            ans.ub = ans.ub.cuda()
+
+        return ans, list()
+
+    def interp_Cast(self, abstracts, node, optype, var_name, cuda=False):
+        attr = parse_attribute(node)
+        to_type = datatype_mapping[attr['to']]
+        # print(to_type)
+
+        abst = abstracts[0]
+
+        if to_type in unsupported_types:
+            # if the type is not supported, rewrite with null abstraction
+            ret = create_empty_tensor(cuda)
+            if var_name is not None:
+                ret.var_name = var_name
+            else:
+                ret.var_name = 'null'
+        else:
+            ret = abst
+
+        return ret, list()
+
+    def interp_Slice(self, abstracts, node, optype, var_name):
+        """
+            For version >= 10, the axes, starts, ends, steps are inputs
+            Previously, they are attributes
+        :param abstracts:
+        :param node:
+        :param optype:
+        :param var_name:
+        :return:
+        """
+        attr = parse_attribute(node)
+        if 'starts' in attr:
+            # version < 10
+            starts = attr.get('starts', [])
+            ends = attr.get('ends', [])
+            axes = attr.get('axes', list(range(len(starts))))
+            steps = attr.get('steps', [1 for _ in axes])
+        else:
+            # version >= 10
+            starts = abstracts[1]
+            ends = abstracts[2]
+            assert starts.is_exact()
+            starts = starts.lb.detach().cpu().type(torch.int32).tolist()
+            assert ends.is_exact()
+            ends = ends.lb.detach().cpu().type(torch.int32).tolist()
+            if len(abstracts) >= 4:
+                axes = abstracts[3]
+                assert axes.is_exact()
+                axes = axes.lb.detach().cpu().type(torch.int32).tolist()
+            else:
+                axes = list(range(len(starts)))
+            if len(abstracts) >= 5:
+                steps = abstracts[4]
+                assert steps.is_exact()
+                steps = steps.lb.detach().cpu().type(torch.int32).tolist()
+            else:
+                steps = [1 for _ in axes]
+
+        # print('axes:  ', axes)
+        # print('starts:', starts)
+        # print('ends:  ', ends)
+        # print('steps: ', steps)
+
+        def squeeze_axis(axis: int, refer_abst: Abstraction):
+            """
+                Construct an abstraction that squeezes the corresponding axis to 0
+            :param axis: the axis to squeeze
+            :param refer_abst: the reference abstraction where we learn the information for other axes
+            :return: ret: Abstraction
+            """
+            ret = Abstraction()
+            ret.shape = refer_abst.shape.copy()
+            ret.shape[axis] = 0
+            ret.lb = torch.tensor([]).to(refer_abst.lb.device).reshape(ret.shape)
+            ret.ub = torch.tensor([]).to(refer_abst.ub.device).reshape(ret.shape)
+            ret.splits = refer_abst.splits.copy()
+            ret.splits[axis] = list()
+            return ret
+
+        now_abst = Abstraction()
+        now_abst.shape = abstracts[0].shape.copy()
+        now_abst.splits = abstracts[0].splits.copy()
+        now_abst.lb = abstracts[0].lb
+        now_abst.ub = abstracts[0].ub
+        for axis_ind, now_axis in enumerate(axes):
+            now_axis = np.clip(now_axis, a_min=-now_abst.get_dim(), a_max=now_abst.get_dim()-1)
+            if now_axis < 0:
+                now_axis = now_abst.get_dim() + now_axis
+            # now we assure now_axis >= 0
+
+            now_start, now_end, now_step = starts[axis_ind], ends[axis_ind], steps[axis_ind]
+            now_start = np.clip(now_start, a_min=-now_abst.shape[now_axis], a_max=now_abst.shape[now_axis]-1)
+            now_end   = np.clip(now_end,   a_min=-now_abst.shape[now_axis]-1, a_max=now_abst.shape[now_axis])
+            if now_start < 0:
+                now_start = now_abst.shape[now_axis] + now_start
+            if now_end < 0:
+                now_end = now_abst.shape[now_axis] + now_end
+                # maybe now_end could be -1 which corresponds to INT_MIN
+            # now we assure now_start >= 0, now_end >= -1
+
+            # print(now_axis, now_start, now_end)
+
+            assert now_step != 0
+            if now_step == 1:
+                now_end = max(now_end, 0)
+                if now_start >= now_end:
+                    now_abst = squeeze_axis(now_axis, now_abst)
+                else:
+                    abst_start = bisect.bisect_right(now_abst.splits[now_axis], now_start) - 1
+                    abst_end = bisect.bisect_right(now_abst.splits[now_axis], now_end-1)
+                    # [abst_start, abst_end)
+                    now_abst.lb = torch.index_select(now_abst.lb, dim=now_axis, index=torch.tensor(range(abst_start, abst_end)).to(now_abst.lb.device))
+                    now_abst.ub = torch.index_select(now_abst.ub, dim=now_axis, index=torch.tensor(range(abst_start, abst_end)).to(now_abst.ub.device))
+                    now_abst.splits[now_axis] = [max(x - now_start, 0) for x in now_abst.splits[now_axis][abst_start:abst_end]]
+                    now_abst.shape[now_axis] = now_end - now_start
+            else:
+                selected = list()
+                new_splits = list()
+                now_abst_index = None
+                shape_counter = 0
+                for now_real_index in range(now_start, now_end, now_step):
+                    update = False
+                    if now_abst_index is None:
+                        now_abst_index = bisect.bisect_right(now_abst.splits[now_axis], now_real_index) - 1
+                        update = True
+                    else:
+                        if now_step > 1:
+                            while now_abst_index < len(now_abst.splits[now_axis]) - 1 and now_abst.splits[now_axis][now_abst_index + 1] <= now_real_index:
+                                now_abst_index += 1
+                                update = True
+                        else:
+                            # now_step < 0
+                            while now_abst.splits[now_axis][now_abst_index] > now_real_index:
+                                now_abst_index -= 1
+                                update = True
+                    # print(now_real_index, now_abst_index)
+                    if update:
+                        selected.append(now_abst_index)
+                        new_splits.append(shape_counter)
+                    shape_counter += 1
+                if len(selected) == 0:
+                    now_abst = squeeze_axis(now_axis, now_abst)
+                else:
+                    now_abst.lb = torch.index_select(now_abst.lb, dim=now_axis, index=torch.tensor(selected).to(now_abst.lb.device))
+                    now_abst.ub = torch.index_select(now_abst.ub, dim=now_axis, index=torch.tensor(selected).to(now_abst.ub.device))
+                    now_abst.splits[now_axis] = new_splits
+                    now_abst.shape[now_axis] = shape_counter
+
+        now_abst.var_name = var_name
+        return now_abst, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
@@ -604,8 +800,8 @@ class Interpreter(object):
         ans.splits = abstract.splits[:start_dim] + \
                      [np.hstack([np.hstack([np.array(abstract.splits[t]) * int(new_unit / abstract.shape[t]) +
                                             time * new_unit for time in range(int(new_last_dim / new_unit))])]).tolist()]
-        ans.lb = flatten_orig_lb.index_select(dim=start_dim, index=torch.tensor(indexes))
-        ans.ub = flatten_orig_ub.index_select(dim=start_dim, index=torch.tensor(indexes))
+        ans.lb = flatten_orig_lb.index_select(dim=start_dim, index=torch.tensor(indexes).to(flatten_orig_lb.device))
+        ans.ub = flatten_orig_ub.index_select(dim=start_dim, index=torch.tensor(indexes).to(flatten_orig_ub.device))
         ans.var_name = abstract.var_name + f'_general_flatten_{start_dim}'
 
         return ans
@@ -656,8 +852,8 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.splits = abstract.splits[:start_dim] + split_points
-        ans.lb = abstract.lb.index_select(dim=start_dim, index=torch.tensor(index_mapping))
-        ans.ub = abstract.ub.index_select(dim=start_dim, index=torch.tensor(index_mapping))
+        ans.lb = abstract.lb.index_select(dim=start_dim, index=torch.tensor(index_mapping).to(abstract.lb.device))
+        ans.ub = abstract.ub.index_select(dim=start_dim, index=torch.tensor(index_mapping).to(abstract.ub.device))
         ans.lb = ans.lb.reshape([len(x) for x in ans.splits])
         ans.ub = ans.ub.reshape([len(x) for x in ans.splits])
         ans.shape = target_shape
@@ -687,7 +883,15 @@ def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
             splits.append(b.splits[i])
     return shape, splits
 
-def get_numel(shape_list):
-    ret = 1
-    for s in shape_list: ret *= s
+
+def create_empty_tensor(cuda):
+    ret = Abstraction()
+    ret.var_name = 'null'
+    ret.shape = list()
+    ret.splits = list()
+    ret.lb = torch.tensor([])
+    ret.ub = torch.tensor([])
+    if cuda:
+        ret.lb = ret.lb.cuda()
+        ret.ub = ret.ub.cuda()
     return ret
