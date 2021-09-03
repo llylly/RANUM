@@ -620,6 +620,48 @@ class TestAbstraction(unittest.TestCase):
         self.assertEqual(123, abst_z.ub[0][0][0].item())
         self.assertEqual(list(x), abst_z.shape)
 
+    def test_RandomUniformLike(self):
+        interp = Interpreter()
+        x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+        node = helper.make_node(
+            'RandomUniformLike', ['x'], ['a'], 'RandomUniformLike', low=-100, high=123,
+        )
+        abst_z, _ = interp.interp_RandomUniformLike([abst_x], node, 'RandomUniformLike', 'y')
+        self.assertEqual(-100, abst_z.lb[0][0][0][0].item())
+        self.assertEqual(123, abst_z.ub[0][0][0][0].item())
+        self.assertEqual(list(x.shape), abst_z.shape)
+
+    def test_BoolOps(self):
+        for stride in [1, 2]:
+            interp = Interpreter()
+            x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+            conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+            abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+            y = np.random.randn(1, 10, 1).astype(np.float32)
+            conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+            abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
+            ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y]
+            op_names = ["Less", "LessOrEqual", "Greater", "GreaterOrEqual"]
+            op_interps = [interp.interp_Less, interp.interp_LessOrEqual, interp.interp_Greater,
+                          interp.interp_GreaterOrEqual]
+
+            not_node = helper.make_node(
+                "Not", ['x'], ['a'], "Not:0"
+            )
+            for op, op_name, op_interp in zip(ops, op_names, op_interps):
+                node = helper.make_node(
+                    op_name, ['x', 'y'], ['a'], op_name + "0"
+                )
+                z = op(x, y)
+                abst_z, _ = op_interp([abst_x, abst_y], node, op_name, 'z')
+                self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
+
+                z = ~z
+                abst_z, _ = interp.interp_Not([abst_z], not_node, "Not", 'not_z')
+                self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
+
     def test_Tile(self):
         interp = Interpreter()
         x = np.random.randn(10, 12, 13)
@@ -662,6 +704,14 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(tf_equal(abst_x.lb.grad, torch.ones_like(abst_x.lb.grad)))
         torch.sum(abst_ceil.ub).backward()
         self.assertTrue(tf_equal(abst_x.ub.grad, torch.ones_like(abst_x.ub.grad)))
+
+    def test_device_inheritance(self):
+        # Todo
+        interp = Interpreter()
+        for cuda in [False, True]:
+            for op in dir(interp):
+                if op.startswith("interp"):
+                    pass
 
 
 if __name__ == '__main__':
