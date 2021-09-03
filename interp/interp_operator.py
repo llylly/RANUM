@@ -1052,8 +1052,8 @@ class Interpreter(object):
         ans.ub = abstracts[0].ub.clone()
         ans.var_name = var_name
         for abst in abstracts[1:]:
-            abst0 = ans.extend_dim(ans.get_dim(), inplace=False)
-            abst1 = abst.extend_dim(abst.get_dim(), inplace=False)
+            abst0 = ans.extend_dim(abst.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(ans.get_dim(), inplace=False)
 
             abst0.split_by(abst1.splits, inplace=True)
             abst1.split_by(abst0.splits, inplace=True)
@@ -1073,8 +1073,8 @@ class Interpreter(object):
         ans.ub = abstracts[0].ub.clone()
         ans.var_name = var_name
         for abst in abstracts[1:]:
-            abst0 = ans.extend_dim(ans.get_dim(), inplace=False)
-            abst1 = abst.extend_dim(abst.get_dim(), inplace=False)
+            abst0 = ans.extend_dim(abst.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(ans.get_dim(), inplace=False)
 
             abst0.split_by(abst1.splits, inplace=True)
             abst1.split_by(abst0.splits, inplace=True)
