@@ -1045,6 +1045,48 @@ class Interpreter(object):
         ans.var_name = var_name
         return ans, list()
 
+    def interp_Min(self, abstracts, node, optype, var_name):
+        ans = Abstraction()
+        ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+        ans.lb = abstracts[0].lb.clone()
+        ans.ub = abstracts[0].ub.clone()
+        ans.var_name = var_name
+        for abst in abstracts[1:]:
+            abst0 = ans.extend_dim(ans.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(abst.get_dim(), inplace=False)
+
+            abst0.split_by(abst1.splits, inplace=True)
+            abst1.split_by(abst0.splits, inplace=True)
+
+            ans = Abstraction()
+            ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+            ans.lb = torch.minimum(abst0.lb, abst1.lb)
+            ans.ub = torch.minimum(abst0.ub, abst1.ub)
+            ans.var_name = var_name
+
+        return ans, list()
+
+    def interp_Max(self, abstracts, node, optype, var_name):
+        ans = Abstraction()
+        ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+        ans.lb = abstracts[0].lb.clone()
+        ans.ub = abstracts[0].ub.clone()
+        ans.var_name = var_name
+        for abst in abstracts[1:]:
+            abst0 = ans.extend_dim(ans.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(abst.get_dim(), inplace=False)
+
+            abst0.split_by(abst1.splits, inplace=True)
+            abst1.split_by(abst0.splits, inplace=True)
+
+            ans = Abstraction()
+            ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+            ans.lb = torch.maximum(abst0.lb, abst1.lb)
+            ans.ub = torch.maximum(abst0.ub, abst1.ub)
+            ans.var_name = var_name
+
+        return ans, list()
+
     def interp_Tile(self, abstracts, node, optype, var_name):
         in_abst = abstracts[0]
         repeats = abstracts[1]

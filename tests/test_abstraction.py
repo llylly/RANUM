@@ -2,6 +2,7 @@ import unittest
 import torch
 import numpy as np
 from onnx import helper
+from functools import reduce
 
 from interp.interp_utils import AbstractionInitConfig, EPS
 from interp.interp_operator import Abstraction, Interpreter
@@ -661,6 +662,29 @@ class TestAbstraction(unittest.TestCase):
                 z = ~z
                 abst_z, _ = interp.interp_Not([abst_z], not_node, "Not", 'not_z')
                 self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
+
+    def test_MinMax(self):
+        interp = Interpreter()
+        ops = [lambda x, y: np.minimum(x, y), lambda x, y: np.maximum(x, y)]
+        op_names = ["Min", "Max"]
+        op_interps = [interp.interp_Min, interp.interp_Max]
+        for arg_nums in [1, 2, 3]:
+            xs = [np.random.randn(10 if np.random.rand() < 0.5 else 1,
+                                  12 if np.random.rand() < 0.5 else 1,
+                                  13 if np.random.rand() < 0.5 else 1) for _ in range(arg_nums)]
+            abst_xs = [
+                Abstraction().load(AbstractionInitConfig(diff=True,
+                                                         from_init=True,
+                                                         stride=i + 1),
+                                   'x', x.shape, 'FLOAT', x)
+                for i, x in enumerate(xs)]
+            for op, op_name, op_interp in zip(ops, op_names, op_interps):
+                node = helper.make_node(
+                    op_name, ['x%d' % i for i in range(arg_nums)], ['a'], op_name + "0"
+                )
+                z = reduce(op, xs[1:], xs[0])
+                abst_z, _ = op_interp(abst_xs, node, op_name, 'z')
+                self.assertTrue(correct_abstraction(abst_z, z))
 
     def test_Tile(self):
         interp = Interpreter()
