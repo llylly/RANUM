@@ -55,8 +55,8 @@ class Abstraction(object):
             # if the tensor type is not supported, just create null tensors as placeholders
             self.lb = torch.tensor(data=[])
             self.ub = torch.tensor(data=[])
-            self.splits = list()
-            self.shape = list()
+            self.splits = [[]]
+            self.shape = [0]
         else:
             # support legal types
             tensor_shape = list(tensor_shape)
@@ -981,6 +981,15 @@ class Interpreter(object):
 
         return ret, list()
 
+    def interp_Loop(self, abstracts, node, optype, var_name):
+        print(abstracts)
+        attr = parse_attribute(node)
+        loop_body = attr['body']
+        print(loop_body.input)
+        print(loop_body.output)
+
+        return None, list()
+
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
         for i in range(start_dim, len(abstract.shape)):
@@ -1124,8 +1133,8 @@ def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
 def create_empty_tensor(cuda):
     ret = Abstraction()
     ret.var_name = 'null'
-    ret.shape = list()
-    ret.splits = list()
+    ret.shape = [0]
+    ret.splits = [[]]
     ret.lb = torch.tensor([])
     ret.ub = torch.tensor([])
     if cuda:
