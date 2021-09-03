@@ -671,7 +671,10 @@ class TestAbstraction(unittest.TestCase):
         for arg_nums in [1, 2, 3]:
             xs = [np.random.randn(10 if np.random.rand() < 0.5 else 1,
                                   12 if np.random.rand() < 0.5 else 1,
-                                  13 if np.random.rand() < 0.5 else 1) for _ in range(arg_nums)]
+                                  13 if np.random.rand() < 0.5 else 1) if np.random.rand() < 0.5 else
+                  np.random.randn(12 if np.random.rand() < 0.5 else 1,
+                                  13 if np.random.rand() < 0.5 else 1)
+                  for _ in range(arg_nums)]
             abst_xs = [
                 Abstraction().load(AbstractionInitConfig(diff=True,
                                                          from_init=True,
