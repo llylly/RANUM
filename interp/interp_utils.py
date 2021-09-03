@@ -1,6 +1,8 @@
 import onnx
 from onnx.helper import get_attribute_value
 
+EPS = 1e-5
+
 class AbstractionInitConfig(object):
 
     def __init__(self, diff: bool, lb=0., ub=1., from_init=False, from_init_margin=0., stride=-1):

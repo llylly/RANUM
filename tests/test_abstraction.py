@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from onnx import helper
 
-from interp.interp_utils import AbstractionInitConfig
+from interp.interp_utils import AbstractionInitConfig, EPS
 from interp.interp_operator import Abstraction, Interpreter
 
 
@@ -11,7 +11,7 @@ def summary(obj: Abstraction):
     obj.print()
 
 
-def tf_equal(a, b, EPS=1e-5):
+def tf_equal(a, b):
     # tensor float equal
     if isinstance(a, torch.Tensor):
         a = a.detach().numpy()
@@ -611,6 +611,19 @@ class TestAbstraction(unittest.TestCase):
                 abst_z, exceptions = op_interp([abst_x, abst_y], node, op_name, 'z')
                 self.assertIsNone(abst_z)
                 self.assertEqual(1, len(exceptions))
+
+    def test_ConstantOfShape(self):
+        interp = Interpreter()
+        x = np.random.randint(1, 20, 3).astype(np.int32)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        abst_x = Abstraction().load(conf1, 'x', [3], 'INT', x)
+        node = helper.make_node(
+            'ConstantOfShape', ['x'], ['a'], 'ConstantOfShape0', value=123
+        )
+        abst_z, _ = interp.interp_ConstantOfShape([abst_x], node, 'ConstantOfShape', 'y')
+        self.assertEqual(123, abst_z.lb[0][0][0].item())
+        self.assertEqual(123, abst_z.ub[0][0][0].item())
+        self.assertEqual(list(x), abst_z.shape)
 
 
 if __name__ == '__main__':

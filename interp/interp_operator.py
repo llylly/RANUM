@@ -4,7 +4,7 @@ import bisect
 
 import onnx
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError
+    PossibleNumericalError, EPS
 
 
 class Abstraction(object):
@@ -523,8 +523,8 @@ class Interpreter(object):
         ans.lb = torch.minimum(e1, e2)
         ans.ub = torch.maximum(e1, e2)
         ans.var_name = var_name
-        ans.shape = abst.shape
-        ans.splits = abst.splits
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
         return ans, list()
 
     def interp_Tanh(self, abstracts, node, optype, var_name):
@@ -533,8 +533,8 @@ class Interpreter(object):
         ans.lb = torch.tanh(abst.lb)
         ans.ub = torch.tanh(abst.ub)
         ans.var_name = var_name
-        ans.shape = abst.shape
-        ans.splits = abst.splits
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
         return ans, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):
@@ -905,6 +905,22 @@ class Interpreter(object):
         ret.var_name = var_name
 
         return ret, list()
+
+    def interp_ConstantOfShape(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        value = attr.get('value', 0)
+
+        if (abs(abstracts[0].lb - abstracts[0].ub) <= EPS).all():
+            ans = Abstraction()
+            ans.shape = list(abstracts[0].lb.long().numpy())
+            ans.splits = [[0] for _ in range(len(ans.shape))]
+            ans.lb = torch.full([1] * len(ans.shape), value)
+            ans.ub = torch.full([1] * len(ans.shape), value)
+            ans.var_name = var_name
+            return ans, list()
+        else: # unknown shape
+            return None, list()
+
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
