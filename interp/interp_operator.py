@@ -553,10 +553,10 @@ class Interpreter(object):
         ans.var_name = var_name
         ans.shape = abst.shape
         ans.splits = abst.splits
-        if self.precise == 'precise':
+        if self.ceil == 'precise':
             ans.lb = abst.lb.ceil()
             ans.ub = abst.ub.ceil()
-        elif self.precise == 'identical':
+        elif self.ceil == 'identical':
             ans.lb, ans.ub = abst.lb, abst.ub
         else:
             ans.lb = abst.lb

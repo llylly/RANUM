@@ -639,16 +639,16 @@ class TestAbstraction(unittest.TestCase):
         abst_x = Abstraction().load(conf, 'x', x.shape, 'FLOAT', x)
         abst_floor, _ = interp.interp_Floor([abst_x], None, None, 'floor')
         self.assertTrue(correct_abstraction(abst_floor, np.floor(x), tight=True))
-        abst_ceil, _ = interp.interp_Floor([abst_x], None, None, 'floor')
-        self.assertTrue(correct_abstraction(abst_ceil, np.floor(x), tight=True))
+        abst_ceil, _ = interp.interp_Ceil([abst_x], None, None, 'ceil')
+        self.assertTrue(correct_abstraction(abst_ceil, np.ceil(x), tight=True))
 
         # coarse and identical mode has grad
         # but coarse is imprecise, and identical loses soundness
         interp = Interpreter(ceil='coarse', floor='coarse')
         abst_floor, _ = interp.interp_Floor([abst_x], None, None, 'floor')
         self.assertTrue(correct_abstraction(abst_floor, np.floor(x)))
-        abst_ceil, _ = interp.interp_Floor([abst_x], None, None, 'floor')
-        self.assertTrue(correct_abstraction(abst_ceil, np.floor(x)))
+        abst_ceil, _ = interp.interp_Ceil([abst_x], None, None, 'ceil')
+        self.assertTrue(correct_abstraction(abst_ceil, np.ceil(x)))
 
         torch.sum(abst_floor.lb).backward()
         self.assertTrue(tf_equal(abst_x.lb.grad, torch.ones_like(abst_x.lb.grad)))
