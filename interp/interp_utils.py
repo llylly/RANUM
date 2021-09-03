@@ -84,7 +84,8 @@ fine_grain_parameters = {
     'Reshape': [1],
     'Slice': [1,2,3,4],
     'Squeeze': [1],
-    'Unsqueeze': [1]
+    'Unsqueeze': [1],
+    'Tile': [1,2]
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or corase abstraction

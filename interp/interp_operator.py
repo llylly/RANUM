@@ -21,7 +21,7 @@ class Abstraction(object):
     def load(self,
              config: AbstractionInitConfig,
              var_name: str,
-             tensor_shape: list,
+             tensor_shape: tuple or list,
              tensor_type: str,
              tensor_data: None or np.ndarray,
              cuda=False):
@@ -59,6 +59,7 @@ class Abstraction(object):
             self.shape = list()
         else:
             # support legal types
+            tensor_shape = list(tensor_shape)
             if len(tensor_shape) == 0:
                 stride = 1
             else:
@@ -353,9 +354,18 @@ class Interpreter(object):
         The general class for generating interpretations
     """
 
-    def __init__(self, smash_thres=-1):
+    def __init__(self, smash_thres=-1, ceil='precise', floor='precise'):
         # default smash threshold
         self.smash = smash_thres
+
+        # whether to propagate precise or coarse bound for ceil or floor
+        # the precise means that, ceil/floor exactly applies ceil/floor func, but this way we cannot have the gradient
+        # the idential means that, we just propagate the identical value as the approximation and we can obtain the gradient
+        # the coarse means that, the corase bound is (lb, ub+1) for ceil and (lb-1, ub) for floor, which is imprecise but we can obtain the gradient
+        assert ceil in ['precise', 'identical', 'coarse']
+        assert floor in ['precise', 'identical', 'coarse']
+        self.ceil = ceil
+        self.floor = floor
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -535,6 +545,38 @@ class Interpreter(object):
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Ceil(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        if self.ceil == 'precise':
+            ans.lb = abst.lb.ceil()
+            ans.ub = abst.ub.ceil()
+        elif self.ceil == 'identical':
+            ans.lb, ans.ub = abst.lb, abst.ub
+        else:
+            ans.lb = abst.lb
+            ans.ub = abst.ub + 1.
+        return ans, list()
+
+    def interp_Floor(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        if self.floor == 'precise':
+            ans.lb = abst.lb.floor()
+            ans.ub = abst.ub.floor()
+        elif self.floor == 'identical':
+            ans.lb, ans.ub = abst.lb, abst.ub
+        else:
+            ans.lb = abst.lb - 1.
+            ans.ub = abst.ub
         return ans, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):
@@ -918,9 +960,42 @@ class Interpreter(object):
             ans.ub = torch.full([1] * len(ans.shape), value)
             ans.var_name = var_name
             return ans, list()
-        else: # unknown shape
+        else:  # unknown shape
             return None, list()
 
+    def interp_Tile(self, abstracts, node, optype, var_name):
+        in_abst = abstracts[0]
+        repeats = abstracts[1]
+        assert repeats.is_exact()
+        repeats = repeats.lb.detach().cpu().type(torch.int).tolist()
+        if len(abstracts) > 2:
+            axes = abstracts[2]
+            assert axes.is_exact()
+            axes = axes.lb.detach().cpu().type(torch.int).tolist()
+        else:
+            axes = list(range(in_abst.get_dim()))
+
+        new_repeats = list()
+        for new_axis in range(in_abst.get_dim()):
+            old_ind = None
+            if new_axis in axes:
+                old_ind = axes.index(new_axis)
+            if new_axis - in_abst.get_dim() in axes:
+                old_ind = axes.index(new_axis - in_abst.get_dim())
+            if old_ind is None:
+                new_repeats.append(1)
+            else:
+                new_repeats.append(repeats[old_ind])
+
+        ret = Abstraction()
+        ret.lb = in_abst.lb.tile(tuple(new_repeats))
+        ret.ub = in_abst.ub.tile(tuple(new_repeats))
+        ret.shape = [item * new_repeats[i] for i, item in enumerate(in_abst.shape)]
+        ret.splits = [[x for y in [[z + r * in_abst.shape[i] for z in split] for r in range(new_repeats[i])] for x in y]
+                      for i, split in enumerate(in_abst.splits)]
+        ret.var_name = var_name
+
+        return ret, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
