@@ -21,7 +21,7 @@ class Abstraction(object):
     def load(self,
              config: AbstractionInitConfig,
              var_name: str,
-             tensor_shape: list,
+             tensor_shape: tuple or list,
              tensor_type: str,
              tensor_data: None or np.ndarray,
              cuda=False):
@@ -59,6 +59,7 @@ class Abstraction(object):
             self.shape = list()
         else:
             # support legal types
+            tensor_shape = list(tensor_shape)
             if len(tensor_shape) == 0:
                 stride = 1
             else:
@@ -902,6 +903,39 @@ class Interpreter(object):
             axis_new_split.extend([j + cum for j in abst.splits[axis]])
             cum += abst.shape[axis]
         ret.splits[axis] = axis_new_split
+        ret.var_name = var_name
+
+        return ret, list()
+
+    def interp_Tile(self, abstracts, node, optype, var_name):
+        in_abst = abstracts[0]
+        repeats = abstracts[1]
+        assert repeats.is_exact()
+        repeats = repeats.lb.detach().cpu().type(torch.int).tolist()
+        if len(abstracts) > 2:
+            axes = abstracts[2]
+            assert axes.is_exact()
+            axes = axes.lb.detach().cpu().type(torch.int).tolist()
+        else:
+            axes = list(range(in_abst.get_dim()))
+
+        new_repeats = list()
+        for new_axis in range(in_abst.get_dim()):
+            old_ind = None
+            if new_axis in axes:
+                old_ind = axes.index(new_axis)
+            if new_axis - in_abst.get_dim() in axes:
+                old_ind = axes.index(new_axis - in_abst.get_dim())
+            if old_ind is None:
+                new_repeats.append(1)
+            else:
+                new_repeats.append(repeats[old_ind])
+
+        ret = Abstraction()
+        ret.lb = in_abst.lb.tile(tuple(new_repeats))
+        ret.ub = in_abst.ub.tile(tuple(new_repeats))
+        ret.shape = [item * new_repeats[i] for i, item in enumerate(in_abst.shape)]
+        ret.splits = [[x for y in [[z + r * in_abst.shape[i] for z in split] for r in range(new_repeats[i])] for x in y] for i, split in enumerate(in_abst.splits)]
         ret.var_name = var_name
 
         return ret, list()

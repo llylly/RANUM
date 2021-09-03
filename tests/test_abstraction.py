@@ -18,7 +18,7 @@ def tf_equal(a, b, EPS=1e-5):
     return np.linalg.norm((a - np.array(b)).reshape(-1)) < EPS
 
 
-def correct_abstraction(abst: Abstraction, arr, tight=False):
+def correct_abstraction(abst: Abstraction, arr, tight=False, EPS=1e-5):
     """
         Return whether abst correctly abstracts the concrete tensor arr
     :param abst:
@@ -59,7 +59,7 @@ def correct_abstraction(abst: Abstraction, arr, tight=False):
 
 
     if not tight:
-        return all(abst_lb <= lb) and all(ub <= abst_ub)
+        return all(abst_lb <= lb + EPS) and all(ub <= abst_ub + EPS)
     else:
         return tf_equal(abst_lb, lb) and tf_equal(abst_ub, ub)
 
@@ -611,6 +611,24 @@ class TestAbstraction(unittest.TestCase):
                 abst_z, exceptions = op_interp([abst_x, abst_y], node, op_name, 'z')
                 self.assertIsNone(abst_z)
                 self.assertEqual(1, len(exceptions))
+
+    def test_Tile(self):
+        interp = Interpreter()
+        x = np.random.randn(10, 12, 13)
+        steps = [2,3,3]
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+        abst_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        abst_steps = Abstraction().load(conf_precise, 'steps', np.array(steps).shape, 'INT', np.array(steps))
+        abst_y, _ = interp.interp_Tile([abst_x, abst_steps], None, 'Tile', 'y')
+        self.assertTrue(correct_abstraction(abst_y, np.tile(x, steps)))
+
+        steps = [3,2]
+        axes = [-1,-3]
+        abst_steps = Abstraction().load(conf_precise, 'steps', np.array(steps).shape, 'INT', np.array(steps))
+        abst_axes = Abstraction().load(conf_precise, 'axes', np.array(axes).shape, 'INT', np.array(axes))
+        abst_z, _ = interp.interp_Tile([abst_x, abst_steps, abst_axes], None, 'Tile', 'z')
+        self.assertTrue(correct_abstraction(abst_z, np.tile(x, [2,1,3])))
 
 
 if __name__ == '__main__':
