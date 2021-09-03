@@ -354,9 +354,18 @@ class Interpreter(object):
         The general class for generating interpretations
     """
 
-    def __init__(self, smash_thres=-1):
+    def __init__(self, smash_thres=-1, ceil='precise', floor='precise'):
         # default smash threshold
         self.smash = smash_thres
+
+        # whether to propagate precise or coarse bound for ceil or floor
+        # the precise means that, ceil/floor exactly applies ceil/floor func, but this way we cannot have the gradient
+        # the idential means that, we just propagate the identical value as the approximation and we can obtain the gradient
+        # the coarse means that, the corase bound is (lb, ub+1) for ceil and (lb-1, ub) for floor, which is imprecise but we can obtain the gradient
+        assert ceil in ['precise', 'identical', 'coarse']
+        assert floor in ['precise', 'identical', 'coarse']
+        self.ceil = ceil
+        self.floor = floor
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -536,6 +545,38 @@ class Interpreter(object):
         ans.var_name = var_name
         ans.shape = abst.shape
         ans.splits = abst.splits
+        return ans, list()
+
+    def interp_Ceil(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        if self.precise == 'precise':
+            ans.lb = abst.lb.ceil()
+            ans.ub = abst.ub.ceil()
+        elif self.precise == 'identical':
+            ans.lb, ans.ub = abst.lb, abst.ub
+        else:
+            ans.lb = abst.lb
+            ans.ub = abst.ub + 1.
+        return ans, list()
+
+    def interp_Floor(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        if self.floor == 'precise':
+            ans.lb = abst.lb.floor()
+            ans.ub = abst.ub.floor()
+        elif self.floor == 'identical':
+            ans.lb, ans.ub = abst.lb, abst.ub
+        else:
+            ans.lb = abst.lb - 1.
+            ans.ub = abst.ub
         return ans, list()
 
     def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):

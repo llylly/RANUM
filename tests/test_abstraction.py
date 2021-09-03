@@ -630,6 +630,31 @@ class TestAbstraction(unittest.TestCase):
         abst_z, _ = interp.interp_Tile([abst_x, abst_steps, abst_axes], None, 'Tile', 'z')
         self.assertTrue(correct_abstraction(abst_z, np.tile(x, [2,1,3])))
 
+    def test_floor_ceil(self):
+        interp = Interpreter()
+        x = np.random.randn(8,9,10)
+        conf = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+
+        # precise mode (default mode) has no grad
+        abst_x = Abstraction().load(conf, 'x', x.shape, 'FLOAT', x)
+        abst_floor, _ = interp.interp_Floor([abst_x], None, None, 'floor')
+        self.assertTrue(correct_abstraction(abst_floor, np.floor(x), tight=True))
+        abst_ceil, _ = interp.interp_Floor([abst_x], None, None, 'floor')
+        self.assertTrue(correct_abstraction(abst_ceil, np.floor(x), tight=True))
+
+        # coarse and identical mode has grad
+        # but coarse is imprecise, and identical loses soundness
+        interp = Interpreter(ceil='coarse', floor='coarse')
+        abst_floor, _ = interp.interp_Floor([abst_x], None, None, 'floor')
+        self.assertTrue(correct_abstraction(abst_floor, np.floor(x)))
+        abst_ceil, _ = interp.interp_Floor([abst_x], None, None, 'floor')
+        self.assertTrue(correct_abstraction(abst_ceil, np.floor(x)))
+
+        torch.sum(abst_floor.lb).backward()
+        self.assertTrue(tf_equal(abst_x.lb.grad, torch.ones_like(abst_x.lb.grad)))
+        torch.sum(abst_ceil.ub).backward()
+        self.assertTrue(tf_equal(abst_x.ub.grad, torch.ones_like(abst_x.ub.grad)))
+
 
 if __name__ == '__main__':
     unittest.main()
