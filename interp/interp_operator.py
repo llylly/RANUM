@@ -581,12 +581,11 @@ class Interpreter(object):
         exp_lb = torch.exp(abst.lb - torch.max(abst.ub, dim=axis, keepdim=True)[0])
         exp_ub = torch.exp(abst.ub - torch.max(abst.ub, dim=axis, keepdim=True)[0])
         multiplies = self.cal_multiplies_for_sum(abstracts[0], [axis])
-        # Todo a more tight lower/upper bound exists
         # inputs: [l1, l2, l3], [u1, u2, u3]
         # softmax_lb = [l1 / (l1 + u2 + u3), ...]
         # softmax_ub = [u1 / (u1 + l2 + l3)]
-        ans.lb = exp_lb / torch.sum(exp_ub * multiplies, dim=axis, keepdim=True)
-        ans.ub = exp_ub / torch.sum(exp_lb * multiplies, dim=axis, keepdim=True)
+        ans.lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+        ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
 
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
