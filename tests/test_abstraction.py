@@ -2,7 +2,7 @@ import unittest
 import torch
 import numpy as np
 from onnx import helper
-from functools import reduce
+from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS
 from interp.interp_operator import Abstraction, Interpreter
@@ -688,6 +688,31 @@ class TestAbstraction(unittest.TestCase):
                 z = reduce(op, xs[1:], xs[0])
                 abst_z, _ = op_interp(abst_xs, node, op_name, 'z')
                 self.assertTrue(correct_abstraction(abst_z, z))
+
+    def test_ReduceMin(self):
+        for axes in [[0, -1], [1]]:
+            for keepdims in [0, 1]:
+                for stride in [1, 2]:
+                    interp = Interpreter()
+                    ops = [lambda x: partial(np.min, x), lambda x: partial(np.max, x), lambda x: partial(np.sum, x)]
+                    op_names = ["ReduceMin", "ReduceMax", "ReduceSum"]
+                    op_interps = [interp.interp_ReduceMin, interp.interp_ReduceMax, interp.interp_ReduceSum]
+                    x = np.random.randn(10, 11, 12).astype(np.float32)
+                    conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+                    abst_x = Abstraction().load(conf1, 'x', [10, 11, 12], 'FLOAT', x)
+
+                    for op, op_name, op_interp in zip(ops, op_names, op_interps):
+                        node = helper.make_node(
+                            op_name, ['x'], ['a'], op_name + "0", axes=axes, keepdims=keepdims
+                        )
+                        axes = [(axis + 3) % 3 for axis in axes]
+                        axes.sort()
+                        z = x
+                        for axis in axes[::-1]:
+                            z = op(z)(keepdims=keepdims == 1, axis=axis)
+                        abst_z, _ = op_interp([abst_x], node, op_name, 'z')
+                        # print(op_name, keepdims, axes, stride)
+                        self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
 
     def test_Tile(self):
         interp = Interpreter()
