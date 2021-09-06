@@ -1087,6 +1087,75 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_ReduceMin(self, abstracts, node, optype, var_name, op=torch.min):
+        attr = parse_attribute(node)
+        keepdims = attr.get('keepdims', 1)
+        axes = attr.get('axes', None)
+        assert axes is not None
+        axes = [(axis + 3) % 3 for axis in axes]
+        axes.sort()
+        ans = Abstraction()
+        ans.lb = abstracts[0].lb
+        ans.ub = abstracts[0].ub
+        for d in axes[::-1]:  # first keep the dimension
+            ans.lb = op(ans.lb, dim=d, keepdim=keepdims == 1)[0]
+            ans.ub = op(ans.ub, dim=d, keepdim=keepdims == 1)[0]
+
+        ans.shape = abstracts[0].shape.copy()
+        ans.splits = abstracts[0].splits.copy()
+        if keepdims == 1:
+            for d in axes:
+                ans.shape[d] = 1
+                ans.splits[d] = [0]
+        else:
+            for d in axes:
+                ans.shape[d] = None
+                ans.splits[d] = None
+
+            ans.shape = list(filter(lambda x: x is not None, ans.shape))
+            ans.splits = list(filter(lambda x: x is not None, ans.splits))
+
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_ReduceMax(self, abstracts, node, optype, var_name):
+        return self.interp_ReduceMin(abstracts, node, optype, var_name, op=torch.max)
+
+    def interp_ReduceSum(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        keepdims = attr.get('keepdims', 1)
+        axes = attr.get('axes', None)
+        assert axes is not None
+        ans = Abstraction()
+        # compute multiplies to calculate reduced sum
+        multiplies = torch.ones_like(abstracts[0].lb)
+        for d in axes:
+            splits = abstracts[0].splits[d] + [abstracts[0].shape[d]]
+            split_sizes = [splits[i] - splits[i - 1] for i in range(1, len(splits))]
+            view_shape = [1] * len(abstracts[0].shape)
+            view_shape[d] = len(abstracts[0].splits[d])
+            multiplies *= torch.Tensor(split_sizes).view(view_shape)
+
+        ans.lb = torch.sum(abstracts[0].lb * multiplies, dim=axes, keepdim=keepdims == 1)
+        ans.ub = torch.sum(abstracts[0].ub * multiplies, dim=axes, keepdim=keepdims == 1)
+
+        ans.shape = abstracts[0].shape.copy()
+        ans.splits = abstracts[0].splits.copy()
+        if keepdims == 1:
+            for d in axes:
+                ans.shape[d] = 1
+                ans.splits[d] = [0]
+        else:
+            for d in axes:
+                ans.shape[d] = None
+                ans.splits[d] = None
+
+            ans.shape = list(filter(lambda x: x is not None, ans.shape))
+            ans.splits = list(filter(lambda x: x is not None, ans.splits))
+
+        ans.var_name = var_name
+        return ans, list()
+
     def interp_Tile(self, abstracts, node, optype, var_name):
         in_abst = abstracts[0]
         repeats = abstracts[1]
