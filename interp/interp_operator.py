@@ -1122,11 +1122,11 @@ class Interpreter(object):
         return ret, list()
 
     def interp_Loop(self, abstracts, node, optype, var_name):
-        print(abstracts)
+        # print(abstracts)
         attr = parse_attribute(node)
         loop_body = attr['body']
-        print(loop_body.input)
-        print(loop_body.output)
+        # print(loop_body.input)
+        # print(loop_body.output)
 
         return None, list()
 

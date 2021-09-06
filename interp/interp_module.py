@@ -232,24 +232,38 @@ class InterpModule():
             for vj, ind_i, ind_j, node_optype, node_name, node in self.edges[cur_var]:
                 cur_deg_in[vj] -= 1
                 if cur_deg_in[vj] == 0:
-                    cur_abst, cur_exceps = interpreter.handle(
-                        [self.abstracts[x] for x in node.input], node, node_optype, vj
-                    )
-                    if len(cur_exceps) > 0:
-                        roots = list()
-                        for x in node.input:
-                            if x in self.possible_numerical_errors:
-                                roots.extend(self.possible_numerical_errors[x][1])
-                        roots = set(roots)
-                        if len(roots) == 0:
-                            roots = {node}
-                        self.possible_numerical_errors[vj] = (cur_exceps, roots)
-                    if cur_abst is None:
-                        print(f'! No abstraction generated for {vj}: '
-                              f'node name = {node_name}, type = {node_optype}')
-                    else:
+                    if vj in self.abstracts:
+                        # already obtained the abstraction from previous runs,
+                        # only happens for nodes with multiple outputs,
+                        # so now we can skip
                         queue.append(vj)
-                        self.abstracts[vj] = cur_abst
+                        pass
+
+                    else:
+                        cur_abst, cur_exceps = interpreter.handle(
+                            [self.abstracts[x] for x in node.input], node, node_optype, vj
+                        )
+                        if len(cur_exceps) > 0:
+                            roots = list()
+                            for x in node.input:
+                                if x in self.possible_numerical_errors:
+                                    roots.extend(self.possible_numerical_errors[x][1])
+                            roots = set(roots)
+                            if len(roots) == 0:
+                                roots = {node}
+                            self.possible_numerical_errors[vj] = (cur_exceps, roots)
+                        if cur_abst is None:
+                            print(f'! No abstraction generated for {vj}: '
+                                  f'node name = {node_name}, type = {node_optype}')
+                        else:
+                            queue.append(vj)
+                            if isinstance(cur_abst, Abstraction):
+                                # single output node
+                                self.abstracts[vj] = cur_abst
+                            else:
+                                # multiple output node: execute once, update all output nodes
+                                for i, cur_cur_abst in enumerate(cur_abst):
+                                    self.abstracts[node.output[i]] = cur_cur_abst
             l += 1
 
         return self.possible_numerical_errors
