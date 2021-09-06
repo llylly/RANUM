@@ -4,7 +4,7 @@ import bisect
 
 import onnx
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError, EPS
+    PossibleNumericalError
 
 
 class Abstraction(object):
@@ -949,7 +949,7 @@ class Interpreter(object):
         value = attr.get('value', 0)
         device = abstracts[0].lb.device
 
-        if (abs(abstracts[0].lb - abstracts[0].ub) <= EPS).all():
+        if abstracts[0].is_exact():
             ans = Abstraction()
             ans.shape = list(abstracts[0].lb.long().numpy())
             ans.splits = [[0] for _ in range(len(ans.shape))]
