@@ -94,7 +94,7 @@ fine_grain_parameters = {
     'Loop': [0,1]
 }
 
-# The exact number of following defined op_types can be easily derived from either fine abstraction or corase abstraction
+# The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
 # Thus, we don't need to backflow the fine grain requirement through those op_types
 forbid_fine_grain_flow = ['Shape']
 
