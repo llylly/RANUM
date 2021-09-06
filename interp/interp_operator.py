@@ -3,6 +3,7 @@ import torch
 import bisect
 
 import onnx
+from onnx import numpy_helper
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
     PossibleNumericalError
 
@@ -23,7 +24,7 @@ class Abstraction(object):
              var_name: str,
              tensor_shape: tuple or list,
              tensor_type: str,
-             tensor_data: None or np.ndarray,
+             tensor_data: None or np.ndarray or list,
              cuda=False):
         """
             Load the abstraction
@@ -50,6 +51,15 @@ class Abstraction(object):
         from_init = config.from_init
         from_init_margin = config.from_init_margin
         stride = config.stride
+
+        if from_init and isinstance(tensor_data, list):
+            singleton_abstracts = [Abstraction().load(config, var_name, single_data.shape, tensor_type, single_data, cuda) for single_data in tensor_data]
+            self.lb = [s.lb for s in singleton_abstracts]
+            self.ub = [s.ub for s in singleton_abstracts]
+            self.shape = [s.shape for s in singleton_abstracts]
+            self.splits = [s.splits for s in singleton_abstracts]
+            self.var_name = var_name
+            return self
 
         if tensor_type in unsupported_types:
             # if the tensor type is not supported, just create null tensors as placeholders
@@ -307,10 +317,13 @@ class Abstraction(object):
         :param eps:
         :return:
         """
-        local_lb = self.lb.detach().reshape(-1)
-        local_ub = self.ub.detach().reshape(-1)
+        local_lb = self.lb.cpu().detach().reshape(-1)
+        local_ub = self.ub.cpu().detach().reshape(-1)
         dif = torch.norm(local_ub - local_lb).item()
         return dif < eps
+
+    def is_empty(self):
+        return any([s == 0 for s in self.shape])
 
     def get_tensor_numel(self):
         return get_numel(self.shape)
@@ -338,9 +351,9 @@ class Abstraction(object):
         print('===ABST PRINT BEGIN===')
         print('var_name:', self.var_name)
         print('lb_tensor:', self.lb)
-        print('lb_tensor shape:', self.lb.shape)
+        print('lb_tensor shape:', self.lb.shape if not isinstance(self.lb, list) else [item.shape for item in self.lb])
         print('ub_tensor:', self.ub)
-        print('ub_tensor shape:', self.ub.shape)
+        print('ub_tensor shape:', self.ub.shape if not isinstance(self.ub, list) else [item.shape for item in self.ub])
         print('splits:', self.splits)
         print('shape:', self.shape)
         print('===ABST PRINT END===')
@@ -354,7 +367,7 @@ class Interpreter(object):
         The general class for generating interpretations
     """
 
-    def __init__(self, smash_thres=-1, ceil='precise', floor='precise'):
+    def __init__(self, smash_thres=-1, ceil='precise', floor='precise', loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1)):
         # default smash threshold
         self.smash = smash_thres
 
@@ -366,6 +379,7 @@ class Interpreter(object):
         assert floor in ['precise', 'identical', 'coarse']
         self.ceil = ceil
         self.floor = floor
+        self.loop_constant_abst_cfg = loop_constant_abst_cfg
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -595,7 +609,7 @@ class Interpreter(object):
         assert isinstance(abst_data, Abstraction)
 
         assert abst_shape.is_exact()
-        desired_shape = abst_shape.lb.detach().type(torch.int).tolist()
+        desired_shape = abst_shape.lb.detach().cpu().type(torch.int).tolist()
 
         # smash policy init
         if smash == -1: smash = self.smash  # inherent the policy from class setting
@@ -799,7 +813,7 @@ class Interpreter(object):
                 # maybe now_end could be -1 which corresponds to INT_MIN
             # now we assure now_start >= 0, now_end >= -1
 
-            # print(now_axis, now_start, now_end)
+            # print('Slice info:', now_axis, now_start, now_end)
 
             assert now_step != 0
             if now_step == 1:
@@ -856,6 +870,8 @@ class Interpreter(object):
                     now_abst.shape[now_axis] = shape_counter
 
         now_abst.var_name = var_name
+        # print('Shape before slice:', abstracts[0].shape)
+        # print('Shape after  slice:', now_abst.shape)
         return now_abst, list()
 
     def interp_Squeeze(self, abstracts, node, optype, var_name):
@@ -942,6 +958,15 @@ class Interpreter(object):
         ret.splits[axis] = axis_new_split
         ret.var_name = var_name
 
+        return ret, list()
+
+    def interp_Identity(self, abstracts, node, optype, var_name):
+        ret = Abstraction()
+        ret.lb = abstracts[0].lb
+        ret.ub = abstracts[0].ub
+        ret.shape = abstracts[0].shape.copy()
+        ret.splits = abstracts[0].splits.copy()
+        ret.var_name = var_name
         return ret, list()
 
     def interp_ConstantOfShape(self, abstracts, node, optype, var_name):
@@ -1190,14 +1215,111 @@ class Interpreter(object):
 
         return ret, list()
 
-    def interp_Loop(self, abstracts, node, optype, var_name):
+    def interp_Loop(self, abstracts, node, optype, var_name, eps=1e-5):
+
+        def _possibly_terminate(loop_i, trip_count, cond):
+            # print(loop_i)
+            # trip_count.print()
+            # cond.print()
+            if trip_count.is_empty():
+                if cond.is_empty():
+                    print('dead loop detected...')
+                    return False
+                else:
+                    return (cond.lb.detach().cpu().item() <= 0. + eps)
+            else:
+                trip_count_lb = trip_count.lb.detach().cpu().item()
+                if cond.is_empty():
+                    return (loop_i >= trip_count_lb)
+                else:
+                    return (loop_i >= trip_count_lb or cond.lb.detach().cpu().item() <= 0. + eps)
+
+        def _scan_output_concat(lst, name, device_for_empty):
+            if len(lst) > 0:
+                ans = Abstraction()
+                ans.lb = torch.stack([item.lb for item in lst])
+                ans.ub = torch.stack([item.ub for item in lst])
+                ans.splits = [list(range(len(lst)))] + lst[0].splits
+                ans.shape = [len(lst)] + lst[0].shape
+                ans.name = name
+            else:
+                ans = create_empty_tensor(device_for_empty)
+            return ans
+
         # print(abstracts)
         attr = parse_attribute(node)
         loop_body = attr['body']
-        # print(loop_body.input)
-        # print(loop_body.output)
 
-        return None, list()
+        M = abstracts[0]
+        cond = abstracts[1]
+        v_initials = abstracts[2:]
+
+        subgraph_abst_dict = dict()
+        subgraph_scan_output_dict = dict()
+
+        # init cond and out variables
+        subgraph_abst_dict[loop_body.output[0].name] = cond
+        for i, outp in enumerate(loop_body.output[1: 1 + len(v_initials)]):
+            subgraph_abst_dict[outp.name] = v_initials[i]
+        for i, outp in enumerate(loop_body.output[1 + len(v_initials):]):
+            subgraph_scan_output_dict[outp.name] = list()
+
+        possible_err = list()
+
+        # start the loop and init trip count
+        loop_i = 0
+        conf_precise = AbstractionInitConfig(diff=False, from_init=True)
+        subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1], 'INT', np.array(loop_i), M.lb.is_cuda)
+
+        while not _possibly_terminate(loop_i, M, cond):
+            # carry condition to input cond
+            subgraph_abst_dict[loop_body.input[1].name] = subgraph_abst_dict[loop_body.output[0].name]
+            # short-cut loop-carried out vars to in vars
+            for i, outp in enumerate(loop_body.output[1: 1 + len(v_initials)]):
+                subgraph_abst_dict[loop_body.input[2+i].name] = subgraph_abst_dict[outp.name]
+
+            # execution
+            possible_numerial_error_subgraph = self.subgraph_executor(subgraph_abst_dict, loop_body)
+            possible_err.extend(possible_numerial_error_subgraph)
+
+            # update new trip count
+            loop_i += 1
+            subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1], 'INT', np.array(loop_i), M.lb.is_cuda)
+
+            # record current scan_outputs
+            for outp in loop_body.output[1 + len(v_initials):]:
+                subgraph_scan_output_dict[outp.name].append(subgraph_abst_dict[outp.name])
+
+            # update condition
+            cond = subgraph_abst_dict[loop_body.output[0].name]
+
+        ret = [subgraph_abst_dict[x] for x in [y.name for y in loop_body.output[1: 1 + len(v_initials)]]] + \
+              [_scan_output_concat(subgraph_scan_output_dict[k], k, M.lb.device)
+               for k in [y.name for y in loop_body.output[1 + len(v_initials):]]]
+
+        for x, y in zip(ret, node.output):
+            x.var_name = y
+
+        return ret, possible_err
+
+    def interp_SequenceInsert(self, abstracts, node, optype, var_name):
+        index = len(abstracts[0].lb)
+        if len(abstracts) >= 3:
+            assert abstracts[2].is_exact()
+            index = int(abstracts[2].lb.detach().cpu().item())
+        S = abstracts[0]
+        T = abstracts[1]
+        ret = Abstraction()
+        ret.lb = S.lb.copy()
+        ret.lb.insert(index, T.lb)
+        ret.ub = S.ub.copy()
+        ret.ub.insert(index, T.ub)
+        ret.splits = S.splits.copy()
+        ret.splits.insert(index, T.splits)
+        ret.shape = S.shape.copy()
+        ret.shape.insert(index, T.shape)
+        ret.var_name = var_name
+        return ret, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
@@ -1316,6 +1438,109 @@ class Interpreter(object):
         ans.var_name = abstract.var_name + '_general_stretch'
 
         return ans
+
+    def subgraph_executor(self, abst_dict: dict, subgraph: onnx.GraphProto):
+        # print('input:', [y.name for y in subgraph.input])
+        # print('output:', [y.name for y in subgraph.output])
+
+        """ follow the same template as intep_module - construct graph, topology sort, and interp execution """
+        """ the abstraction is updated in-place """
+
+        # print('construct subgraph')
+        deg_in = dict()
+        deg_out = dict()
+        # edge format:
+        # key: vi, value: list
+        # where each element of value corresponds to (vj, vi index in node input, vj index in node output, node name, node)
+        edges = dict()
+        all_nodes = set()
+
+        for node in subgraph.node:
+            if node.domain != '':
+                print(f"  found domain def: {node.domain}")
+
+            for v in list(node.input) + list(node.output):
+                all_nodes.add(v)
+
+            for i, vi in enumerate(list(node.input)):
+                for j, vj in enumerate(list(node.output)):
+                    if vi not in edges: edges[vi] = list()
+                    edges[vi].append((vj, i, j, node.op_type, node.name, node))
+
+                    if vi not in deg_out:
+                        deg_out[vi] = 1
+                    else:
+                        deg_out[vi] += 1
+                    if vj not in deg_in:
+                        deg_in[vj] = 1
+                    else:
+                        deg_in[vj] += 1
+
+            # new component: handle Constant node
+            if len(node.input) == 0:
+                if node.op_type != 'Constant':
+                    print(f'  warning: in sub-graph, detect another optype for constant node: {node.op_type}')
+                attr = parse_attribute(node)
+                value = numpy_helper.to_array(attr['value'])
+                for v in abst_dict.values():
+                    is_cuda = v.lb.is_cuda
+                    break
+                abst_dict[node.output[0]] = Abstraction().load(self.loop_constant_abst_cfg,
+                                                                    node.output[0],
+                                                                    value.shape,
+                                                                    datatype_mapping[attr['value'].data_type],
+                                                                    value, is_cuda)
+
+        for v in all_nodes:
+            if v not in deg_in: deg_in[v] = 0
+            if v not in deg_out: deg_out[v] = 0
+            if v not in edges: edges[v] = list()
+
+        possible_numerical_errors = list()
+
+        start_points = set([x for x in all_nodes if deg_in[x] == 0])
+        refresh_nodes_in_this_round = start_points
+        queue = list(start_points)
+        cur_deg_in = deg_in.copy()
+
+        # print('subgraph topology sort')
+        l = 0
+        while l < len(queue):
+            cur_var = queue[l]
+            for vj, ind_i, ind_j, node_optype, node_name, node in edges[cur_var]:
+                cur_deg_in[vj] -= 1
+                if cur_deg_in[vj] == 0:
+                    if vj in refresh_nodes_in_this_round:
+                        # already obtained the abstraction from previous runs,
+                        # only happens for nodes with multiple outputs,
+                        # so now we can skip
+                        queue.append(vj)
+                        pass
+
+                    else:
+                        cur_abst, cur_exceps = self.handle(
+                            [abst_dict[x] for x in node.input], node, node_optype, vj
+                        )
+                        possible_numerical_errors.extend(cur_exceps)
+                        if cur_abst is None:
+                            print(f'! No abstraction generated for {vj}: '
+                                  f'node name = {node_name}, type = {node_optype}')
+                        else:
+                            queue.append(vj)
+                            if isinstance(cur_abst, Abstraction):
+                                # single output node
+                                abst_dict[vj] = cur_abst
+                                refresh_nodes_in_this_round.add(vj)
+                                # print(vj, 'updated to:')
+                                # cur_abst.print()
+                            else:
+                                # multiple output node: execute once, update all output nodes
+                                for i, cur_cur_abst in enumerate(cur_abst):
+                                    abst_dict[node.output[i]] = cur_cur_abst
+                                    refresh_nodes_in_this_round.add(node.output[i])
+            l += 1
+
+        return possible_numerical_errors
 
 
 def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):

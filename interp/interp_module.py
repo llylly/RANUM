@@ -194,7 +194,7 @@ class InterpModule():
             l += 1
         print('  ', len(require_fine_grain_vars), 'fine grain variables found')
 
-        print('initilize abstractions...', flush=True)
+        print('initialize abstractions...', flush=True)
         fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
         for s in self.start_points:
             if s not in init_config:

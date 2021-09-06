@@ -30,6 +30,17 @@ def correct_abstraction(abst: Abstraction, arr, tight=False):
     if isinstance(arr, torch.Tensor):
         arr = arr.detach().numpy()
 
+    if isinstance(arr, list):
+        ans = True
+        for i, item in enumerate(arr):
+            now_abs = Abstraction()
+            now_abs.lb = abst.lb[i]
+            now_abs.ub = abst.ub[i]
+            now_abs.splits = abst.splits[i]
+            now_abs.shape = abst.shape[i]
+            ans = ans and correct_abstraction(now_abs, item, tight)
+        return ans
+
     lb = ub = arr
     # print(lb, ub)
     for i, item in enumerate(abst.splits):
@@ -756,6 +767,28 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(tf_equal(abst_x.lb.grad, torch.ones_like(abst_x.lb.grad)))
         torch.sum(abst_ceil.ub).backward()
         self.assertTrue(tf_equal(abst_x.ub.grad, torch.ones_like(abst_x.ub.grad)))
+
+    def test_sequence_insert(self):
+        interp = Interpreter()
+        x1 = np.random.randn(2,2,2)
+        x2 = np.random.randn(3,3,3)
+        x3 = np.random.randn(4,4,4)
+        x4 = np.random.randn(5,5,5)
+        conf = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+
+        abst_xseq = Abstraction().load(conf, 'xseq', x1.shape, 'FLOAT', [x1, x2, x3])
+
+        # (abst_xseq).print()
+
+        abst_x4 = Abstraction().load(conf, 'x4', x4.shape, 'FLOAT', x4)
+
+        abst_ans, _ = interp.interp_SequenceInsert([abst_xseq, abst_x4], None, 'SequenceInsert', 'ans')
+        self.assertListEqual(abst_ans.shape, [[2,2,2],[3,3,3],[4,4,4],[5,5,5]])
+
+        index = np.array(2.)
+        abst_index = Abstraction().load(conf, 'index', index.shape, 'INT', index)
+        abst_ans2, _ = interp.interp_SequenceInsert([abst_xseq, abst_x4, abst_index], None, 'SequenceInsert', 'ans')
+        self.assertListEqual(abst_ans2.shape, [[2,2,2],[3,3,3],[5,5,5],[4,4,4]])
 
     def test_device_inheritance(self):
         # Todo
