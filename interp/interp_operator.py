@@ -4,7 +4,7 @@ import bisect
 
 import onnx
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError, EPS
+    PossibleNumericalError
 
 
 class Abstraction(object):
@@ -55,8 +55,8 @@ class Abstraction(object):
             # if the tensor type is not supported, just create null tensors as placeholders
             self.lb = torch.tensor(data=[])
             self.ub = torch.tensor(data=[])
-            self.splits = list()
-            self.shape = list()
+            self.splits = [[]]
+            self.shape = [0]
         else:
             # support legal types
             tensor_shape = list(tensor_shape)
@@ -949,7 +949,7 @@ class Interpreter(object):
         value = attr.get('value', 0)
         device = abstracts[0].lb.device
 
-        if (abs(abstracts[0].lb - abstracts[0].ub) <= EPS).all():
+        if abstracts[0].is_exact():
             ans = Abstraction()
             ans.shape = list(abstracts[0].lb.long().numpy())
             ans.splits = [[0] for _ in range(len(ans.shape))]
@@ -1190,6 +1190,15 @@ class Interpreter(object):
 
         return ret, list()
 
+    def interp_Loop(self, abstracts, node, optype, var_name):
+        print(abstracts)
+        attr = parse_attribute(node)
+        loop_body = attr['body']
+        print(loop_body.input)
+        print(loop_body.output)
+
+        return None, list()
+
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
         for i in range(start_dim, len(abstract.shape)):
@@ -1330,11 +1339,18 @@ def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
     return shape, splits
 
 
-def create_empty_tensor(device):
+def create_empty_tensor(device='cpu'):
+    """
+        Create an empty tensor
+        the empty tensor needs to have shape = [0], to distinguish from a scalar tensor whose shape is []
+    :param device:
+        an update: set the default device to "cpu"
+    :return:
+    """
     ret = Abstraction()
     ret.var_name = 'null'
-    ret.shape = list()
-    ret.splits = list()
+    ret.shape = [0]
+    ret.splits = [[]]
     ret.lb = torch.tensor([], device=device)
     ret.ub = torch.tensor([], device=device)
     return ret
