@@ -41,8 +41,13 @@ class AbstractionInitConfig(object):
         }
 
 class PossibleNumericalError(Exception):
-    CONTAINS_ZERO = 0
-    code2str = {0: "Range contains zero."}
+    OVERFLOW_LIMIT = 1e38
+    UNDERFLOW_LIMIT = 1e-37
+    OVERFLOW_D = 38
+    UNDERFLOW_D = -37
+    ERROR_CONTAINS_ZERO = 0
+    ERROR_OVERFLOW = 1
+    code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows."}
     def __init__(self, optype, var_name, cur_range, err_cond):
         self.optype = optype
         self.var_name = var_name
