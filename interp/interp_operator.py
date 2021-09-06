@@ -4,7 +4,7 @@ import bisect
 
 import onnx
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError
+    PossibleNumericalError, EPS
 
 
 class Abstraction(object):
@@ -533,8 +533,8 @@ class Interpreter(object):
         ans.lb = torch.minimum(e1, e2)
         ans.ub = torch.maximum(e1, e2)
         ans.var_name = var_name
-        ans.shape = abst.shape
-        ans.splits = abst.splits
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
         return ans, list()
 
     def interp_Tanh(self, abstracts, node, optype, var_name):
@@ -543,8 +543,8 @@ class Interpreter(object):
         ans.lb = torch.tanh(abst.lb)
         ans.ub = torch.tanh(abst.ub)
         ans.var_name = var_name
-        ans.shape = abst.shape
-        ans.splits = abst.splits
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
         return ans, list()
 
     def interp_Ceil(self, abstracts, node, optype, var_name):
@@ -675,7 +675,7 @@ class Interpreter(object):
 
         return ans, list()
 
-    def interp_Shape(self, abstracts, node, optype, var_name, cuda=False):
+    def interp_Shape(self, abstracts, node, optype, var_name):
         start = 0
         end = None
         if len(node.attribute) > 0:
@@ -692,19 +692,15 @@ class Interpreter(object):
             in_tensor_shape = in_tensor_shape[start: end]
 
         ans = Abstraction()
-        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float)
-        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float)
+        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float, device=in_tensor.lb.device)
+        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float, device=in_tensor.ub.device)
         ans.shape = [len(in_tensor_shape)]
         ans.splits = [list(range(len(in_tensor_shape)))]
         ans.var_name = var_name
 
-        if cuda:
-            ans.lb = ans.lb.cuda()
-            ans.ub = ans.ub.cuda()
-
         return ans, list()
 
-    def interp_Cast(self, abstracts, node, optype, var_name, cuda=False):
+    def interp_Cast(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
         to_type = datatype_mapping[attr['to']]
         # print(to_type)
@@ -713,7 +709,7 @@ class Interpreter(object):
 
         if to_type in unsupported_types:
             # if the type is not supported, rewrite with null abstraction
-            ret = create_empty_tensor(cuda)
+            ret = create_empty_tensor(abst.lb.device)
             if var_name is not None:
                 ret.var_name = var_name
             else:
@@ -948,6 +944,149 @@ class Interpreter(object):
 
         return ret, list()
 
+    def interp_ConstantOfShape(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        value = attr.get('value', 0)
+        device = abstracts[0].lb.device
+
+        if (abs(abstracts[0].lb - abstracts[0].ub) <= EPS).all():
+            ans = Abstraction()
+            ans.shape = list(abstracts[0].lb.long().numpy())
+            ans.splits = [[0] for _ in range(len(ans.shape))]
+            ans.lb = torch.full([1] * len(ans.shape), value, device=device)
+            ans.ub = torch.full([1] * len(ans.shape), value, device=device)
+            ans.var_name = var_name
+            return ans, list()
+        else:  # unknown shape
+            return None, list()
+
+    def interp_RandomUniformLike(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        low = attr.get('low', 0)
+        high = attr.get('high', 1)
+        device = abstracts[0].lb.device
+        ans = Abstraction()
+        ans.shape = abstracts[0].shape.copy()
+        ans.splits = abstracts[0].splits.copy()
+        ans.lb = torch.full([1] * len(ans.shape), low, device=device)
+        ans.ub = torch.full([1] * len(ans.shape), high, device=device)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Less(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ones = torch.ones_like(abst0.lb)
+        zeros = torch.zeros_like(abst0.lb)
+        ans.lb = torch.where(abst0.ub >= abst1.lb, zeros, ones)
+        ans.ub = torch.where(abst0.lb < abst1.ub, ones, zeros)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_LessOrEqual(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ones = torch.ones_like(abst0.lb)
+        zeros = torch.zeros_like(abst0.lb)
+        ans.lb = torch.where(abst0.ub > abst1.lb, zeros, ones)
+        ans.ub = torch.where(abst0.lb <= abst1.ub, ones, zeros)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Greater(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ones = torch.ones_like(abst0.lb)
+        zeros = torch.zeros_like(abst0.lb)
+        ans.lb = torch.where(abst0.lb <= abst1.ub, zeros, ones)
+        ans.ub = torch.where(abst0.ub > abst1.lb, ones, zeros)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_GreaterOrEqual(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ones = torch.ones_like(abst0.lb)
+        zeros = torch.zeros_like(abst0.lb)
+        ans.lb = torch.where(abst0.lb < abst1.ub, zeros, ones)
+        ans.ub = torch.where(abst0.ub >= abst1.lb, ones, zeros)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Not(self, abstracts, node, optype, var_name):
+        ans = Abstraction()
+        ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+        ans.lb = 1 - abstracts[0].ub
+        ans.ub = 1 - abstracts[0].lb
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Min(self, abstracts, node, optype, var_name):
+        ans = Abstraction()
+        ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+        ans.lb = abstracts[0].lb.clone()
+        ans.ub = abstracts[0].ub.clone()
+        ans.var_name = var_name
+        for abst in abstracts[1:]:
+            abst0 = ans.extend_dim(abst.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(ans.get_dim(), inplace=False)
+
+            abst0.split_by(abst1.splits, inplace=True)
+            abst1.split_by(abst0.splits, inplace=True)
+
+            ans = Abstraction()
+            ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+            ans.lb = torch.minimum(abst0.lb, abst1.lb)
+            ans.ub = torch.minimum(abst0.ub, abst1.ub)
+            ans.var_name = var_name
+
+        return ans, list()
+
+    def interp_Max(self, abstracts, node, optype, var_name):
+        ans = Abstraction()
+        ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+        ans.lb = abstracts[0].lb.clone()
+        ans.ub = abstracts[0].ub.clone()
+        ans.var_name = var_name
+        for abst in abstracts[1:]:
+            abst0 = ans.extend_dim(abst.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(ans.get_dim(), inplace=False)
+
+            abst0.split_by(abst1.splits, inplace=True)
+            abst1.split_by(abst0.splits, inplace=True)
+
+            ans = Abstraction()
+            ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+            ans.lb = torch.maximum(abst0.lb, abst1.lb)
+            ans.ub = torch.maximum(abst0.ub, abst1.ub)
+            ans.var_name = var_name
+
+        return ans, list()
+
     def interp_Tile(self, abstracts, node, optype, var_name):
         in_abst = abstracts[0]
         repeats = abstracts[1]
@@ -976,7 +1115,8 @@ class Interpreter(object):
         ret.lb = in_abst.lb.tile(tuple(new_repeats))
         ret.ub = in_abst.ub.tile(tuple(new_repeats))
         ret.shape = [item * new_repeats[i] for i, item in enumerate(in_abst.shape)]
-        ret.splits = [[x for y in [[z + r * in_abst.shape[i] for z in split] for r in range(new_repeats[i])] for x in y] for i, split in enumerate(in_abst.splits)]
+        ret.splits = [[x for y in [[z + r * in_abst.shape[i] for z in split] for r in range(new_repeats[i])] for x in y]
+                      for i, split in enumerate(in_abst.splits)]
         ret.var_name = var_name
 
         return ret, list()
@@ -1130,14 +1270,18 @@ def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):
     return shape, splits
 
 
-def create_empty_tensor(cuda):
+def create_empty_tensor(device='cpu'):
+    """
+        Create an empty tensor
+        the empty tensor needs to have shape = [0], to distinguish from a scalar tensor whose shape is []
+    :param device:
+        an update: set the default device to "cpu"
+    :return:
+    """
     ret = Abstraction()
     ret.var_name = 'null'
     ret.shape = [0]
     ret.splits = [[]]
-    ret.lb = torch.tensor([])
-    ret.ub = torch.tensor([])
-    if cuda:
-        ret.lb = ret.lb.cuda()
-        ret.ub = ret.ub.cuda()
+    ret.lb = torch.tensor([], device=device)
+    ret.ub = torch.tensor([], device=device)
     return ret

@@ -2,8 +2,9 @@ import unittest
 import torch
 import numpy as np
 from onnx import helper
+from functools import reduce
 
-from interp.interp_utils import AbstractionInitConfig
+from interp.interp_utils import AbstractionInitConfig, EPS
 from interp.interp_operator import Abstraction, Interpreter
 
 
@@ -11,14 +12,14 @@ def summary(obj: Abstraction):
     obj.print()
 
 
-def tf_equal(a, b, EPS=1e-5):
+def tf_equal(a, b):
     # tensor float equal
     if isinstance(a, torch.Tensor):
         a = a.detach().numpy()
     return np.linalg.norm((a - np.array(b)).reshape(-1)) < EPS
 
 
-def correct_abstraction(abst: Abstraction, arr, tight=False, EPS=1e-5):
+def correct_abstraction(abst: Abstraction, arr, tight=False):
     """
         Return whether abst correctly abstracts the concrete tensor arr
     :param abst:
@@ -36,8 +37,8 @@ def correct_abstraction(abst: Abstraction, arr, tight=False, EPS=1e-5):
         new_ub = list()
         for j in range(len(item)):
             if j < len(item) - 1:
-                now_item_l = np.take(lb, list(range(item[j], item[j+1])), axis=i)
-                now_item_u = np.take(ub, list(range(item[j], item[j+1])), axis=i)
+                now_item_l = np.take(lb, list(range(item[j], item[j + 1])), axis=i)
+                now_item_u = np.take(ub, list(range(item[j], item[j + 1])), axis=i)
             else:
                 now_item_l = np.take(lb, list(range(item[j], abst.shape[i])), axis=i)
                 now_item_u = np.take(ub, list(range(item[j], abst.shape[i])), axis=i)
@@ -57,12 +58,10 @@ def correct_abstraction(abst: Abstraction, arr, tight=False, EPS=1e-5):
     lb = lb.reshape(-1)
     ub = ub.reshape(-1)
 
-
     if not tight:
         return all(abst_lb <= lb + EPS) and all(ub <= abst_ub + EPS)
     else:
         return tf_equal(abst_lb, lb) and tf_equal(abst_ub, ub)
-
 
 
 class TestAbstraction(unittest.TestCase):
@@ -182,8 +181,8 @@ class TestAbstraction(unittest.TestCase):
         b = np.array(range(5)) * 3.
         abst2.load(conf1, 'v2', [5], 'FLOAT', b)
         abst3 = Abstraction()
-        c = np.array(range(25)).reshape((5,5)) + 1.
-        abst3.load(conf1, 'v3', [5,5], 'FLOAT', c)
+        c = np.array(range(25)).reshape((5, 5)) + 1.
+        abst3.load(conf1, 'v3', [5, 5], 'FLOAT', c)
 
         out1, _ = interp.interp_MatMul([abst1, abst3], None, 'MatMul', 'out1')
         out2, _ = interp.interp_MatMul([abst3, abst2], None, 'Matmul', 'out2')
@@ -211,7 +210,7 @@ class TestAbstraction(unittest.TestCase):
 
         a = np.array(list(range(5 * 5 * 5 * 5 * 2))).reshape((5, 5, 5, 5, 2))
         abst1 = Abstraction()
-        abst1.load(conf1, 'v1', [5,5,5,5,2], 'FLOAT', a)
+        abst1.load(conf1, 'v1', [5, 5, 5, 5, 2], 'FLOAT', a)
 
         b = a.reshape(tuple(targ_shape))
         abst2 = Abstraction()
@@ -232,13 +231,13 @@ class TestAbstraction(unittest.TestCase):
 
         # ============
 
-        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3,6])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3, 6])
 
         targ_shape = [-1]
 
         a = np.array(list(range(6 * 6))).reshape((6, 6))
         abst1 = Abstraction()
-        abst1.load(conf3, 'v2', [6,6], 'FLOAT', a)
+        abst1.load(conf3, 'v2', [6, 6], 'FLOAT', a)
 
         d = a.reshape(tuple(targ_shape))
         abst4 = Abstraction()
@@ -256,14 +255,13 @@ class TestAbstraction(unittest.TestCase):
         interp = Interpreter()
         conf_shape = AbstractionInitConfig(diff=False, from_init=True, stride=1)
 
-
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
 
-        a = np.array(list(range(3 * 3 * 9))).reshape((3,3,9))
+        a = np.array(list(range(3 * 3 * 9))).reshape((3, 3, 9))
         abst1 = Abstraction()
-        abst1.load(conf1, 'v1', [3,3,9], 'FLOAT', a)
+        abst1.load(conf1, 'v1', [3, 3, 9], 'FLOAT', a)
 
-        targ_shape = [3,3,3,3]
+        targ_shape = [3, 3, 3, 3]
         b = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction()
         abst_shape.load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
@@ -273,10 +271,10 @@ class TestAbstraction(unittest.TestCase):
 
         # =============
 
-        a = np.array(list(range(3 * 3 * 16))).reshape((3,3,16))
-        abst3 = Abstraction().load(conf1, 'v2', [3,3,16], 'FLOAT', a)
+        a = np.array(list(range(3 * 3 * 16))).reshape((3, 3, 16))
+        abst3 = Abstraction().load(conf1, 'v2', [3, 3, 16], 'FLOAT', a)
 
-        targ_shape = [3,3,4,4]
+        targ_shape = [3, 3, 4, 4]
         c = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
 
@@ -285,7 +283,7 @@ class TestAbstraction(unittest.TestCase):
 
         # =============
 
-        targ_shape = [3,3,2,2,4]
+        targ_shape = [3, 3, 2, 2, 4]
         d = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [5], 'INT', np.array(targ_shape))
 
@@ -295,7 +293,7 @@ class TestAbstraction(unittest.TestCase):
 
         # =============
 
-        targ_shape = [3,3,2,2,2,2]
+        targ_shape = [3, 3, 2, 2, 2, 2]
         e = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [6], 'INT', np.array(targ_shape))
 
@@ -304,10 +302,10 @@ class TestAbstraction(unittest.TestCase):
 
         # =============
 
-        f = np.array(list(range(3 * 3 * 24))).reshape((3,3,24))
-        abst7 = Abstraction().load(conf1, 'v3', [3,3,24], 'FLOAT', f)
+        f = np.array(list(range(3 * 3 * 24))).reshape((3, 3, 24))
+        abst7 = Abstraction().load(conf1, 'v3', [3, 3, 24], 'FLOAT', f)
 
-        targ_shape = [3,3,4,6]
+        targ_shape = [3, 3, 4, 6]
         g = f.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
 
@@ -322,11 +320,11 @@ class TestAbstraction(unittest.TestCase):
         interp = Interpreter()
         conf_shape = AbstractionInitConfig(diff=False, from_init=True, stride=1)
 
-        a = np.array(list(range(5 * 5 * 12 * 12))).reshape((5,5,12,12))
+        a = np.array(list(range(5 * 5 * 12 * 12))).reshape((5, 5, 12, 12))
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
-        abst1 = Abstraction().load(conf1, 'v1', [5,5,12,12], 'FLOAT', a)
+        abst1 = Abstraction().load(conf1, 'v1', [5, 5, 12, 12], 'FLOAT', a)
 
-        targ_shape = [5,5,3,48]
+        targ_shape = [5, 5, 3, 48]
         b = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
 
@@ -335,11 +333,11 @@ class TestAbstraction(unittest.TestCase):
 
         # =============
 
-        targ_shape = [5,5,6,24]
+        targ_shape = [5, 5, 6, 24]
         c = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [4], 'INT', np.array(targ_shape))
 
-        targ_shape_1 = [5,5,144]
+        targ_shape_1 = [5, 5, 144]
         d = a.reshape(tuple(targ_shape_1))
         abst_shape_1 = Abstraction().load(conf_shape, 'vshape_1', [3], 'INT', np.array(targ_shape_1))
 
@@ -364,9 +362,9 @@ class TestAbstraction(unittest.TestCase):
 
         a = np.array(list(range(1600))).reshape((40, 40))
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=10)
-        abst1 = Abstraction().load(conf1, 'v1', [40,40], 'FLOAT', a)
+        abst1 = Abstraction().load(conf1, 'v1', [40, 40], 'FLOAT', a)
 
-        targ_shape = [1,1600]
+        targ_shape = [1, 1600]
         b = a.reshape(tuple(targ_shape))
         abst_shape = Abstraction().load(conf_shape, 'vshape', [2], 'INT', np.array(targ_shape))
 
@@ -377,13 +375,13 @@ class TestAbstraction(unittest.TestCase):
 
         c = np.array(list(range(35 * 35))).reshape((35, 35))
         conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
-        abst3 = Abstraction().load(conf3, 'v2', [35,35], 'FLOAT', c)
+        abst3 = Abstraction().load(conf3, 'v2', [35, 35], 'FLOAT', c)
         # summary(abst3)
 
-        abst3.force_resplit([list(range(0,35,7)), list(range(0,35,7))])
+        abst3.force_resplit([list(range(0, 35, 7)), list(range(0, 35, 7))])
         self.assertTrue(correct_abstraction(abst3, c))
 
-        abst3.force_resplit([list(range(0,35,2)), list(range(0,35,2))])
+        abst3.force_resplit([list(range(0, 35, 2)), list(range(0, 35, 2))])
         self.assertTrue(correct_abstraction(abst3, c))
 
         # summary(abst3)
@@ -392,28 +390,27 @@ class TestAbstraction(unittest.TestCase):
 
         interp = Interpreter()
 
-        a = np.zeros((5,6,7,8))
+        a = np.zeros((5, 6, 7, 8))
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=-1)
-        abst1 = Abstraction().load(conf1, 'v1', [5,6,7,8], 'FLOAT', a)
+        abst1 = Abstraction().load(conf1, 'v1', [5, 6, 7, 8], 'FLOAT', a)
 
         node = helper.make_node('Shape', ['v1'], ['s'], name='shape',
                                 start=1)
 
         abst_shape, _ = interp.interp_Shape([abst1], node, 'Shape', 'shape')
-        self.assertTrue(correct_abstraction(abst_shape, np.array([6,7,8])))
+        self.assertTrue(correct_abstraction(abst_shape, np.array([6, 7, 8])))
 
         node = helper.make_node('Shape', ['v2'], ['s'], name='shape',
                                 end=-1)
 
         abst_shape, _ = interp.interp_Shape([abst1], node, 'Shape', 'shape')
-        self.assertTrue(correct_abstraction(abst_shape, np.array([5,6,7])))
-
+        self.assertTrue(correct_abstraction(abst_shape, np.array([5, 6, 7])))
 
         node = helper.make_node('Shape', ['v2'], ['s'], name='shape',
                                 start=1, end=-1)
 
         abst_shape, _ = interp.interp_Shape([abst1], node, 'Shape', 'shape')
-        self.assertTrue(correct_abstraction(abst_shape, np.array([6,7])))
+        self.assertTrue(correct_abstraction(abst_shape, np.array([6, 7])))
 
     def test_Slice(self):
         interp = Interpreter()
@@ -431,14 +428,15 @@ class TestAbstraction(unittest.TestCase):
         abst_slice, _ = interp.interp_Slice([abst_x], node, 'Slice', 'slice')
         self.assertTrue(correct_abstraction(abst_slice, y))
 
-        abst_starts = Abstraction().load(conf_precise, 'starts', [2], 'INT', np.array([0,0]))
-        abst_ends = Abstraction().load(conf_precise, 'ends', [2], 'INT', np.array([3,10]))
-        abst_axes = Abstraction().load(conf_precise, 'axes', [2], 'INT', np.array([0,1]))
-        abst_steps = Abstraction().load(conf_precise, 'steps', [2], 'INT', np.array([1,1]))
+        abst_starts = Abstraction().load(conf_precise, 'starts', [2], 'INT', np.array([0, 0]))
+        abst_ends = Abstraction().load(conf_precise, 'ends', [2], 'INT', np.array([3, 10]))
+        abst_axes = Abstraction().load(conf_precise, 'axes', [2], 'INT', np.array([0, 1]))
+        abst_steps = Abstraction().load(conf_precise, 'steps', [2], 'INT', np.array([1, 1]))
         new_node = helper.make_node(
             'Slice', ['v1'], ['s'], 'slice'
         )
-        new_abst_slice, _ = interp.interp_Slice([abst_x, abst_starts, abst_ends, abst_axes, abst_steps], new_node, 'Slice', 'new_slice')
+        new_abst_slice, _ = interp.interp_Slice([abst_x, abst_starts, abst_ends, abst_axes, abst_steps], new_node,
+                                                'Slice', 'new_slice')
         self.assertTrue(correct_abstraction(new_abst_slice, y))
 
         starts = [10, 2]
@@ -462,16 +460,16 @@ class TestAbstraction(unittest.TestCase):
         # summary(abst_slice)
         self.assertTrue(correct_abstraction(abst_slice, x[20:-10000:-1, 20:-10000:-2, 20:-10000:-1]))
 
-        starts = [20,20]
-        ends = [-1000,-1000]
-        steps = [-3,-2]
-        axes=[1,2]
+        starts = [20, 20]
+        ends = [-1000, -1000]
+        steps = [-3, -2]
+        axes = [1, 2]
         node = helper.make_node(
             'Slice', ['v2'], ['s'], 'slice', starts=starts, ends=ends, steps=steps, axes=axes
         )
         abst_slice, _ = interp.interp_Slice([abst_x], node, 'Slice', 'slice')
         # summary(abst_slice)
-        self.assertTrue(correct_abstraction(abst_slice, x[:,20:-1000:-3,20:-1000:-2]))
+        self.assertTrue(correct_abstraction(abst_slice, x[:, 20:-1000:-3, 20:-1000:-2]))
 
     def test_Squeeze(self):
         interp = Interpreter()
@@ -494,7 +492,6 @@ class TestAbstraction(unittest.TestCase):
         )
         abst_y_new, _ = interp.interp_Squeeze([abst_x], node, 'Squeeze', 'y')
 
-
         node = helper.make_node(
             'Squeeze', ['v1'], ['s'], 'squeeze'
         )
@@ -514,7 +511,6 @@ class TestAbstraction(unittest.TestCase):
         node = helper.make_node(
             'Unsqueeze', ['v1'], ['s'], 'unsqueeze'
         )
-
 
         abst_x = Abstraction().load(conf_def, 'v1', [20, 10, 5], 'FLOAT', x)
         abst_axes = Abstraction().load(conf_precise, 'vaxes', [2], 'INT', np.array([2, -2]))
@@ -547,7 +543,7 @@ class TestAbstraction(unittest.TestCase):
         )
 
         abst_z, _ = interp.interp_Concat([abst_x, abst_y], node, 'Concat', 'z')
-        self.assertTrue(correct_abstraction(abst_z, np.concatenate([x,y], axis=1)))
+        self.assertTrue(correct_abstraction(abst_z, np.concatenate([x, y], axis=1)))
 
     def test_Reciprocal(self):
         interp = Interpreter()
@@ -594,7 +590,7 @@ class TestAbstraction(unittest.TestCase):
             node = helper.make_node(
                 op_name, ['x', 'y'], ['a'], op_name + "0"
             )
-            if op_name == "Div": # Test div without errors
+            if op_name == "Div":  # Test div without errors
                 abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', abs(y) + 1)
                 z = op(x, abs(y) + 1)
             else:
@@ -612,10 +608,91 @@ class TestAbstraction(unittest.TestCase):
                 self.assertIsNone(abst_z)
                 self.assertEqual(1, len(exceptions))
 
+    def test_ConstantOfShape(self):
+        interp = Interpreter()
+        x = np.random.randint(1, 20, 3).astype(np.int32)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        abst_x = Abstraction().load(conf1, 'x', [3], 'INT', x)
+        node = helper.make_node(
+            'ConstantOfShape', ['x'], ['a'], 'ConstantOfShape0', value=123
+        )
+        abst_z, _ = interp.interp_ConstantOfShape([abst_x], node, 'ConstantOfShape', 'y')
+        self.assertEqual(123, abst_z.lb[0][0][0].item())
+        self.assertEqual(123, abst_z.ub[0][0][0].item())
+        self.assertEqual(list(x), abst_z.shape)
+
+    def test_RandomUniformLike(self):
+        interp = Interpreter()
+        x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+        node = helper.make_node(
+            'RandomUniformLike', ['x'], ['a'], 'RandomUniformLike', low=-100, high=123,
+        )
+        abst_z, _ = interp.interp_RandomUniformLike([abst_x], node, 'RandomUniformLike', 'y')
+        self.assertEqual(-100, abst_z.lb[0][0][0][0].item())
+        self.assertEqual(123, abst_z.ub[0][0][0][0].item())
+        self.assertEqual(list(x.shape), abst_z.shape)
+
+    def test_BoolOps(self):
+        for stride in [1, 2]:
+            interp = Interpreter()
+            x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+            conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+            abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+            y = np.random.randn(1, 10, 1).astype(np.float32)
+            conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+            abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
+            ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y]
+            op_names = ["Less", "LessOrEqual", "Greater", "GreaterOrEqual"]
+            op_interps = [interp.interp_Less, interp.interp_LessOrEqual, interp.interp_Greater,
+                          interp.interp_GreaterOrEqual]
+
+            not_node = helper.make_node(
+                "Not", ['x'], ['a'], "Not:0"
+            )
+            for op, op_name, op_interp in zip(ops, op_names, op_interps):
+                node = helper.make_node(
+                    op_name, ['x', 'y'], ['a'], op_name + "0"
+                )
+                z = op(x, y)
+                abst_z, _ = op_interp([abst_x, abst_y], node, op_name, 'z')
+                self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
+
+                z = ~z
+                abst_z, _ = interp.interp_Not([abst_z], not_node, "Not", 'not_z')
+                self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
+
+    def test_MinMax(self):
+        interp = Interpreter()
+        ops = [lambda x, y: np.minimum(x, y), lambda x, y: np.maximum(x, y)]
+        op_names = ["Min", "Max"]
+        op_interps = [interp.interp_Min, interp.interp_Max]
+        for arg_nums in [1, 2, 3]:
+            xs = [np.random.randn(10 if np.random.rand() < 0.5 else 1,
+                                  12 if np.random.rand() < 0.5 else 1,
+                                  13 if np.random.rand() < 0.5 else 1) if np.random.rand() < 0.5 else
+                  np.random.randn(12 if np.random.rand() < 0.5 else 1,
+                                  13 if np.random.rand() < 0.5 else 1)
+                  for _ in range(arg_nums)]
+            abst_xs = [
+                Abstraction().load(AbstractionInitConfig(diff=True,
+                                                         from_init=True,
+                                                         stride=i + 1),
+                                   'x', x.shape, 'FLOAT', x)
+                for i, x in enumerate(xs)]
+            for op, op_name, op_interp in zip(ops, op_names, op_interps):
+                node = helper.make_node(
+                    op_name, ['x%d' % i for i in range(arg_nums)], ['a'], op_name + "0"
+                )
+                z = reduce(op, xs[1:], xs[0])
+                abst_z, _ = op_interp(abst_xs, node, op_name, 'z')
+                self.assertTrue(correct_abstraction(abst_z, z))
+
     def test_Tile(self):
         interp = Interpreter()
         x = np.random.randn(10, 12, 13)
-        steps = [2,3,3]
+        steps = [2, 3, 3]
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
         abst_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
@@ -623,16 +700,16 @@ class TestAbstraction(unittest.TestCase):
         abst_y, _ = interp.interp_Tile([abst_x, abst_steps], None, 'Tile', 'y')
         self.assertTrue(correct_abstraction(abst_y, np.tile(x, steps)))
 
-        steps = [3,2]
-        axes = [-1,-3]
+        steps = [3, 2]
+        axes = [-1, -3]
         abst_steps = Abstraction().load(conf_precise, 'steps', np.array(steps).shape, 'INT', np.array(steps))
         abst_axes = Abstraction().load(conf_precise, 'axes', np.array(axes).shape, 'INT', np.array(axes))
         abst_z, _ = interp.interp_Tile([abst_x, abst_steps, abst_axes], None, 'Tile', 'z')
-        self.assertTrue(correct_abstraction(abst_z, np.tile(x, [2,1,3])))
+        self.assertTrue(correct_abstraction(abst_z, np.tile(x, [2, 1, 3])))
 
     def test_floor_ceil(self):
         interp = Interpreter()
-        x = np.random.randn(8,9,10)
+        x = np.random.randn(8, 9, 10)
         conf = AbstractionInitConfig(diff=True, from_init=True, stride=3)
 
         # precise mode (default mode) has no grad
@@ -654,6 +731,14 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(tf_equal(abst_x.lb.grad, torch.ones_like(abst_x.lb.grad)))
         torch.sum(abst_ceil.ub).backward()
         self.assertTrue(tf_equal(abst_x.ub.grad, torch.ones_like(abst_x.ub.grad)))
+
+    def test_device_inheritance(self):
+        # Todo
+        interp = Interpreter()
+        for cuda in [False, True]:
+            for op in dir(interp):
+                if op.startswith("interp"):
+                    pass
 
 
 if __name__ == '__main__':
