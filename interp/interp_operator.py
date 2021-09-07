@@ -608,7 +608,9 @@ class Interpreter(object):
     def interp_Abs(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
-        ans.lb = torch.where(abst.lb > 0, abst.lb, torch.zeros_like(abst.lb))
+        # ans.lb = torch.where(abst.lb > 0, abst.lb, torch.zeros_like(abst.lb))
+        # a tighter version
+        ans.lb = torch.where((abst.lb < 0) * (abst.ub > 0), torch.zeros_like(abst.lb), torch.minimum(abst.lb.abs(), abst.ub.abs()))
         ans.ub = torch.maximum(abst.lb.abs(), abst.ub.abs())
         ans.var_name = var_name
         ans.shape = abst.shape.copy()

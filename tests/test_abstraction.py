@@ -613,6 +613,18 @@ class TestAbstraction(unittest.TestCase):
             abst_z, _ = op_interp([abst_x], node, op_name, 'z')
             self.assertTrue(correct_abstraction(abst_z, z, tight))
 
+            if op_name == 'Abs':
+                # test tightness
+                z = np.abs(x) + 0.1
+                abst_z = Abstraction().load(conf1, 'z', [10, 20, 30], 'FLOAT', z)
+                abst_zz, _ = op_interp([abst_z], node, op_name, 'zz')
+                self.assertTrue(correct_abstraction(abst_zz, z, True))
+
+                z = -np.abs(x) - 0.1
+                abst_z = Abstraction().load(conf1, 'z', [10, 20, 30], 'FLOAT', z)
+                abst_zz, _ = op_interp([abst_z], node, op_name, 'zz')
+                self.assertTrue(correct_abstraction(abst_zz, -z, True))
+
             if op_name == "Exp":  # test exp with error
                 y = np.random.randn(10, 20, 30).astype(np.float32)
                 y[0, 0, 0] = 100
