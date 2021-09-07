@@ -16,7 +16,7 @@ def tf_equal(a, b):
     # tensor float equal
     if isinstance(a, torch.Tensor):
         a = a.detach().numpy()
-    return np.linalg.norm((a - np.array(b)).reshape(-1)) < EPS
+    return np.linalg.norm((a - np.array(b)).reshape(-1), ord=1) < EPS
 
 def correct_format(abst):
     if isinstance(abst.lb, list):
@@ -446,7 +446,7 @@ class TestAbstraction(unittest.TestCase):
         conf_def = AbstractionInitConfig(diff=True, from_init=True, stride=4)
         conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
 
-        x = np.random.randn(20, 10, 5).astype(np.float32)
+        x = np.random.randn(20, 10, 5).astype(np.float64)
         y = x[0:3, 0:10]
 
         abst_x = Abstraction().load(conf_def, 'v1', [20, 10, 5], 'FLOAT', x)
@@ -505,7 +505,7 @@ class TestAbstraction(unittest.TestCase):
         conf_def = AbstractionInitConfig(diff=True, from_init=True, stride=4)
         conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
 
-        x = np.random.randn(20, 10, 1, 5, 3, 1, 2).astype(np.float32)
+        x = np.random.randn(20, 10, 1, 5, 3, 1, 2).astype(np.float64)
         axes = [2, -2]
         node = helper.make_node(
             'Squeeze', ['v1'], ['s'], 'squeeze'
@@ -535,7 +535,7 @@ class TestAbstraction(unittest.TestCase):
         conf_def = AbstractionInitConfig(diff=True, from_init=True, stride=4)
         conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
 
-        x = np.random.randn(20, 10, 5).astype(np.float32)
+        x = np.random.randn(20, 10, 5).astype(np.float64)
         axes = [2, -2]
         node = helper.make_node(
             'Unsqueeze', ['v1'], ['s'], 'unsqueeze'
@@ -561,8 +561,8 @@ class TestAbstraction(unittest.TestCase):
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=30)
         conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=40)
 
-        x = np.random.randn(260, 5, 260).astype(np.float32)
-        y = np.random.randn(260, 3, 260).astype(np.float32)
+        x = np.random.randn(260, 5, 260).astype(np.float64)
+        y = np.random.randn(260, 3, 260).astype(np.float64)
 
         abst_x = Abstraction().load(conf1, 'x', [260, 5, 260], 'FLOAT', x)
         abst_y = Abstraction().load(conf2, 'y', [260, 3, 260], 'FLOAT', y)
@@ -577,7 +577,7 @@ class TestAbstraction(unittest.TestCase):
     def test_Reciprocal(self):
         interp = Interpreter()
         # test without errors
-        x = np.abs(np.random.randn(10, 20, 30)).astype(np.float32) + 1
+        x = np.abs(np.random.randn(10, 20, 30)).astype(np.float64) + 1
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
         node = helper.make_node(
@@ -596,7 +596,7 @@ class TestAbstraction(unittest.TestCase):
 
     def test_Tanh(self):
         interp = Interpreter()
-        x = np.random.randn(10, 20, 30).astype(np.float32)
+        x = np.random.randn(10, 20, 30).astype(np.float64)
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
         node = helper.make_node(
@@ -607,10 +607,10 @@ class TestAbstraction(unittest.TestCase):
 
     def test_AddSubMulDiv(self):
         interp = Interpreter()
-        x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+        x = np.random.randn(10, 20, 10, 30).astype(np.float64)
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
-        y = np.random.randn(1, 10, 1).astype(np.float32)
+        y = np.random.randn(1, 10, 1).astype(np.float64)
         conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
         ops = [lambda x, y: x + y, lambda x, y: x - y, lambda x, y: x * y, lambda x, y: x / y]
         op_names = ["Add", "Sub", "Mul", "Div"]
@@ -664,7 +664,7 @@ class TestAbstraction(unittest.TestCase):
             value=tensor_value,
         )
 
-        y = np.ones(x, dtype=np.float32)
+        y = np.ones(x, dtype=np.float64)
         abst_x = Abstraction().load(conf1, 'x', [3], 'INT', x)
         abst_zz, _ = interp.interp_ConstantOfShape([abst_x], node, 'ConstantOfShape', 'zz')
         self.assertEqual(123, abst_zz.lb[0][0][0].item())
@@ -673,7 +673,7 @@ class TestAbstraction(unittest.TestCase):
 
     def test_RandomUniformLike(self):
         interp = Interpreter()
-        x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+        x = np.random.randn(10, 20, 10, 30).astype(np.float64)
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
         node = helper.make_node(
@@ -688,10 +688,10 @@ class TestAbstraction(unittest.TestCase):
     def test_BoolOps(self):
         for stride in [1, 2]:
             interp = Interpreter()
-            x = np.random.randn(10, 20, 10, 30).astype(np.float32)
+            x = np.random.randn(10, 20, 10, 30).astype(np.float64)
             conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
             abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
-            y = np.random.randn(1, 10, 1).astype(np.float32)
+            y = np.random.randn(1, 10, 1).astype(np.float64)
             conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
             abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
             ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y]
@@ -740,7 +740,7 @@ class TestAbstraction(unittest.TestCase):
                 abst_z, _ = op_interp(abst_xs, node, op_name, 'z')
                 self.assertTrue(correct_abstraction(abst_z, z))
 
-    def test_ReduceMin(self):
+    def test_ReduceMinMaxSum(self):
         for axes in [[0, -1], [1]]:
             for keepdims in [0, 1]:
                 for stride in [1, 2]:
@@ -748,21 +748,20 @@ class TestAbstraction(unittest.TestCase):
                     ops = [lambda x: partial(np.min, x), lambda x: partial(np.max, x), lambda x: partial(np.sum, x)]
                     op_names = ["ReduceMin", "ReduceMax", "ReduceSum"]
                     op_interps = [interp.interp_ReduceMin, interp.interp_ReduceMax, interp.interp_ReduceSum]
-                    x = np.random.randn(10, 11, 12).astype(np.float32)
+                    x = np.random.randn(10, 11, 12, 13).astype(np.float64)
                     conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
-                    abst_x = Abstraction().load(conf1, 'x', [10, 11, 12], 'FLOAT', x)
+                    abst_x = Abstraction().load(conf1, 'x', [10, 11, 12, 13], 'FLOAT', x)
 
                     for op, op_name, op_interp in zip(ops, op_names, op_interps):
                         node = helper.make_node(
                             op_name, ['x'], ['a'], op_name + "0", axes=axes, keepdims=keepdims
                         )
-                        axes = [(axis + 3) % 3 for axis in axes]
+                        axes = [(axis + 4) % 4 for axis in axes]
                         axes.sort()
                         z = x
                         for axis in axes[::-1]:
                             z = op(z)(keepdims=keepdims == 1, axis=axis)
                         abst_z, _ = op_interp([abst_x], node, op_name, 'z')
-                        # print(op_name, keepdims, axes, stride)
                         self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
 
     def test_Tile(self):

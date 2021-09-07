@@ -85,12 +85,12 @@ class Abstraction(object):
                 if from_init and tensor_data is not None:
                     tensor_data = tensor_data.reshape(())
                     self.lb, self.ub = \
-                        torch.tensor(tensor_data - from_init_margin, dtype=torch.float32, requires_grad=diff), \
-                        torch.tensor(tensor_data + from_init_margin, dtype=torch.float32, requires_grad=diff)
+                        torch.tensor(tensor_data - from_init_margin, dtype=torch.float64, requires_grad=diff), \
+                        torch.tensor(tensor_data + from_init_margin, dtype=torch.float64, requires_grad=diff)
                 else:
                     self.lb, self.ub = \
-                        torch.tensor(lb, dtype=torch.float32, requires_grad=diff), \
-                        torch.tensor(ub, dtype=torch.float32, requires_grad=diff)
+                        torch.tensor(lb, dtype=torch.float64, requires_grad=diff), \
+                        torch.tensor(ub, dtype=torch.float64, requires_grad=diff)
                 self.splits = list()
             else:
                 self.splits = list()
@@ -111,16 +111,16 @@ class Abstraction(object):
                             f'Variable {var_name}: tensor data (shape:{tensor_data.shape}) cannot be casted to required shape({tensor_shape})')
 
                     lb_data, ub_data = self.summarize_data_and_assign(tensor_data, self.splits)
-                    lb_data = np.array(lb_data, dtype=np.float32) - from_init_margin
-                    ub_data = np.array(ub_data, dtype=np.float32) + from_init_margin
+                    lb_data = np.array(lb_data, dtype=np.float64) - from_init_margin
+                    ub_data = np.array(ub_data, dtype=np.float64) + from_init_margin
                     self.lb, self.ub = \
-                        torch.tensor(lb_data, dtype=torch.float32, requires_grad=diff), \
-                        torch.tensor(ub_data, dtype=torch.float32, requires_grad=diff)
+                        torch.tensor(lb_data, dtype=torch.float64, requires_grad=diff), \
+                        torch.tensor(ub_data, dtype=torch.float64, requires_grad=diff)
 
                 else:
                     self.lb, self.ub = \
-                        torch.tensor(lb * np.ones(abst_shape), dtype=torch.float32, requires_grad=diff), \
-                        torch.tensor(ub * np.ones(abst_shape), dtype=torch.float32, requires_grad=diff)
+                        torch.tensor(lb * np.ones(abst_shape), dtype=torch.float64, requires_grad=diff), \
+                        torch.tensor(ub * np.ones(abst_shape), dtype=torch.float64, requires_grad=diff)
 
             self.shape = tensor_shape
 
@@ -1120,7 +1120,7 @@ class Interpreter(object):
         keepdims = attr.get('keepdims', 1)
         axes = attr.get('axes', None)
         assert axes is not None
-        axes = [(axis + 3) % 3 for axis in axes]
+        axes = [(axis + abstracts[0].get_dim()) % abstracts[0].get_dim() for axis in axes]
         axes.sort()
         ans = Abstraction()
         ans.lb = abstracts[0].lb
