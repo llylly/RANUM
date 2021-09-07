@@ -168,9 +168,11 @@ class InterpModule():
         print('Number of start points:', len(self.start_points))
         if len(self.start_points) <= 5:
             print('  They are', self.start_points)
-        print('Number of Op types:', len(self.node_types))
+        print('Number of op types:', len(self.node_types))
         # if len(self.node_types) <= 5:
         print('  They are', self.node_types)
+        unimplemented_types = [x for x in self.node_types if 'interp_' + x not in Interpreter.__dir__(Interpreter())]
+        print(f'  {len(unimplemented_types)} not implemented:', unimplemented_types)
         print('=======================')
 
         """Space for analysis"""
