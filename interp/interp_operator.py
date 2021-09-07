@@ -974,6 +974,9 @@ class Interpreter(object):
         value = attr.get('value', 0)
         device = abstracts[0].lb.device
 
+        if not isinstance(value, int):
+            value = numpy_helper.to_array(value).reshape(-1)[0]
+
         if abstracts[0].is_exact():
             ans = Abstraction()
             ans.shape = list(abstracts[0].lb.long().numpy())
@@ -992,7 +995,7 @@ class Interpreter(object):
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
-        ans.splits = abstracts[0].splits.copy()
+        ans.splits = [[0] for _ in range(len(ans.shape))]
         ans.lb = torch.full([1] * len(ans.shape), low, device=device)
         ans.ub = torch.full([1] * len(ans.shape), high, device=device)
         ans.var_name = var_name

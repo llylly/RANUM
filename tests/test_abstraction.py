@@ -1,7 +1,7 @@
 import unittest
 import torch
 import numpy as np
-from onnx import helper
+from onnx import helper, TensorProto
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS
@@ -18,6 +18,24 @@ def tf_equal(a, b):
         a = a.detach().numpy()
     return np.linalg.norm((a - np.array(b)).reshape(-1)) < EPS
 
+def correct_format(abst):
+    if isinstance(abst.lb, list):
+        ret = True
+        for i in range(len(abst.lb)):
+            indiv_abst = Abstraction()
+            indiv_abst.lb = abst.lb[i]
+            indiv_abst.ub = abst.ub[i]
+            indiv_abst.shape = abst.shape[i]
+            indiv_abst.splits = abst.splits[i]
+            if not correct_format(indiv_abst):
+                ret = False
+                break
+        return ret
+    else:
+        check_lb_1 = all([len(x) == y for x, y in zip(abst.splits, abst.lb.shape)])
+        check_ub_1 = all([len(x) == y for x, y in zip(abst.splits, abst.ub.shape)])
+        check_splits = all([all([z < y for z in x]) for x, y in zip(abst.splits, abst.shape)])
+        return check_lb_1 and check_ub_1 and check_splits
 
 def correct_abstraction(abst: Abstraction, arr, tight=False):
     """
@@ -620,6 +638,8 @@ class TestAbstraction(unittest.TestCase):
                 self.assertEqual(1, len(exceptions))
 
     def test_ConstantOfShape(self):
+        # test case 1
+
         interp = Interpreter()
         x = np.random.randint(1, 20, 3).astype(np.int32)
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
@@ -631,6 +651,25 @@ class TestAbstraction(unittest.TestCase):
         self.assertEqual(123, abst_z.lb[0][0][0].item())
         self.assertEqual(123, abst_z.ub[0][0][0].item())
         self.assertEqual(list(x), abst_z.shape)
+
+        # test case 2
+
+        x = np.array([4, 3, 2]).astype(np.int64)
+        tensor_value = helper.make_tensor("value", TensorProto.FLOAT,
+                                               [1], [123])
+        node = helper.make_node(
+            'ConstantOfShape',
+            inputs=['x'],
+            outputs=['y'],
+            value=tensor_value,
+        )
+
+        y = np.ones(x, dtype=np.float32)
+        abst_x = Abstraction().load(conf1, 'x', [3], 'INT', x)
+        abst_zz, _ = interp.interp_ConstantOfShape([abst_x], node, 'ConstantOfShape', 'zz')
+        self.assertEqual(123, abst_zz.lb[0][0][0].item())
+        self.assertEqual(123, abst_zz.ub[0][0][0].item())
+        self.assertEqual(list(x), abst_zz.shape)
 
     def test_RandomUniformLike(self):
         interp = Interpreter()
@@ -644,6 +683,7 @@ class TestAbstraction(unittest.TestCase):
         self.assertEqual(-100, abst_z.lb[0][0][0][0].item())
         self.assertEqual(123, abst_z.ub[0][0][0][0].item())
         self.assertEqual(list(x.shape), abst_z.shape)
+        self.assertTrue(correct_format(abst_z))
 
     def test_BoolOps(self):
         for stride in [1, 2]:

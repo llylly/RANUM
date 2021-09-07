@@ -87,7 +87,8 @@ fine_grain_parameters = {
     'Unsqueeze': [1],
     'Tile': [1,2],
     'Loop': [0,1],
-    'SequenceInsert': [2]
+    'SequenceInsert': [2],
+    'ConstantOfShape': [0],
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
