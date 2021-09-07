@@ -450,7 +450,8 @@ class Interpreter(object):
         abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
         if ((abst1.lb <= 0) & (abst1.ub >= 0)).any():
             return None, [
-                PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub], PossibleNumericalError.CONTAINS_ZERO)]
+                PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+                                       PossibleNumericalError.ERROR_CONTAINS_ZERO)]
 
         abst0.split_by(abst1.splits, inplace=True)
         abst1.split_by(abst0.splits, inplace=True)
@@ -541,7 +542,8 @@ class Interpreter(object):
         ans = Abstraction()
         if ((abst.lb <= 0) & (abst.ub >= 0)).any():
             return None, [
-                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.CONTAINS_ZERO)]
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub],
+                                       PossibleNumericalError.ERROR_CONTAINS_ZERO)]
 
         e1, e2 = 1 / abst.lb, 1 / abst.ub
         ans.lb = torch.minimum(e1, e2)
@@ -556,6 +558,58 @@ class Interpreter(object):
         ans = Abstraction()
         ans.lb = torch.tanh(abst.lb)
         ans.ub = torch.tanh(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Relu(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.relu(abst.lb)
+        ans.ub = torch.relu(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Exp(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        if (abst.ub >= PossibleNumericalError.OVERFLOW_D * np.log(10)).any():
+            return None, [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
+        ans.lb = torch.exp(abst.lb)
+        ans.ub = torch.exp(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Softmax(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        axis = attr.get('axis', -1)
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        exp_lb = torch.exp(abst.lb - torch.max(abst.ub, dim=axis, keepdim=True)[0])
+        exp_ub = torch.exp(abst.ub - torch.max(abst.ub, dim=axis, keepdim=True)[0])
+        multiplies = self.cal_multiplies_for_sum(abstracts[0], [axis])
+        # inputs: [l1, l2, l3], [u1, u2, u3]
+        # softmax_lb = [l1 / (l1 + u2 + u3), ...]
+        # softmax_ub = [u1 / (u1 + l2 + l3)]
+        ans.lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+        ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Abs(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.where(abst.lb > 0, abst.lb, torch.zeros_like(abst.lb))
+        ans.ub = torch.maximum(abst.lb.abs(), abst.ub.abs())
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1156,13 +1210,7 @@ class Interpreter(object):
         assert axes is not None
         ans = Abstraction()
         # compute multiplies to calculate reduced sum
-        multiplies = torch.ones_like(abstracts[0].lb)
-        for d in axes:
-            splits = abstracts[0].splits[d] + [abstracts[0].shape[d]]
-            split_sizes = [splits[i] - splits[i - 1] for i in range(1, len(splits))]
-            view_shape = [1] * len(abstracts[0].shape)
-            view_shape[d] = len(abstracts[0].splits[d])
-            multiplies *= torch.Tensor(split_sizes).view(view_shape)
+        multiplies = self.cal_multiplies_for_sum(abstracts[0], axes)
 
         ans.lb = torch.sum(abstracts[0].lb * multiplies, dim=axes, keepdim=keepdims == 1)
         ans.ub = torch.sum(abstracts[0].ub * multiplies, dim=axes, keepdim=keepdims == 1)
@@ -1546,6 +1594,18 @@ class Interpreter(object):
             l += 1
 
         return possible_numerical_errors
+
+    def cal_multiplies_for_sum(self, abstract, axes: list):
+        # compute multiplies to calculate reduced sum
+        multiplies = torch.ones_like(abstract.lb)
+        for d in axes:
+            splits = abstract.splits[d] + [abstract.shape[d]]
+            split_sizes = [splits[i] - splits[i - 1] for i in range(1, len(splits))]
+            view_shape = [1] * len(abstract.shape)
+            view_shape[d] = len(abstract.splits[d])
+            multiplies *= torch.Tensor(split_sizes).view(view_shape)
+
+        return multiplies
 
 
 def get_shape_split_with_broadcasting(a: Abstraction, b: Abstraction):

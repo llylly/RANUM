@@ -4,7 +4,7 @@ import numpy as np
 from onnx import helper, TensorProto
 from functools import reduce, partial
 
-from interp.interp_utils import AbstractionInitConfig, EPS
+from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
 from interp.interp_operator import Abstraction, Interpreter
 
 
@@ -593,17 +593,34 @@ class TestAbstraction(unittest.TestCase):
         abst_z, exceptions = interp.interp_Reciprocal([abst_x2], node, 'Reciprocal', 'z')
         self.assertIsNone(abst_z)
         self.assertEqual(1, len(exceptions))
+        self.assertEqual(PossibleNumericalError.ERROR_CONTAINS_ZERO, exceptions[0].err_cond)
 
-    def test_Tanh(self):
+    def test_TanhAbsReluExp(self):
         interp = Interpreter()
         x = np.random.randn(10, 20, 30).astype(np.float64)
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
-        node = helper.make_node(
-            'Tanh', ['x'], ['a'], 'Tanh0'
-        )
-        abst_z, _ = interp.interp_Tanh([abst_x], node, 'Tanh', 'y')
-        self.assertTrue(correct_abstraction(abst_z, np.tanh(x), True))
+        ops = [lambda x: np.tanh(x), lambda x: np.abs(x), lambda x: np.maximum(x, 0), lambda x: np.exp(x)]
+        op_names = ["Tanh", "Abs", "Relu", "Exp"]
+        op_interps = [interp.interp_Tanh, interp.interp_Abs, interp.interp_Relu, interp.interp_Exp]
+        tights = [True, False, True]
+
+        for op, op_name, op_interp, tight in zip(ops, op_names, op_interps, tights):
+            node = helper.make_node(
+                op_name, ['x'], ['a'], op_name + "0"
+            )
+            z = op(x)
+            abst_z, _ = op_interp([abst_x], node, op_name, 'z')
+            self.assertTrue(correct_abstraction(abst_z, z, tight))
+
+            if op_name == "Exp":  # test exp with error
+                y = np.random.randn(10, 20, 30).astype(np.float32)
+                y[0, 0, 0] = 100
+                abst_y = Abstraction().load(conf1, 'y', [10, 20, 30], 'FLOAT', y)
+                abst_z, exceptions = op_interp([abst_x], node, op_name, 'z')
+                self.assertIsNone(abst_z)
+                self.assertEqual(1, len(exceptions))
+                self.assertEqual(PossibleNumericalError.ERROR_OVERFLOW, exceptions[0].err_cond)
 
     def test_AddSubMulDiv(self):
         interp = Interpreter()
@@ -636,6 +653,7 @@ class TestAbstraction(unittest.TestCase):
                 abst_z, exceptions = op_interp([abst_x, abst_y], node, op_name, 'z')
                 self.assertIsNone(abst_z)
                 self.assertEqual(1, len(exceptions))
+                self.assertEqual(PossibleNumericalError.ERROR_CONTAINS_ZERO, exceptions[0].err_cond)
 
     def test_ConstantOfShape(self):
         # test case 1
@@ -763,6 +781,21 @@ class TestAbstraction(unittest.TestCase):
                             z = op(z)(keepdims=keepdims == 1, axis=axis)
                         abst_z, _ = op_interp([abst_x], node, op_name, 'z')
                         self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
+
+    def test_Softmax(self):
+        for axis in [0, -1, 1]:
+            for stride in [1, 2]:
+                interp = Interpreter()
+                x = np.random.randn(10, 11, 12).astype(np.float32)
+                conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
+                abst_x = Abstraction().load(conf1, 'x', [10, 11, 12], 'FLOAT', x)
+
+                node = helper.make_node(
+                    "Softmax", ['x'], ['a'], "Softmax0", axis=axis
+                )
+                z = torch.softmax(torch.Tensor(x), dim=axis).numpy()
+                abst_z, _ = interp.interp_Softmax([abst_x], node, "Softmax", 'z')
+                self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
 
     def test_Tile(self):
         interp = Interpreter()
