@@ -586,6 +586,19 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_Log(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        if (abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT).any():
+            return None, [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
+        ans.lb = torch.log(abst.lb)
+        ans.ub = torch.log(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
     def interp_Softmax(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
         axis = attr.get('axis', -1)
@@ -743,6 +756,24 @@ class Interpreter(object):
         if var_name is not None:
             ans.var_name = var_name
 
+        return ans, list()
+
+    def interp_Transpose(self, abstracts, node, optype, var_name):
+        attrs = parse_attribute(node)
+        inp = abstracts[0]
+        ans = Abstraction()
+        if 'perm' in attrs:
+            perm = attrs['perm']
+            ans.lb = inp.lb.permute(*perm)
+            ans.ub = inp.ub.permute(*perm)
+            ans.splits = [inp.splits[x] for x in perm]
+            ans.shape = [inp.shape[x] for x in perm]
+        else:
+            ans.lb = inp.lb.T
+            ans.ub = inp.ub.T
+            ans.splits = inp.splits[::-1]
+            ans.shape = inp.shape[::-1]
+        ans.var_name = var_name
         return ans, list()
 
     def interp_Shape(self, abstracts, node, optype, var_name):
@@ -929,6 +960,10 @@ class Interpreter(object):
         # print('Shape before slice:', abstracts[0].shape)
         # print('Shape after  slice:', now_abst.shape)
         return now_abst, list()
+
+    def interp_Gather(self, abstracts,node, optype, var_name):
+        # TODO
+        return None, list()
 
     def interp_Squeeze(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
@@ -1167,6 +1202,27 @@ class Interpreter(object):
             ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
             ans.lb = torch.maximum(abst0.lb, abst1.lb)
             ans.ub = torch.maximum(abst0.ub, abst1.ub)
+            ans.var_name = var_name
+
+        return ans, list()
+
+    def interp_Sum(self, abstracts, node, optype, var_name):
+        ans = Abstraction()
+        ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+        ans.lb = abstracts[0].lb.clone()
+        ans.ub = abstracts[0].ub.clone()
+        ans.var_name = var_name
+        for abst in abstracts[1:]:
+            abst0 = ans.extend_dim(abst.get_dim(), inplace=False)
+            abst1 = abst.extend_dim(ans.get_dim(), inplace=False)
+
+            abst0.split_by(abst1.splits, inplace=True)
+            abst1.split_by(abst0.splits, inplace=True)
+
+            ans = Abstraction()
+            ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+            ans.lb = abst0.lb + abst1.lb
+            ans.ub = abst0.ub + abst1.ub
             ans.var_name = var_name
 
         return ans, list()

@@ -47,7 +47,9 @@ class PossibleNumericalError(Exception):
     UNDERFLOW_D = -37
     ERROR_CONTAINS_ZERO = 0
     ERROR_OVERFLOW = 1
-    code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows."}
+    ERROR_UNDERFLOW = 2
+    code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
+                ERROR_UNDERFLOW: "Operator underflows."}
     def __init__(self, optype, var_name, cur_range, err_cond):
         self.optype = optype
         self.var_name = var_name
@@ -94,6 +96,7 @@ fine_grain_parameters = {
     'Loop': [0,1],
     'SequenceInsert': [2],
     'ConstantOfShape': [0],
+    'Gather': [1]
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
