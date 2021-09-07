@@ -1215,7 +1215,7 @@ class Interpreter(object):
 
         return ret, list()
 
-    def interp_Loop(self, abstracts, node, optype, var_name, eps=1e-5):
+    def interp_Loop(self, abstracts, node, optype, var_name, eps=1e-5, loop_dependencies=dict()):
 
         def _possibly_terminate(loop_i, trip_count, cond):
             # print(loop_i)
@@ -1254,7 +1254,7 @@ class Interpreter(object):
         cond = abstracts[1]
         v_initials = abstracts[2:]
 
-        subgraph_abst_dict = dict()
+        subgraph_abst_dict = loop_dependencies.copy()
         subgraph_scan_output_dict = dict()
 
         # init cond and out variables
@@ -1270,6 +1270,8 @@ class Interpreter(object):
         loop_i = 0
         conf_precise = AbstractionInitConfig(diff=False, from_init=True)
         subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1], 'INT', np.array(loop_i), M.lb.is_cuda)
+
+        # print(f'loop @ {node.name}')
 
         while not _possibly_terminate(loop_i, M, cond):
             # carry condition to input cond

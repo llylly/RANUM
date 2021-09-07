@@ -113,6 +113,43 @@ class InterpModule():
                     else:
                         self.deg_in[vj] += 1
 
+        """inspect the subgraph of loop, and establish the dependency for unreferenced loop input"""
+        self.loop_dependencies = dict()
+        # These unreferenced loop inputs should be illegal and should not appear in the model
+        # However, I find tf2onnx does construct models with such troublesome things, so we need to process them
+        for node in self.onnx_model.graph.node:
+            if node.op_type == 'Loop':
+                self.loop_dependencies[node.name] = set()
+                subgraph = onnx.helper.get_attribute_value(node.attribute[0])
+                inner_inputs = set()
+                legal_nodes = set().union([inp.name for inp in subgraph.input])
+                for inner_node in subgraph.node:
+                    legal_nodes = legal_nodes.union(inner_node.output)
+                    inner_inputs = inner_inputs.union(inner_node.input)
+                illegal_inputs = [x for x in inner_inputs if x not in legal_nodes]
+                if len(illegal_inputs) != 0:
+                    print(f'  illegel input detected @ loop {node.name}:', illegal_inputs)
+                    self.loop_dependencies[node.name] = self.loop_dependencies[node.name].union(illegal_inputs)
+
+                    for v in list(illegal_inputs) + list(node.output):
+                        if v not in self.signature_dict:
+                            print(f'  warning: {v} has not appeared yet')
+                        self.all_nodes.add(v)
+
+                    for i, vi in enumerate(list(illegal_inputs)):
+                        for j, vj in enumerate(list(node.output)):
+                            if vi not in self.edges: self.edges[vi] = list()
+                            self.edges[vi].append((vj, -1, j, node.op_type, node.name, node))
+
+                            if vi not in self.deg_out:
+                                self.deg_out[vi] = 1
+                            else:
+                                self.deg_out[vi] += 1
+                            if vj not in self.deg_in:
+                                self.deg_in[vj] = 1
+                            else:
+                                self.deg_in[vj] += 1
+
         for v in self.all_nodes:
             if v not in self.deg_in: self.deg_in[v] = 0
             if v not in self.deg_out: self.deg_out[v] = 0
@@ -240,9 +277,16 @@ class InterpModule():
                         pass
 
                     else:
-                        cur_abst, cur_exceps = interpreter.handle(
-                            [self.abstracts[x] for x in node.input], node, node_optype, vj
-                        )
+                        if node.op_type != 'Loop':
+                            cur_abst, cur_exceps = interpreter.handle(
+                                [self.abstracts[x] for x in node.input], node, node_optype, vj
+                            )
+                        else:
+                            # specially handle the loop dependencies
+                            cur_abst, cur_exceps = interpreter.interp_Loop(
+                                [self.abstracts[x] for x in node.input], node, node_optype, vj,
+                                loop_dependencies=dict([(x, self.abstracts[x]) for x in self.loop_dependencies[node.name] if x in self.abstracts])
+                            )
                         if len(cur_exceps) > 0:
                             roots = list()
                             for x in node.input:
