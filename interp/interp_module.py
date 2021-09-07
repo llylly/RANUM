@@ -296,7 +296,7 @@ class InterpModule():
                                     roots.extend(self.possible_numerical_errors[x][1])
                             roots = set(roots)
                             if len(roots) == 0:
-                                roots = {node}
+                                roots = {node.name}
                             self.possible_numerical_errors[vj] = (cur_exceps, roots)
                         if cur_abst is None:
                             print(f'! No abstraction generated for {vj}: '
@@ -313,6 +313,16 @@ class InterpModule():
             l += 1
 
         return self.possible_numerical_errors
+
+    def gen_abstraction_heuristics(self):
+        """
+            Generate a dictionary which contains the heuristics for each initial tensor if necessary
+        :return:
+        """
+        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True),
+                  'Variable/read:0': AbstractionInitConfig(diff=True, from_init=False, lb=-1., ub=1.)}
+        # TODO: to be improved
+        return result
 
 
 def load_onnx_from_file(path):

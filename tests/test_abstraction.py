@@ -882,6 +882,78 @@ class TestAbstraction(unittest.TestCase):
                 if op.startswith("interp"):
                     pass
 
+    def test_sum(self):
+        interp = Interpreter()
+
+        x1 = np.random.randn(15, 15, 15)
+        x2 = np.random.randn(15, 15, 15)
+        x3 = np.random.randn(15, 15, 15)
+        ans = x1 + x2 + x3
+
+        for s1, s2, s3 in [(1,1,1), (1,2,3), (2,3,5), (3,2,4), (-1,-1,-1)]:
+            conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=s1)
+            conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=s2)
+            conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=s3)
+
+            abst_x1 = Abstraction().load(conf1, 'x1', x1.shape, 'FLOAT', x1)
+            abst_x2 = Abstraction().load(conf2, 'x2', x2.shape, 'FLOAT', x2)
+            abst_x3 = Abstraction().load(conf3, 'x3', x3.shape, 'FLOAT', x3)
+
+            abst_ans, _ = interp.interp_Sum([abst_x1, abst_x2, abst_x3], None, 'Sum', 'ans')
+
+            self.assertTrue(correct_format(abst_ans))
+            self.assertTrue(correct_abstraction(abst_ans, ans, s1 == 1 and s2 == 1 and s3 == 1))
+
+
+    def test_log(self):
+        interp = Interpreter()
+
+        x1 = np.random.randn(10, 10, 10)
+        y1 = np.exp(x1)
+
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        abst_y1 = Abstraction().load(conf1, 'y1', y1.shape, 'FLOAT', y1)
+        abst_ans1, _ = interp.interp_Log([abst_y1], None, 'Lop', 'ans1')
+
+        self.assertTrue(correct_abstraction(abst_ans1, x1, True))
+
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        abst_y2 = Abstraction().load(conf2, 'y2', y1.shape, 'FLOAT', y1)
+        abst_ans2, _ = interp.interp_Log([abst_y2], None, 'Lop', 'ans1')
+
+        self.assertTrue(correct_abstraction(abst_ans2, x1))
+
+        abst_x1 = Abstraction().load(conf2, 'x1', x1.shape, 'FLOAT', x1)
+        abst_ans3, err = interp.interp_Log([abst_x1], None, 'Lop', 'ans3')
+        self.assertEqual(len(err), 1)
+
+    def test_transpose(self):
+        interp = Interpreter()
+        x = np.random.randn(5,12,9)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        abst_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        node = helper.make_node('Transpose', ['x'], ['y'], name='transpose')
+        y = np.transpose(x)
+        abst_y, _ = interp.interp_Transpose([abst_x], node, 'Transpose', 'y')
+        self.assertTrue(correct_abstraction(abst_y, y))
+        self.assertTrue(correct_format(abst_y))
+        self.assertListEqual(abst_y.shape, [9,12,5])
+
+        # =========
+
+        node = helper.make_node('Transpose', ['x'], ['y'], name='transpose', perm=[2,0,1])
+        y = np.transpose(x, [2,0,1])
+        abst_y, _ = interp.interp_Transpose([abst_x], node, 'Transpose', 'y')
+        self.assertTrue(correct_abstraction(abst_y, y))
+        self.assertTrue(correct_format(abst_y))
+        self.assertListEqual(abst_y.shape, [9,5,12])
+
+    def test_gather(self):
+        pass
+
+    def test_conv(self):
+        pass
+
 
 if __name__ == '__main__':
     unittest.main()

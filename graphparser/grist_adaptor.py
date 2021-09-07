@@ -209,7 +209,7 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = [1]
+run_ids = [3]
 
 # only for tensorflow models
 inputs_outputs = {

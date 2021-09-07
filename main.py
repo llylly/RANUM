@@ -23,7 +23,7 @@ if __name__ == '__main__':
     model = load_onnx_from_file(args.modelpath)
     prompt('model initialized')
 
-    res = model.analyze({'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True)})
+    res = model.analyze(model.gen_abstraction_heuristics())
     prompt('analysis done')
     print('analyze output:', res)
 
