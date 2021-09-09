@@ -676,28 +676,40 @@ class TestAbstraction(unittest.TestCase):
 
     def test_Pow(self):
         interp = Interpreter()
-        x = np.random.randn(10, 20, 10, 30).astype(np.float64)
+        x = np.abs(np.random.randn(10, 20, 10, 30).astype(np.float64)) + 0.1
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
-        y = np.random.randn(1, 10, 1).astype(np.int32)
+        y = (np.random.randn(1, 10, 1) * 10).astype(np.int32)
         conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
         op_name = "Pow"
         node = helper.make_node(
             op_name, ['x', 'y'], ['a'], op_name + "0"
         )
         abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'INT', y)
+        # print(abst_y.lb, abst_y.ub)
         z = np.power(x, y)
         abst_z, _ = interp.interp_Pow([abst_x, abst_y], node, op_name, 'z')
         self.assertTrue(correct_abstraction(abst_z, z, False))
 
         # test Pow with an error
-        y[0, np.random.randint(10), 0] = 100
-        x[0, 0, 0, 0] = 2
+        y[0, 0, 0] = -1
+        x[0, 0, 0, 0] = -1
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
         abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'INT', y)
         abst_z, exceptions = interp.interp_Pow([abst_x, abst_y], node, op_name, 'z')
         self.assertIsNone(abst_z)
         self.assertEqual(1, len(exceptions))
         self.assertEqual(PossibleNumericalError.ERROR_CONTAINS_ZERO, exceptions[0].err_cond)
+
+        # test Pow with an error
+        y[0, 0, 0] = 1000
+        x[0, 0, 0, 0] = 100
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+        abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'INT', y)
+        abst_z, exceptions = interp.interp_Pow([abst_x, abst_y], node, op_name, 'z')
+        self.assertIsNone(abst_z)
+        self.assertEqual(1, len(exceptions))
+        self.assertEqual(PossibleNumericalError.ERROR_OVERFLOW, exceptions[0].err_cond)
 
     def test_ConstantOfShape(self):
         # test case 1

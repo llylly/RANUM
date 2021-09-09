@@ -457,14 +457,20 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        # x^y, if x can be 0 and y < 0
+        if ((abst0.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) &
+            (abst0.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT) &
+            (abst1.lb < -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
+            return None, [PossibleNumericalError(optype, var_name, [abst0.lb, abst0.ub],
+                                                 PossibleNumericalError.ERROR_CONTAINS_ZERO)]
         choices = torch.stack(
             [abst0.lb.pow(abst1.lb), abst0.lb.pow(abst1.ub), abst0.ub.pow(abst1.lb), abst0.ub.pow(abst1.ub)],
             dim=0)
         ans.lb = torch.min(choices, dim=0)[0]
         ans.ub = torch.max(choices, dim=0)[0]
         if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
-            return None, PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
-                                                PossibleNumericalError.ERROR_OVERFLOW)
+            return None, [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+                                                 PossibleNumericalError.ERROR_OVERFLOW)]
         ans.var_name = var_name
 
         return ans, list()
