@@ -3,6 +3,7 @@ from onnx.helper import get_attribute_value
 
 EPS = 1e-5
 
+
 class AbstractionInitConfig(object):
 
     def __init__(self, diff: bool, lb=0., ub=1., from_init=False, from_init_margin=0., stride=-1):
@@ -29,7 +30,6 @@ class AbstractionInitConfig(object):
         self.from_init_margin = float(d['from_init_margin'])
         self.stride = d['stride']
 
-
     def to_dict(self):
         return {
             'diff': self.diff,
@@ -39,6 +39,7 @@ class AbstractionInitConfig(object):
             'from_init_margin': self.from_init_margin,
             'stride': self.stride
         }
+
 
 class PossibleNumericalError(Exception):
     OVERFLOW_LIMIT = 1e38
@@ -50,6 +51,7 @@ class PossibleNumericalError(Exception):
     ERROR_UNDERFLOW = 2
     code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
                 ERROR_UNDERFLOW: "Operator underflows."}
+
     def __init__(self, optype, var_name, cur_range, err_cond):
         self.optype = optype
         self.var_name = var_name
@@ -60,11 +62,16 @@ class PossibleNumericalError(Exception):
                        f'  triggered numerical error condition {self.code2str[self.err_cond]}'
         super(PossibleNumericalError, self).__init__(self.message)
 
+    @staticmethod
+    def is_invalid(x):
+        return x.isnan().any() or x.isinf().any()
+
 
 def get_numel(shape_list):
     ret = 1
     for s in shape_list: ret *= s
     return ret
+
 
 def parse_attribute(node):
     """
@@ -84,16 +91,15 @@ unsupported_types = ['STRING']
 
 datatype_mapping = dict([(id, x.name) for id, x in enumerate(onnx.TensorProto.DataType._enum_type.values)])
 
-
 fine_grain_parameters = {
     # the parameters that need fine grain abstraction
     # in the format of k:op_type, v:index_of_inputs(0-base) that needs fine grain abstraction
     'Reshape': [1],
-    'Slice': [1,2,3,4],
+    'Slice': [1, 2, 3, 4],
     'Squeeze': [1],
     'Unsqueeze': [1],
-    'Tile': [1,2],
-    'Loop': [0,1],
+    'Tile': [1, 2],
+    'Loop': [0, 1],
     'SequenceInsert': [2],
     'ConstantOfShape': [0],
     'Gather': [1]
@@ -102,5 +108,3 @@ fine_grain_parameters = {
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
 # Thus, we don't need to backflow the fine grain requirement through those op_types
 forbid_fine_grain_flow = ['Shape']
-
-

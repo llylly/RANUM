@@ -53,7 +53,9 @@ class Abstraction(object):
         stride = config.stride
 
         if from_init and isinstance(tensor_data, list):
-            singleton_abstracts = [Abstraction().load(config, var_name, single_data.shape, tensor_type, single_data, cuda) for single_data in tensor_data]
+            singleton_abstracts = [
+                Abstraction().load(config, var_name, single_data.shape, tensor_type, single_data, cuda) for single_data
+                in tensor_data]
             self.lb = [s.lb for s in singleton_abstracts]
             self.ub = [s.ub for s in singleton_abstracts]
             self.shape = [s.shape for s in singleton_abstracts]
@@ -367,7 +369,8 @@ class Interpreter(object):
         The general class for generating interpretations
     """
 
-    def __init__(self, smash_thres=-1, ceil='precise', floor='precise', loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1)):
+    def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
+                 loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1)):
         # default smash threshold
         self.smash = smash_thres
 
@@ -445,10 +448,32 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_Pow(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        choices = torch.stack(
+            [abst0.lb.pow(abst1.lb), abst0.lb.pow(abst1.ub), abst0.ub.pow(abst1.lb), abst0.ub.pow(abst1.ub)],
+            dim=0)
+        ans.lb = torch.min(choices, dim=0)[0]
+        ans.ub = torch.max(choices, dim=0)[0]
+        if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+            return None, PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+                                                PossibleNumericalError.ERROR_OVERFLOW)
+        ans.var_name = var_name
+
+        return ans, list()
+
     def interp_Div(self, abstracts, node, optype, var_name):
         abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
         abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
-        if ((abst1.lb <= 0) & (abst1.ub >= 0)).any():
+        if ((abst1.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (
+                abst1.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
             return None, [
                 PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
                                        PossibleNumericalError.ERROR_CONTAINS_ZERO)]
@@ -462,6 +487,9 @@ class Interpreter(object):
                               dim=0)
         ans.lb = torch.min(choices, dim=0)[0]
         ans.ub = torch.max(choices, dim=0)[0]
+        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+        #     return None, PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+        #                                         PossibleNumericalError.ERROR_CONTAINS_ZERO)
         ans.var_name = var_name
 
         return ans, list()
@@ -573,6 +601,26 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_Sigmoid(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.sigmoid(abst.lb)
+        ans.ub = torch.sigmoid(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Neg(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = -abst.ub
+        ans.ub = -abst.lb
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
     def interp_Exp(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
@@ -581,6 +629,9 @@ class Interpreter(object):
                 PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
         ans.lb = torch.exp(abst.lb)
         ans.ub = torch.exp(abst.ub)
+        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+        #     return None, [
+        #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -594,6 +645,9 @@ class Interpreter(object):
                 PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
         ans.lb = torch.log(abst.lb)
         ans.ub = torch.log(abst.ub)
+        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+        #     return None, [
+        #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -623,7 +677,8 @@ class Interpreter(object):
         ans = Abstraction()
         # ans.lb = torch.where(abst.lb > 0, abst.lb, torch.zeros_like(abst.lb))
         # a tighter version
-        ans.lb = torch.where((abst.lb < 0) * (abst.ub > 0), torch.zeros_like(abst.lb), torch.minimum(abst.lb.abs(), abst.ub.abs()))
+        ans.lb = torch.where((abst.lb < 0) * (abst.ub > 0), torch.zeros_like(abst.lb),
+                             torch.minimum(abst.lb.abs(), abst.ub.abs()))
         ans.ub = torch.maximum(abst.lb.abs(), abst.ub.abs())
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
@@ -961,7 +1016,7 @@ class Interpreter(object):
         # print('Shape after  slice:', now_abst.shape)
         return now_abst, list()
 
-    def interp_Gather(self, abstracts,node, optype, var_name):
+    def interp_Gather(self, abstracts, node, optype, var_name):
         # TODO
         return None, list()
 
@@ -1261,7 +1316,7 @@ class Interpreter(object):
     def interp_ReduceMax(self, abstracts, node, optype, var_name):
         return self.interp_ReduceMin(abstracts, node, optype, var_name, op=torch.max)
 
-    def interp_ReduceSum(self, abstracts, node, optype, var_name):
+    def interp_ReduceSum(self, abstracts, node, optype, var_name, op=torch.sum):
         attr = parse_attribute(node)
         keepdims = attr.get('keepdims', 1)
         axes = attr.get('axes', None)
@@ -1270,8 +1325,8 @@ class Interpreter(object):
         # compute multiplies to calculate reduced sum
         multiplies = self.cal_multiplies_for_sum(abstracts[0], axes)
 
-        ans.lb = torch.sum(abstracts[0].lb * multiplies, dim=axes, keepdim=keepdims == 1)
-        ans.ub = torch.sum(abstracts[0].ub * multiplies, dim=axes, keepdim=keepdims == 1)
+        ans.lb = op(abstracts[0].lb * multiplies, dim=axes, keepdim=keepdims == 1)
+        ans.ub = op(abstracts[0].ub * multiplies, dim=axes, keepdim=keepdims == 1)
 
         ans.shape = abstracts[0].shape.copy()
         ans.splits = abstracts[0].splits.copy()
@@ -1289,6 +1344,9 @@ class Interpreter(object):
 
         ans.var_name = var_name
         return ans, list()
+
+    def interp_ReduceMean(self, abstracts, node, optype, var_name, op=torch.sum):
+        return self.interp_ReduceSum(abstracts, node, optype, var_name, op=torch.mean)
 
     def interp_Tile(self, abstracts, node, optype, var_name):
         in_abst = abstracts[0]
@@ -1378,7 +1436,8 @@ class Interpreter(object):
         # start the loop and init trip count
         loop_i = 0
         conf_precise = AbstractionInitConfig(diff=False, from_init=True)
-        subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1], 'INT', np.array(loop_i), M.lb.is_cuda)
+        subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1],
+                                                                         'INT', np.array(loop_i), M.lb.is_cuda)
 
         # print(f'loop @ {node.name}')
 
@@ -1387,7 +1446,7 @@ class Interpreter(object):
             subgraph_abst_dict[loop_body.input[1].name] = subgraph_abst_dict[loop_body.output[0].name]
             # short-cut loop-carried out vars to in vars
             for i, outp in enumerate(loop_body.output[1: 1 + len(v_initials)]):
-                subgraph_abst_dict[loop_body.input[2+i].name] = subgraph_abst_dict[outp.name]
+                subgraph_abst_dict[loop_body.input[2 + i].name] = subgraph_abst_dict[outp.name]
 
             # execution
             possible_numerial_error_subgraph = self.subgraph_executor(subgraph_abst_dict, loop_body)
@@ -1395,7 +1454,8 @@ class Interpreter(object):
 
             # update new trip count
             loop_i += 1
-            subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1], 'INT', np.array(loop_i), M.lb.is_cuda)
+            subgraph_abst_dict[loop_body.input[0].name] = Abstraction().load(conf_precise, loop_body.input[0].name, [1],
+                                                                             'INT', np.array(loop_i), M.lb.is_cuda)
 
             # record current scan_outputs
             for outp in loop_body.output[1 + len(v_initials):]:
@@ -1597,10 +1657,10 @@ class Interpreter(object):
                     is_cuda = v.lb.is_cuda
                     break
                 abst_dict[node.output[0]] = Abstraction().load(self.loop_constant_abst_cfg,
-                                                                    node.output[0],
-                                                                    value.shape,
-                                                                    datatype_mapping[attr['value'].data_type],
-                                                                    value, is_cuda)
+                                                               node.output[0],
+                                                               value.shape,
+                                                               datatype_mapping[attr['value'].data_type],
+                                                               value, is_cuda)
 
         for v in all_nodes:
             if v not in deg_in: deg_in[v] = 0

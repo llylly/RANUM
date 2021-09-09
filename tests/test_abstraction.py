@@ -18,6 +18,7 @@ def tf_equal(a, b):
         a = a.detach().numpy()
     return np.linalg.norm((a - np.array(b)).reshape(-1), ord=1) < EPS
 
+
 def correct_format(abst):
     if isinstance(abst.lb, list):
         ret = True
@@ -36,6 +37,7 @@ def correct_format(abst):
         check_ub_1 = all([len(x) == y for x, y in zip(abst.splits, abst.ub.shape)])
         check_splits = all([all([z < y for z in x]) for x, y in zip(abst.splits, abst.shape)])
         return check_lb_1 and check_ub_1 and check_splits
+
 
 def correct_abstraction(abst: Abstraction, arr, tight=False):
     """
@@ -600,10 +602,15 @@ class TestAbstraction(unittest.TestCase):
         x = np.random.randn(10, 20, 30).astype(np.float64)
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 30], 'FLOAT', x)
-        ops = [lambda x: np.tanh(x), lambda x: np.abs(x), lambda x: np.maximum(x, 0), lambda x: np.exp(x)]
-        op_names = ["Tanh", "Abs", "Relu", "Exp"]
-        op_interps = [interp.interp_Tanh, interp.interp_Abs, interp.interp_Relu, interp.interp_Exp]
-        tights = [True, False, True]
+        ops = [lambda x: np.tanh(x), lambda x: np.abs(x), lambda x: np.maximum(x, 0), lambda x: np.exp(x),
+               lambda x: np.where(x >= 0,
+                                  1 / (1 + np.exp(-x)),
+                                  np.exp(x) / (1 + np.exp(x))),
+               lambda x: -x]
+        op_names = ["Tanh", "Abs", "Relu", "Exp", "Sigmoid", "Neg"]
+        op_interps = [interp.interp_Tanh, interp.interp_Abs, interp.interp_Relu, interp.interp_Exp,
+                      interp.interp_Sigmoid, interp.interp_Neg]
+        tights = [True, False, True, True, True, True]
 
         for op, op_name, op_interp, tight in zip(ops, op_names, op_interps, tights):
             node = helper.make_node(
@@ -629,7 +636,7 @@ class TestAbstraction(unittest.TestCase):
                 y = np.random.randn(10, 20, 30).astype(np.float32)
                 y[0, 0, 0] = 100
                 abst_y = Abstraction().load(conf1, 'y', [10, 20, 30], 'FLOAT', y)
-                abst_z, exceptions = op_interp([abst_x], node, op_name, 'z')
+                abst_z, exceptions = op_interp([abst_y], node, op_name, 'z')
                 self.assertIsNone(abst_z)
                 self.assertEqual(1, len(exceptions))
                 self.assertEqual(PossibleNumericalError.ERROR_OVERFLOW, exceptions[0].err_cond)
@@ -667,6 +674,31 @@ class TestAbstraction(unittest.TestCase):
                 self.assertEqual(1, len(exceptions))
                 self.assertEqual(PossibleNumericalError.ERROR_CONTAINS_ZERO, exceptions[0].err_cond)
 
+    def test_Pow(self):
+        interp = Interpreter()
+        x = np.random.randn(10, 20, 10, 30).astype(np.float64)
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
+        y = np.random.randn(1, 10, 1).astype(np.int32)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        op_name = "Pow"
+        node = helper.make_node(
+            op_name, ['x', 'y'], ['a'], op_name + "0"
+        )
+        abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'INT', y)
+        z = np.power(x, y)
+        abst_z, _ = interp.interp_Pow([abst_x, abst_y], node, op_name, 'z')
+        self.assertTrue(correct_abstraction(abst_z, z, False))
+
+        # test Pow with an error
+        y[0, np.random.randint(10), 0] = 100
+        x[0, 0, 0, 0] = 2
+        abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'INT', y)
+        abst_z, exceptions = interp.interp_Pow([abst_x, abst_y], node, op_name, 'z')
+        self.assertIsNone(abst_z)
+        self.assertEqual(1, len(exceptions))
+        self.assertEqual(PossibleNumericalError.ERROR_CONTAINS_ZERO, exceptions[0].err_cond)
+
     def test_ConstantOfShape(self):
         # test case 1
 
@@ -686,7 +718,7 @@ class TestAbstraction(unittest.TestCase):
 
         x = np.array([4, 3, 2]).astype(np.int64)
         tensor_value = helper.make_tensor("value", TensorProto.FLOAT,
-                                               [1], [123])
+                                          [1], [123])
         node = helper.make_node(
             'ConstantOfShape',
             inputs=['x'],
@@ -775,9 +807,11 @@ class TestAbstraction(unittest.TestCase):
             for keepdims in [0, 1]:
                 for stride in [1, 2]:
                     interp = Interpreter()
-                    ops = [lambda x: partial(np.min, x), lambda x: partial(np.max, x), lambda x: partial(np.sum, x)]
-                    op_names = ["ReduceMin", "ReduceMax", "ReduceSum"]
-                    op_interps = [interp.interp_ReduceMin, interp.interp_ReduceMax, interp.interp_ReduceSum]
+                    ops = [lambda x: partial(np.min, x), lambda x: partial(np.max, x), lambda x: partial(np.sum, x),
+                           lambda x: partial(np.mean, x)]
+                    op_names = ["ReduceMin", "ReduceMax", "ReduceSum", "ReduceMean"]
+                    op_interps = [interp.interp_ReduceMin, interp.interp_ReduceMax, interp.interp_ReduceSum,
+                                  interp.interp_ReduceMean]
                     x = np.random.randn(10, 11, 12, 13).astype(np.float64)
                     conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
                     abst_x = Abstraction().load(conf1, 'x', [10, 11, 12, 13], 'FLOAT', x)
@@ -854,10 +888,10 @@ class TestAbstraction(unittest.TestCase):
 
     def test_sequence_insert(self):
         interp = Interpreter()
-        x1 = np.random.randn(2,2,2)
-        x2 = np.random.randn(3,3,3)
-        x3 = np.random.randn(4,4,4)
-        x4 = np.random.randn(5,5,5)
+        x1 = np.random.randn(2, 2, 2)
+        x2 = np.random.randn(3, 3, 3)
+        x3 = np.random.randn(4, 4, 4)
+        x4 = np.random.randn(5, 5, 5)
         conf = AbstractionInitConfig(diff=True, from_init=True, stride=2)
 
         abst_xseq = Abstraction().load(conf, 'xseq', x1.shape, 'FLOAT', [x1, x2, x3])
@@ -867,12 +901,12 @@ class TestAbstraction(unittest.TestCase):
         abst_x4 = Abstraction().load(conf, 'x4', x4.shape, 'FLOAT', x4)
 
         abst_ans, _ = interp.interp_SequenceInsert([abst_xseq, abst_x4], None, 'SequenceInsert', 'ans')
-        self.assertListEqual(abst_ans.shape, [[2,2,2],[3,3,3],[4,4,4],[5,5,5]])
+        self.assertListEqual(abst_ans.shape, [[2, 2, 2], [3, 3, 3], [4, 4, 4], [5, 5, 5]])
 
         index = np.array(2.)
         abst_index = Abstraction().load(conf, 'index', index.shape, 'INT', index)
         abst_ans2, _ = interp.interp_SequenceInsert([abst_xseq, abst_x4, abst_index], None, 'SequenceInsert', 'ans')
-        self.assertListEqual(abst_ans2.shape, [[2,2,2],[3,3,3],[5,5,5],[4,4,4]])
+        self.assertListEqual(abst_ans2.shape, [[2, 2, 2], [3, 3, 3], [5, 5, 5], [4, 4, 4]])
 
     def test_device_inheritance(self):
         # Todo
@@ -890,7 +924,7 @@ class TestAbstraction(unittest.TestCase):
         x3 = np.random.randn(15, 15, 15)
         ans = x1 + x2 + x3
 
-        for s1, s2, s3 in [(1,1,1), (1,2,3), (2,3,5), (3,2,4), (-1,-1,-1)]:
+        for s1, s2, s3 in [(1, 1, 1), (1, 2, 3), (2, 3, 5), (3, 2, 4), (-1, -1, -1)]:
             conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=s1)
             conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=s2)
             conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=s3)
@@ -903,7 +937,6 @@ class TestAbstraction(unittest.TestCase):
 
             self.assertTrue(correct_format(abst_ans))
             self.assertTrue(correct_abstraction(abst_ans, ans, s1 == 1 and s2 == 1 and s3 == 1))
-
 
     def test_log(self):
         interp = Interpreter()
@@ -929,7 +962,7 @@ class TestAbstraction(unittest.TestCase):
 
     def test_transpose(self):
         interp = Interpreter()
-        x = np.random.randn(5,12,9)
+        x = np.random.randn(5, 12, 9)
         conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
         abst_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
         node = helper.make_node('Transpose', ['x'], ['y'], name='transpose')
@@ -937,16 +970,16 @@ class TestAbstraction(unittest.TestCase):
         abst_y, _ = interp.interp_Transpose([abst_x], node, 'Transpose', 'y')
         self.assertTrue(correct_abstraction(abst_y, y))
         self.assertTrue(correct_format(abst_y))
-        self.assertListEqual(abst_y.shape, [9,12,5])
+        self.assertListEqual(abst_y.shape, [9, 12, 5])
 
         # =========
 
-        node = helper.make_node('Transpose', ['x'], ['y'], name='transpose', perm=[2,0,1])
-        y = np.transpose(x, [2,0,1])
+        node = helper.make_node('Transpose', ['x'], ['y'], name='transpose', perm=[2, 0, 1])
+        y = np.transpose(x, [2, 0, 1])
         abst_y, _ = interp.interp_Transpose([abst_x], node, 'Transpose', 'y')
         self.assertTrue(correct_abstraction(abst_y, y))
         self.assertTrue(correct_format(abst_y))
-        self.assertListEqual(abst_y.shape, [9,5,12])
+        self.assertListEqual(abst_y.shape, [9, 5, 12])
 
     def test_gather(self):
         pass
