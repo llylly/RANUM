@@ -949,7 +949,90 @@ class TestAbstraction(unittest.TestCase):
         self.assertListEqual(abst_y.shape, [9,5,12])
 
     def test_gather(self):
-        pass
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=4)
+        conf_precise = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        x = np.random.randn(10, 10, 10)
+        abst_x1 = Abstraction().load(conf1, 'x1', x.shape, 'FLOAT', x)
+        abst_x2 = Abstraction().load(conf2, 'x2', x.shape, 'FLOAT', x)
+
+        ind = np.array([[1,2,1],[0,1,2],[3,4,9],[4,5,9]])
+        abst_ind = Abstraction().load(conf_precise, 'gather', ind.shape, 'FLOAT', ind)
+
+        node = helper.make_node(
+            "Gather", ['x', 'index'], ['res'], "Gather", axis=1
+        )
+
+        abst_res, _ = interp.interp_Gather([abst_x1, abst_ind], node, 'Gather', 'res')
+        res = x.take(ind.reshape(-1), axis=1).reshape((10,) + ind.shape + (10,))
+
+        # abst_res.print()
+        self.assertTrue(correct_abstraction(abst_res, res))
+        self.assertTrue(correct_format(abst_res))
+        self.assertListEqual(abst_res.splits[1], [0,2])
+        self.assertListEqual(abst_res.splits[2], [0,2])
+
+        # ===========
+
+        node = helper.make_node(
+            "Gather", ['x', 'index'], ['res'], "Gather", axis=0
+        )
+
+        abst_res, _ = interp.interp_Gather([abst_x1, abst_ind], node, 'Gather', 'res')
+        res = x.take(ind.reshape(-1), axis=0).reshape(ind.shape + (10,10))
+
+        # abst_res.print()
+        self.assertTrue(correct_abstraction(abst_res, res))
+        self.assertTrue(correct_format(abst_res))
+        self.assertListEqual(abst_res.splits[0], [0,2])
+        self.assertListEqual(abst_res.splits[1], [0,2])
+
+        # ===========
+
+        ind = np.array([[[0,1,2,3],[0,1,2,3],[4,5,6,7],[4,5,6,7]]])
+        abst_ind = Abstraction().load(conf_precise, 'gather', ind.shape, 'FLOAT', ind)
+
+        node = helper.make_node(
+            "Gather", ['x', 'index'], ['res'], "Gather", axis=1
+        )
+
+        abst_res, _ = interp.interp_Gather([abst_x2, abst_ind], node, 'Gather', 'res')
+        res = x.take(ind.reshape(-1), axis=1).reshape((10,) + ind.shape + (10,))
+
+        # abst_res.print()
+        self.assertTrue(correct_abstraction(abst_res, res))
+        self.assertTrue(correct_format(abst_res))
+        self.assertListEqual(abst_res.splits[1], [0])
+        self.assertListEqual(abst_res.splits[2], [0,2])
+        self.assertListEqual(abst_res.splits[3], [0])
+
+
+        # ===========
+
+        ind = np.array([[[0,1,2,3],[0,1,2,3],[3,0,1,2],[3,0,1,2]]])
+        abst_ind = Abstraction().load(conf_precise, 'gather', ind.shape, 'FLOAT', ind)
+
+        node = helper.make_node(
+            "Gather", ['x', 'index'], ['res'], "Gather", axis=1
+        )
+
+        abst_res, _ = interp.interp_Gather([abst_x2, abst_ind], node, 'Gather', 'res')
+        res = x.take(ind.reshape(-1), axis=1).reshape((10,) + ind.shape + (10,))
+
+        # abst_res.print()
+        self.assertTrue(correct_abstraction(abst_res, res))
+        self.assertTrue(correct_format(abst_res))
+        self.assertListEqual(abst_res.splits[1], [0])
+        self.assertListEqual(abst_res.splits[2], [0])
+        self.assertListEqual(abst_res.splits[3], [0])
+
+
+
+
+
+
 
     def test_conv(self):
         pass

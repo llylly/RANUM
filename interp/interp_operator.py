@@ -988,7 +988,7 @@ class Interpreter(object):
             new_indices = reduce(lambda lst, arr: [x + y for x in lst for y in arr], new_splits)
             # new_indices = cord[new_indices].reshape(new_indices_shape)
             # print(new_indices)
-            new_indices = cord[new_indices].reshape(-1)
+            new_indices = np.array([cord[item] for item in new_indices]).reshape(-1)
             # print(new_indices)
             new_indices = torch.tensor(new_indices, dtype=torch.long).to(data.lb.device)
 
