@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import bisect
+from functools import reduce
 
 import onnx
 from onnx import numpy_helper
@@ -961,9 +962,49 @@ class Interpreter(object):
         # print('Shape after  slice:', now_abst.shape)
         return now_abst, list()
 
-    def interp_Gather(self, abstracts,node, optype, var_name):
-        # TODO
-        return None, list()
+    def interp_Gather(self, abstracts, node, optype, var_name):
+        data, indices = abstracts[0], abstracts[1]
+
+        if indices.is_exact():
+            indices = indices.lb.detach().cpu().numpy().astype(np.int)
+            axis = parse_attribute(node).get('axis', 0)
+            axis_split = data.splits[axis]
+            cord = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1, arr=indices.reshape(-1, 1)) - 1
+            cord = cord.reshape(indices.shape)
+
+            # print(axis, indices, indices.shape)
+            # print(axis_split)
+            # print(cord)
+
+            new_splits = list()
+
+            for i in range(np.array(cord).ndim):
+                now_splits = [(0,)] + [(j + 1,) for j in range(cord.shape[i] - 1) if np.sum(
+                    cord[(np.s_[:],) * i + (j,) + (np.s_[:],) * (cord.ndim - i - 1)] !=
+                    cord[(np.s_[:],) * i + (j + 1,) + (np.s_[:],) * (cord.ndim - i - 1)]) > 0]
+                new_splits.append(now_splits)
+
+            new_indices_shape = [len(x) for x in new_splits]
+            new_indices = reduce(lambda lst, arr: [x + y for x in lst for y in arr], new_splits)
+            # new_indices = cord[new_indices].reshape(new_indices_shape)
+            # print(new_indices)
+            new_indices = cord[new_indices].reshape(-1)
+            # print(new_indices)
+            new_indices = torch.tensor(new_indices, dtype=torch.long).to(data.lb.device)
+
+            ans = Abstraction()
+            ans.shape = data.shape[:axis] + list(indices.shape) + data.shape[axis + 1:]
+            ans.splits = data.splits[:axis] + [[x[0] for x in lst] for lst in new_splits] + data.splits[axis + 1:]
+            ans.lb = data.lb.index_select(dim=axis, index=new_indices).reshape([len(item) for item in ans.splits])
+            ans.ub = data.ub.index_select(dim=axis, index=new_indices).reshape([len(item) for item in ans.splits])
+            ans.var_name = var_name
+
+            # ans.print()
+
+            return ans, list()
+
+        else:
+            return None, list()
 
     def interp_Squeeze(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
