@@ -1,3 +1,4 @@
+import math
 import numpy as np
 import torch
 import bisect
@@ -537,6 +538,37 @@ class Interpreter(object):
         # print(ans.print())
 
         return ans, list()
+
+    def interp_Conv(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        print([abst.shape for abst in abstracts])
+        print(attr)
+
+        X = abstracts[0]
+        W = abstracts[1]
+        B = abstracts[2] if len(abstracts) >= 3 else None
+
+        strides = attr.get('strides', [1, 1])
+        group = attr.get('group', 1)
+        if group == -1: group = 1
+        dilations = attr.get('dilations', [1, 1])
+        kernel_shape = W.shape[3:]
+        padding = compute_padding(attr.get('auto_pad', 'NOTSET'), attr.get('pads', None),
+                                  X.shape[2], X.shape[3], kernel_shape[0], kernel_shape[1], dilations, strides)
+        padding = np.array(padding)
+
+        if any(padding < 0):
+            # trim the input if there exists padding < 0
+            # TODO
+            pass
+        elif any(padding > 0):
+            # prepend the input if there eixsts padding > 0
+            # TODO
+            pass
+
+
+
+        return None, list()
 
     def interp_Reciprocal(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
@@ -1743,3 +1775,27 @@ def create_empty_tensor(device='cpu'):
     ret.lb = torch.tensor([], device=device)
     ret.ub = torch.tensor([], device=device)
     return ret
+
+def compute_padding(pad_mode, prev_pads, h, w, kh, kw, dilations, strides):
+    if prev_pads is not None:
+        return prev_pads
+    else:
+        out_h = math.ceil(h / strides[0])
+        max_h_ind = dilations[0] * (kh - 1) + strides[0] * (out_h - 1)
+        delta_h = max_h_ind + 1 - h
+
+        out_w = math.ceil(w / strides[1])
+        max_w_ind = dilations[1] * (kw - 1) + strides[1] * (out_w - 1)
+        delta_w = max_w_ind + 1 - w
+
+        if pad_mode in ['SAME_UPPER', 'SAME_LOWER']:
+
+            if pad_mode == 'SAME_UPPER':
+                return [delta_h // 2, delta_h - delta_h // 2, delta_w // 2, delta_w - delta_w // 2]
+            else:
+                return [delta_h - delta_h // 2, delta_h // 2, delta_w - delta_w // 2, delta_w // 2]
+
+        elif pad_mode == 'VALID':
+
+            return [0, delta_h, 0, delta_w]
+
