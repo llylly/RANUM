@@ -1028,8 +1028,65 @@ class TestAbstraction(unittest.TestCase):
         self.assertListEqual(abst_res.splits[2], [0])
         self.assertListEqual(abst_res.splits[3], [0])
 
+    def test_split_by(self):
+
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=4)
 
 
+        x = np.random.randn(10, 10, 10)
+        abst_x1 = Abstraction().load(conf1, 'x1', x.shape, 'FLOAT', x)
+        abst_x2 = Abstraction().load(conf2, 'x2', x.shape, 'FLOAT', x)
+
+        abst_y1 = abst_x1.split_by([[0], list(range(10)), [0]], inplace=False)
+        abst_y2 = abst_x1.split_by([list(range(10)), [0], [0]], inplace=False)
+
+        self.assertTrue(correct_abstraction(abst_y1, x))
+        self.assertTrue(correct_abstraction(abst_y2, x))
+
+    def test_Conv(self):
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1,3,10,10])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4,4,5,5])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3])
+
+        X = np.random.randn(1, 10, 400, 400)
+        W = np.random.randn(16, 5, 3, 3)
+        B = np.random.randn(16) * 10.
+
+        aX = Abstraction().load(conf1, 'X', X.shape, 'FLOAT', X)
+        aW = Abstraction().load(conf2, 'W', W.shape, 'FLOAT', W)
+        aB = Abstraction().load(conf3, 'B', B.shape, 'FLOAT', B)
+
+        conv_node1 = helper.make_node(
+            "Conv", ['X', 'W'], ['res'], "Conv",
+            auto_pad='NOTSET', dilations=[1, 1], strides=[2, 2], group=2, pads=[100,50,100,50]
+        )
+
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node1, 'Conv', 'res')
+        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2,2), padding=(100,50), dilation=1, groups=2)
+        self.assertTrue(correct_abstraction(aRes, res))
+
+        # =======
+
+        conv_node2 = helper.make_node(
+            "Conv", ['X', 'W'], ['res'], "Conv",
+            auto_pad='VALID', dilations=[3, 3], strides=[2, 2], group=2
+        )
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node2, 'Conv', res)
+        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2,2), padding=0, dilation=3, groups=2)
+        self.assertTrue(correct_abstraction(aRes, res))
+
+        # =======
+
+        conv_node3 = helper.make_node(
+            "Conv", ['X', 'W'], ['res'], "Conv",
+            auto_pad='VALID', dilations=[3, 5], strides=[2, 5], group=2
+        )
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node3, 'Conv', res)
+        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2,5), padding=0, dilation=(3,5), groups=2)
+        self.assertTrue(correct_abstraction(aRes, res))
 
 
 

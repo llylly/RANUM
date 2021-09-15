@@ -128,7 +128,7 @@ class InterpModule():
                     inner_inputs = inner_inputs.union(inner_node.input)
                 illegal_inputs = [x for x in inner_inputs if x not in legal_nodes]
                 if len(illegal_inputs) != 0:
-                    print(f'  illegel input detected @ loop {node.name}:', illegal_inputs)
+                    print(f'  deployed a fix for illegel input detected @ loop {node.name}:', illegal_inputs)
                     self.loop_dependencies[node.name] = self.loop_dependencies[node.name].union(illegal_inputs)
 
                     for v in list(illegal_inputs) + list(node.output):
@@ -250,6 +250,8 @@ class InterpModule():
                         init_config[s] = AbstractionInitConfig(diff=self.signature_dict[s][0] not in discrete_types, stride=-1, from_init=True)
             else:
                 assert isinstance(init_config[s], AbstractionInitConfig)
+                if s in require_fine_grain_vars:
+                    init_config[s].stride = 1
 
             now_t, now_shape = self.signature_dict[s]
             now_raw_data = self.initializer_dict[s][1] if s in self.initializer_dict else None
@@ -263,7 +265,7 @@ class InterpModule():
 
         interpreter = Interpreter()
 
-        print('topology sort based intepretation...', flush=True)
+        print('topology sort based interpretation...', flush=True)
         queue = list(self.start_points).copy()
         cur_deg_in = self.deg_in.copy()
         l = 0
@@ -313,6 +315,8 @@ class InterpModule():
                                     self.abstracts[node.output[i]] = cur_cur_abst
             l += 1
 
+        # place to inspect abstraction for debug
+
         return self.possible_numerical_errors
 
     def gen_abstraction_heuristics(self):
@@ -322,7 +326,16 @@ class InterpModule():
         """
         result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True),
                   'Variable/read:0': AbstractionInitConfig(diff=True, from_init=False, lb=-1., ub=1.)}
-        # TODO: to be improved
+
+        for name, values in self.initializer_dict.items():
+            dtype, data = values
+            if dtype not in discrete_types:
+                # print(name, np.min(data), np.max(data), data.shape)
+                if data.ndim >= 1 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
+                    # approaching zero tensor detected, overwrite
+                    print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
+                    result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-1., ub=1.)
+
         return result
 
 

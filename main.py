@@ -25,5 +25,12 @@ if __name__ == '__main__':
 
     res = model.analyze(model.gen_abstraction_heuristics())
     prompt('analysis done')
-    print('analyze output:', res)
+    if len(res) == 0:
+        print('No numerical bug')
+    else:
+        print(f'{len(res)} possible numerical bug(s)')
+        for k, v in res.items():
+            print(f'- On tensor {k} triggered by operator {v[1]}:')
+            for item in v[0]:
+                print(str(item))
 
