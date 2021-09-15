@@ -7,7 +7,7 @@ from functools import reduce
 import onnx
 from onnx import numpy_helper
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError
+    PossibleNumericalError, index_clip_thres
 
 
 class Abstraction(object):
@@ -411,6 +411,7 @@ class Interpreter(object):
         """
 
         try:
+            # print(optype)
             func = getattr(self, 'interp_' + optype)
         except Exception as e:
             print(f'unsupported interpretation for optype {optype}')
@@ -807,6 +808,29 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_Sqrt(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+
+        print(abst.lb)
+
+        ret = None
+        if ((abst.lb < 0)).any():
+            ret = None
+        else:
+            ret = Abstraction()
+            ret.lb = abst.lb.sqrt()
+            ret.ub = abst.ub.sqrt()
+            ret.var_name = var_name
+            ret.shape = abst.shape.copy()
+            ret.splits = abst.splits.copy()
+
+        if (abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT).any():
+            return ret, [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)
+            ]
+        else:
+            return ret, list()
+
     def interp_Tanh(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
@@ -1123,19 +1147,19 @@ class Interpreter(object):
             starts = abstracts[1]
             ends = abstracts[2]
             assert starts.is_exact()
-            starts = starts.lb.detach().cpu().type(torch.int32).tolist()
+            starts = torch.clip(starts.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
             assert ends.is_exact()
-            ends = ends.lb.detach().cpu().type(torch.int32).tolist()
+            ends = torch.clip(ends.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
             if len(abstracts) >= 4:
                 axes = abstracts[3]
                 assert axes.is_exact()
-                axes = axes.lb.detach().cpu().type(torch.int32).tolist()
+                axes = torch.clip(axes.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
             else:
                 axes = list(range(len(starts)))
             if len(abstracts) >= 5:
                 steps = abstracts[4]
                 assert steps.is_exact()
-                steps = steps.lb.detach().cpu().type(torch.int32).tolist()
+                steps = torch.clip(steps.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
             else:
                 steps = [1 for _ in axes]
 
@@ -1312,7 +1336,7 @@ class Interpreter(object):
         elif len(abstracts) > 1:
             axes = abstracts[1]
             assert axes.is_exact()
-            axes = axes.lb.detach().cpu().type(torch.int32).tolist()
+            axes = axes.lb.detach().cpu().type(torch.int64).tolist()
         else:
             axes = [i for i, s in enumerate(abstracts[0].shape) if s == 1][::-1]
         # make sure the axes are deleted from back to front so that the dim indices do not shift
@@ -1338,7 +1362,7 @@ class Interpreter(object):
         elif len(abstracts) > 1:
             axes = abstracts[1]
             assert axes.is_exact()
-            axes = axes.lb.detach().cpu().type(torch.int32).tolist()
+            axes = axes.lb.detach().cpu().type(torch.int64).tolist()
         else:
             axes = [i for i, s in enumerate(abstracts[0].shape) if s == 1][::-1]
         # make sure the axes are deleted from back to front so that the dim indices do not shift
@@ -1431,6 +1455,12 @@ class Interpreter(object):
         ans.ub = torch.full([1] * len(ans.shape), high, device=device)
         ans.var_name = var_name
         return ans, list()
+
+    def interp_Constant(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        print('Constant node', var_name, 'found')
+        print('should not appear here --- the value should have been initialized during preprocessing')
+        return None, list()
 
     def interp_Less(self, abstracts, node, optype, var_name):
         abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
@@ -1605,6 +1635,17 @@ class Interpreter(object):
         attr = parse_attribute(node)
         keepdims = attr.get('keepdims', 1)
         axes = attr.get('axes', None)
+        if axes is None:
+            noop_with_empty_axes = attr.get('noop_with_empty_axes', 0)
+            if noop_with_empty_axes != 0 and len(abstracts) <= 1:
+                # noop behavior
+                return abstracts[0], list()
+            else:
+                if len(abstracts) > 1:
+                    assert abstracts[1].is_exact()
+                    axes = abstracts[1].lb.detach().cpu().type(torch.int64).tolist()
+                else:
+                    axes = [i for i in range(len(abstracts[0].shape))]
         assert axes is not None
         ans = Abstraction()
         # compute multiplies to calculate reduced sum

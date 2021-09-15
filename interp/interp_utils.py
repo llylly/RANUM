@@ -6,7 +6,7 @@ EPS = 1e-5
 
 class AbstractionInitConfig(object):
 
-    def __init__(self, diff: bool, lb=0., ub=1., from_init=False, from_init_margin=0., stride=-1):
+    def __init__(self, diff: bool, lb=-50., ub=50., from_init=False, from_init_margin=0., stride=-1):
         super(AbstractionInitConfig, self).__init__()
         # diff: whether requires_grad differentiable
         self.diff = diff
@@ -102,9 +102,16 @@ fine_grain_parameters = {
     'Loop': [0, 1],
     'SequenceInsert': [2],
     'ConstantOfShape': [0],
-    'Gather': [1]
+    'Gather': [1],
+    'ReduceSum': [1],
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
 # Thus, we don't need to backflow the fine grain requirement through those op_types
 forbid_fine_grain_flow = ['Shape']
+
+# PyTorch exports some values like -INT_MAX or INT_MAX to represent -inf and +inf
+# These values may become out of scope when converted to float than int64, and thus cause unprecedented errors
+# To avoid this, when coverting float to int index, we first apply clipping with this threshold
+# This threshold only needs to be large enough to cover all possible non-infty indexing
+index_clip_thres = 99999999

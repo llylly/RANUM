@@ -40,6 +40,24 @@ class InterpModule():
         self.initializer_dict = dict([(node.name,
                                        (self.tensor_type_mapper[node.data_type], onnx.numpy_helper.to_array(node))
                                             ) for node in self.onnx_model.graph.initializer])
+
+        """collect constant oprators as initializers"""
+        if debug: print('retrieve constant operators', flush=True)
+        for node in self.onnx_model.graph.node:
+            if node.op_type == 'Constant':
+                attr = parse_attribute(node)
+                if 'value' in attr:
+                    value = attr['value']
+                    dtype = self.tensor_type_mapper[value.data_type]
+                    data = onnx.numpy_helper.to_array(value)
+                    # print(dtype, data, node.output[0])
+                    self.initializer_vars.add(node.output[0])
+                    self.initializer_dict[node.output[0]] = (dtype, data)
+                else:
+                    raise Exception(f'I encountered an unsupported value field: {list(attr.keys())}, need implementation')
+
+        """collect initializers' signatures"""
+        if debug: print('retrieve signatures of initializers', flush=True)
         for k, v in self.initializer_dict.items():
             # extract the type signatures from graph initializer
             if k not in self.signature_dict:
@@ -324,8 +342,7 @@ class InterpModule():
             Generate a dictionary which contains the heuristics for each initial tensor if necessary
         :return:
         """
-        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True),
-                  'Variable/read:0': AbstractionInitConfig(diff=True, from_init=False, lb=-1., ub=1.)}
+        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True)}
 
         for name, values in self.initializer_dict.items():
             dtype, data = values
@@ -334,7 +351,7 @@ class InterpModule():
                 if data.ndim >= 1 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
                     print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
-                    result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-1., ub=1.)
+                    result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-10., ub=10.)
 
         return result
 

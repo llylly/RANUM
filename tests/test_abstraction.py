@@ -829,15 +829,25 @@ class TestAbstraction(unittest.TestCase):
                     abst_x = Abstraction().load(conf1, 'x', [10, 11, 12, 13], 'FLOAT', x)
 
                     for op, op_name, op_interp in zip(ops, op_names, op_interps):
-                        node = helper.make_node(
-                            op_name, ['x'], ['a'], op_name + "0", axes=axes, keepdims=keepdims
-                        )
+                        if op_name != 'ReduceSum':
+                            node = helper.make_node(
+                                op_name, ['x'], ['a'], op_name + "0", axes=axes, keepdims=keepdims
+                            )
+                        else:
+                            node = helper.make_node(
+                                op_name, ['x'], ['a'], op_name + "0", keepdims=keepdims
+                            )
+                        abst_axes = Abstraction().load(AbstractionInitConfig(diff=False, from_init=True, stride=1), 'axes',
+                                                       np.array(axes).shape, 'FLOAT', np.array(axes))
                         axes = [(axis + 4) % 4 for axis in axes]
                         axes.sort()
                         z = x
                         for axis in axes[::-1]:
                             z = op(z)(keepdims=keepdims == 1, axis=axis)
-                        abst_z, _ = op_interp([abst_x], node, op_name, 'z')
+                        if op_name != 'ReduceSum':
+                            abst_z, _ = op_interp([abst_x], node, op_name, 'z')
+                        else:
+                            abst_z, _ = op_interp([abst_x, abst_axes], node, op_name, 'z')
                         self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
 
     def test_Softmax(self):

@@ -209,7 +209,7 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = [3]
+run_ids = [11]
 
 # only for tensorflow models
 inputs_outputs = {
@@ -221,7 +221,9 @@ inputs_outputs = {
     "ID_8": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
     "ID_9": (['x', 'y'], ['loss', 'obj_function']),
     "ID_10": (['x', 'y'], ['cross_entropy', 'obj_function']),
-    "ID_11": (['x', 'y'], ['loss', 'obj_function', 'obj_grad']),
+    # seems the DynamicStitch is still not supported by tf2onnx
+    # "ID_11": (['x', 'y'], ['loss', 'obj_function', 'obj_grad']),
+    "ID_11": (['x', 'y'], ['loss', 'obj_function']),
 }
 
 import sys
