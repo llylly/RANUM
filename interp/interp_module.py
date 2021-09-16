@@ -342,7 +342,8 @@ class InterpModule():
             Generate a dictionary which contains the heuristics for each initial tensor if necessary
         :return:
         """
-        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True)}
+        # keep_prob's range should be (0, 1]
+        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1)}
 
         for name, values in self.initializer_dict.items():
             dtype, data = values

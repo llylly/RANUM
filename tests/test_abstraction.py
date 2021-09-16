@@ -702,8 +702,8 @@ class TestAbstraction(unittest.TestCase):
         self.assertEqual(PossibleNumericalError.ERROR_CONTAINS_ZERO, exceptions[0].err_cond)
 
         # test Pow with an error
-        y[0, 0, 0] = 1000
-        x[0, 0, 0, 0] = 100
+        y[0, 0, 0] = 100
+        x[0, 0, 0, 0] = 3
         abst_x = Abstraction().load(conf1, 'x', [10, 20, 10, 30], 'FLOAT', x)
         abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'INT', y)
         abst_z, exceptions = interp.interp_Pow([abst_x, abst_y], node, op_name, 'z')

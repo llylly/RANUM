@@ -484,11 +484,20 @@ class Interpreter(object):
         choices = torch.stack(
             [abst0.lb.pow(abst1.lb), abst0.lb.pow(abst1.ub), abst0.ub.pow(abst1.lb), abst0.ub.pow(abst1.ub)],
             dim=0)
-        ans.lb = torch.min(choices, dim=0)[0]
-        ans.ub = torch.max(choices, dim=0)[0]
-        if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+        # use float32 to see if the pow operator triggers a numerical error
+        # TODO: adapt to the operator's original type,
+        # TODO: E.g., if pow(x, y)'s argument x and y are both float64, then we shouldn't generate an exception
+        choices_float32 = torch.stack(
+            [abst0.lb.to(torch.float32).pow(abst1.lb.to(torch.float32)),
+             abst0.lb.to(torch.float32).pow(abst1.ub.to(torch.float32)),
+             abst0.ub.to(torch.float32).pow(abst1.lb.to(torch.float32)),
+             abst0.ub.to(torch.float32).pow(abst1.ub.to(torch.float32))],
+            dim=0)
+        if any(PossibleNumericalError.is_invalid(x) for x in choices_float32):
             return None, [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
                                                  PossibleNumericalError.ERROR_OVERFLOW)]
+        ans.lb = torch.min(choices, dim=0)[0]
+        ans.ub = torch.max(choices, dim=0)[0]
         ans.var_name = var_name
 
         return ans, list()
@@ -612,7 +621,8 @@ class Interpreter(object):
         dilations = attr.get('dilations', [1, 1])
         kernel_shape = W.shape[2:]
         out_shape, padding = compute_outshape_padding(attr.get('auto_pad', 'NOTSET'), attr.get('pads', None),
-                                  X.shape[2], X.shape[3], kernel_shape[0], kernel_shape[1], dilations, strides)
+                                                      X.shape[2], X.shape[3], kernel_shape[0], kernel_shape[1],
+                                                      dilations, strides)
         padding = np.array(padding)
 
         # print([abst.shape for abst in abstracts])
@@ -680,10 +690,10 @@ class Interpreter(object):
                 X.splits[3] = X.splits[3] + [X.shape[3]]
                 X.shape[3] += padding[3]
 
-
         W_ref_channels = list(set([item % (X.shape[1] // group) for item in X.splits[1]]))
         X_ref_channels = [item + now_group * W.shape[1] for now_group in range(group) for item in W_ref_channels]
-        W.split_by([W.splits[0] if B is None else B.splits[0], W_ref_channels, list(range(W.shape[2])), list(range(W.shape[3]))], inplace=True)
+        W.split_by([W.splits[0] if B is None else B.splits[0], W_ref_channels, list(range(W.shape[2])),
+                    list(range(W.shape[3]))], inplace=True)
         X.split_by([X.splits[0], X_ref_channels, X.splits[2], X.splits[3]], inplace=True)
         if B is not None:
             B = B.split_by([W.splits[0]], inplace=False)
@@ -740,22 +750,26 @@ class Interpreter(object):
         """fold repeated indices"""
         xblklen = np.array(X.splits[2][1:] + [X.shape[2]]) - np.array(X.splits[2])
         yblklen = np.array(X.splits[3][1:] + [X.shape[3]]) - np.array(X.splits[3])
-        x_index = [i for i,lx in enumerate(X.splits[2]) for dlta in range(xblklen[i] - xreps[i] * strides[0])]
-        y_index = [i for i,ly in enumerate(X.splits[3]) for dlta in range(yblklen[i] - yreps[i] * strides[1])]
+        x_index = [i for i, lx in enumerate(X.splits[2]) for dlta in range(xblklen[i] - xreps[i] * strides[0])]
+        y_index = [i for i, ly in enumerate(X.splits[3]) for dlta in range(yblklen[i] - yreps[i] * strides[1])]
 
         # print(x_index, y_index)
         # print(len(x_index), len(y_index))
 
-        new_X_lb = X.lb.index_select(dim=2, index=torch.tensor(x_index).to(X.lb.device))\
-                       .index_select(dim=3, index=torch.tensor(y_index).to(X.lb.device))
-        new_X_ub = X.ub.index_select(dim=2, index=torch.tensor(x_index).to(X.ub.device))\
-                       .index_select(dim=3, index=torch.tensor(y_index).to(X.ub.device))
+        new_X_lb = X.lb.index_select(dim=2, index=torch.tensor(x_index).to(X.lb.device)) \
+            .index_select(dim=3, index=torch.tensor(y_index).to(X.lb.device))
+        new_X_ub = X.ub.index_select(dim=2, index=torch.tensor(x_index).to(X.ub.device)) \
+            .index_select(dim=3, index=torch.tensor(y_index).to(X.ub.device))
 
         """core conv operation"""
-        C1 = torch.nn.functional.conv2d(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations, groups=group)
-        C2 = torch.nn.functional.conv2d(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations, groups=group)
-        C3 = torch.nn.functional.conv2d(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations, groups=group)
-        C4 = torch.nn.functional.conv2d(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations, groups=group)
+        C1 = torch.nn.functional.conv2d(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
+                                        groups=group)
+        C2 = torch.nn.functional.conv2d(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
+                                        groups=group)
+        C3 = torch.nn.functional.conv2d(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
+                                        groups=group)
+        C4 = torch.nn.functional.conv2d(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
+                                        groups=group)
         Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
         Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
         if B is not None:
@@ -768,15 +782,15 @@ class Interpreter(object):
         """infer splits and shape"""
         split_x = list()
         for i in range(len(lpxs)):
-            if i == 0 or (lpxs[i] != rpxs[i]) or (lpxs[i] != lpxs[i-1]):
+            if i == 0 or (lpxs[i] != rpxs[i]) or (lpxs[i] != lpxs[i - 1]):
                 split_x.append(i)
         split_y = list()
         for i in range(len(lpys)):
-            if i == 0 or (lpys[i] != rpys[i]) or (lpys[i] != lpys[i-1]):
+            if i == 0 or (lpys[i] != rpys[i]) or (lpys[i] != lpys[i - 1]):
                 split_y.append(i)
         try:
-            assert(Cmin.shape[2] == len(split_x))
-            assert(Cmax.shape[3] == len(split_y))
+            assert (Cmin.shape[2] == len(split_x))
+            assert (Cmax.shape[3] == len(split_y))
         except Exception:
             print(f'! shape does not match: expected ({len(split_x)}, {len(split_y)})')
             print(f'                        got ({Cmin.shape[2]}, {Cmin.shape[3]})')
@@ -1147,19 +1161,23 @@ class Interpreter(object):
             starts = abstracts[1]
             ends = abstracts[2]
             assert starts.is_exact()
-            starts = torch.clip(starts.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
+            starts = torch.clip(starts.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(
+                torch.int64).tolist()
             assert ends.is_exact()
-            ends = torch.clip(ends.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
+            ends = torch.clip(ends.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(
+                torch.int64).tolist()
             if len(abstracts) >= 4:
                 axes = abstracts[3]
                 assert axes.is_exact()
-                axes = torch.clip(axes.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
+                axes = torch.clip(axes.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(
+                    torch.int64).tolist()
             else:
                 axes = list(range(len(starts)))
             if len(abstracts) >= 5:
                 steps = abstracts[4]
                 assert steps.is_exact()
-                steps = torch.clip(steps.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(torch.int64).tolist()
+                steps = torch.clip(steps.lb.detach().cpu(), min=-index_clip_thres, max=index_clip_thres).type(
+                    torch.int64).tolist()
             else:
                 steps = [1 for _ in axes]
 
@@ -1273,7 +1291,8 @@ class Interpreter(object):
             indices = indices.lb.detach().cpu().numpy().astype(np.int)
             axis = parse_attribute(node).get('axis', 0)
             axis_split = data.splits[axis]
-            cord = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1, arr=indices.reshape(-1, 1)) - 1
+            cord = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1,
+                                       arr=indices.reshape(-1, 1)) - 1
             cord = cord.reshape(indices.shape)
 
             # print(axis, indices, indices.shape)
@@ -2125,4 +2144,3 @@ def compute_outshape_padding(pad_mode, prev_pads, h, w, kh, kw, dilations, strid
         elif pad_mode == 'VALID':
 
             return [out_h, out_w], [0, delta_h, 0, delta_w]
-
