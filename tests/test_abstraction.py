@@ -837,7 +837,8 @@ class TestAbstraction(unittest.TestCase):
                             node = helper.make_node(
                                 op_name, ['x'], ['a'], op_name + "0", keepdims=keepdims
                             )
-                        abst_axes = Abstraction().load(AbstractionInitConfig(diff=False, from_init=True, stride=1), 'axes',
+                        abst_axes = Abstraction().load(AbstractionInitConfig(diff=False, from_init=True, stride=1),
+                                                       'axes',
                                                        np.array(axes).shape, 'FLOAT', np.array(axes))
                         axes = [(axis + 4) % 4 for axis in axes]
                         axes.sort()
@@ -1013,7 +1014,7 @@ class TestAbstraction(unittest.TestCase):
         abst_x1 = Abstraction().load(conf1, 'x1', x.shape, 'FLOAT', x)
         abst_x2 = Abstraction().load(conf2, 'x2', x.shape, 'FLOAT', x)
 
-        ind = np.array([[1,2,1],[0,1,2],[3,4,9],[4,5,9]])
+        ind = np.array([[1, 2, 1], [0, 1, 2], [3, 4, 9], [4, 5, 9]])
         abst_ind = Abstraction().load(conf_precise, 'gather', ind.shape, 'FLOAT', ind)
 
         node = helper.make_node(
@@ -1026,8 +1027,8 @@ class TestAbstraction(unittest.TestCase):
         # abst_res.print()
         self.assertTrue(correct_abstraction(abst_res, res))
         self.assertTrue(correct_format(abst_res))
-        self.assertListEqual(abst_res.splits[1], [0,2])
-        self.assertListEqual(abst_res.splits[2], [0,2])
+        self.assertListEqual(abst_res.splits[1], [0, 2])
+        self.assertListEqual(abst_res.splits[2], [0, 2])
 
         # ===========
 
@@ -1036,17 +1037,17 @@ class TestAbstraction(unittest.TestCase):
         )
 
         abst_res, _ = interp.interp_Gather([abst_x1, abst_ind], node, 'Gather', 'res')
-        res = x.take(ind.reshape(-1), axis=0).reshape(ind.shape + (10,10))
+        res = x.take(ind.reshape(-1), axis=0).reshape(ind.shape + (10, 10))
 
         # abst_res.print()
         self.assertTrue(correct_abstraction(abst_res, res))
         self.assertTrue(correct_format(abst_res))
-        self.assertListEqual(abst_res.splits[0], [0,2])
-        self.assertListEqual(abst_res.splits[1], [0,2])
+        self.assertListEqual(abst_res.splits[0], [0, 2])
+        self.assertListEqual(abst_res.splits[1], [0, 2])
 
         # ===========
 
-        ind = np.array([[[0,1,2,3],[0,1,2,3],[4,5,6,7],[4,5,6,7]]])
+        ind = np.array([[[0, 1, 2, 3], [0, 1, 2, 3], [4, 5, 6, 7], [4, 5, 6, 7]]])
         abst_ind = Abstraction().load(conf_precise, 'gather', ind.shape, 'FLOAT', ind)
 
         node = helper.make_node(
@@ -1060,13 +1061,12 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(correct_abstraction(abst_res, res))
         self.assertTrue(correct_format(abst_res))
         self.assertListEqual(abst_res.splits[1], [0])
-        self.assertListEqual(abst_res.splits[2], [0,2])
+        self.assertListEqual(abst_res.splits[2], [0, 2])
         self.assertListEqual(abst_res.splits[3], [0])
-
 
         # ===========
 
-        ind = np.array([[[0,1,2,3],[0,1,2,3],[3,0,1,2],[3,0,1,2]]])
+        ind = np.array([[[0, 1, 2, 3], [0, 1, 2, 3], [3, 0, 1, 2], [3, 0, 1, 2]]])
         abst_ind = Abstraction().load(conf_precise, 'gather', ind.shape, 'FLOAT', ind)
 
         node = helper.make_node(
@@ -1089,7 +1089,6 @@ class TestAbstraction(unittest.TestCase):
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
         conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=4)
 
-
         x = np.random.randn(10, 10, 10)
         abst_x1 = Abstraction().load(conf1, 'x1', x.shape, 'FLOAT', x)
         abst_x2 = Abstraction().load(conf2, 'x2', x.shape, 'FLOAT', x)
@@ -1102,8 +1101,8 @@ class TestAbstraction(unittest.TestCase):
 
     def test_Conv(self):
         interp = Interpreter()
-        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1,3,10,10])
-        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4,4,5,5])
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10, 10])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4, 4, 5, 5])
         conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3])
 
         X = np.random.randn(1, 10, 400, 400)
@@ -1115,36 +1114,114 @@ class TestAbstraction(unittest.TestCase):
         aB = Abstraction().load(conf3, 'B', B.shape, 'FLOAT', B)
 
         conv_node1 = helper.make_node(
-            "Conv", ['X', 'W'], ['res'], "Conv",
-            auto_pad='NOTSET', dilations=[1, 1], strides=[2, 2], group=2, pads=[100,50,100,50]
+            "Conv", ['X', 'W', 'b'], ['res'], "Conv",
+            auto_pad='NOTSET', dilations=[1, 1], strides=[2, 2], group=2, pads=[100, 50, 100, 50]
         )
 
+        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2),
+                                         padding=(100, 50), dilation=1, groups=2)
         aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node1, 'Conv', 'res')
-        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2,2), padding=(100,50), dilation=1, groups=2)
         self.assertTrue(correct_abstraction(aRes, res))
 
         # =======
 
         conv_node2 = helper.make_node(
-            "Conv", ['X', 'W'], ['res'], "Conv",
+            "Conv", ['X', 'W', 'b'], ['res'], "Conv",
             auto_pad='VALID', dilations=[3, 3], strides=[2, 2], group=2
         )
-        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node2, 'Conv', res)
-        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2,2), padding=0, dilation=3, groups=2)
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node2, 'Conv', 'res')
+        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2), padding=0,
+                                         dilation=3, groups=2)
         self.assertTrue(correct_abstraction(aRes, res))
 
         # =======
 
         conv_node3 = helper.make_node(
-            "Conv", ['X', 'W'], ['res'], "Conv",
+            "Conv", ['X', 'W', 'b'], ['res'], "Conv",
             auto_pad='VALID', dilations=[3, 5], strides=[2, 5], group=2
         )
-        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node3, 'Conv', res)
-        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2,5), padding=0, dilation=(3,5), groups=2)
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node3, 'Conv', 'res')
+        res = torch.nn.functional.conv2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 5), padding=0,
+                                         dilation=(3, 5), groups=2)
         self.assertTrue(correct_abstraction(aRes, res))
 
+        # =======
 
+        X = np.array([[[[0., 1., 2., 3., 4.],  # (1, 1, 5, 5) input tensor
+                        [5., 6., 7., 8., 9.],
+                        [10., 11., 12., 13., 14.],
+                        [15., 16., 17., 18., 19.],
+                        [20., 21., 22., 23., 24.]]]]).astype(np.float32)
+        W = np.array([[[[1., 1., 1.],  # (1, 1, 3, 3) tensor for convolution weights
+                        [1., 1., 1.],
+                        [1., 1., 1.]]]]).astype(np.float32)
 
+        # Convolution with auto_pad='SAME_LOWER' and strides=2
+        conv_node4 = helper.make_node(
+            'Conv',
+            inputs=['x', 'W'],
+            outputs=['y'],
+            auto_pad='SAME_LOWER',
+            kernel_shape=[3, 3],
+            strides=[2, 2],
+        )
+        y = np.array([[[[12., 27., 24.],
+                        [63., 108., 81.],
+                        [72., 117., 84.]]]]).astype(np.float32)
+        aX = Abstraction().load(conf1, 'X', X.shape, 'FLOAT', X)
+        aW = Abstraction().load(conf2, 'W', W.shape, 'FLOAT', W)
+        aRes, _ = interp.interp_Conv([aX, aW], conv_node4, 'Conv', 'res')
+        self.assertTrue(correct_abstraction(aRes, y))
+
+        # =======
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10,])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4, 4, 3])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[5])
+
+        X = np.random.randn(1, 5, 40)
+        W = np.random.randn(16, 5, 4)
+        B = np.random.randn(16) * 10.
+
+        aX = Abstraction().load(conf1, 'X', X.shape, 'FLOAT', X)
+        aW = Abstraction().load(conf2, 'W', W.shape, 'FLOAT', W)
+        aB = Abstraction().load(conf3, 'B', B.shape, 'FLOAT', B)
+
+        conv_node5 = helper.make_node(
+            'Conv',
+            inputs=['x', 'W', 'b'],
+            outputs=['y'],
+            pads=[4, 4],
+            strides=[3],  # Default values for other attributes: dilations=[1, 1, 1], groups=1
+        )
+        res = torch.nn.functional.conv1d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(3),
+                                         padding=[4])
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node5, 'Conv', 'res')
+        self.assertTrue(correct_abstraction(aRes, res))
+
+        # =======
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10, 10, 10])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4, 4, 5, 5, 3])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3])
+
+        X = np.random.randn(1, 5, 40, 40, 101)
+        W = np.random.randn(16, 5, 3, 3, 4)
+        B = np.random.randn(16) * 10.
+
+        aX = Abstraction().load(conf1, 'X', X.shape, 'FLOAT', X)
+        aW = Abstraction().load(conf2, 'W', W.shape, 'FLOAT', W)
+        aB = Abstraction().load(conf3, 'B', B.shape, 'FLOAT', B)
+
+        conv_node6 = helper.make_node(
+            'Conv',
+            inputs=['x', 'W', 'b'],
+            outputs=['y'],
+            pads=[1, 0, 1, 1, 0, 1],
+            strides=[2, 2, 3],  # Default values for other attributes: dilations=[1, 1, 1], groups=1
+        )
+        res = torch.nn.functional.conv3d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2, 3),
+                                         padding=[1, 0, 1])
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node6, 'Conv', 'res')
+        self.assertTrue(correct_abstraction(aRes, res))
 
     def test_conv(self):
         pass
