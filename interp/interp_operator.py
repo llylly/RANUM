@@ -610,7 +610,7 @@ class Interpreter(object):
         dim_for_pool = len(X.shape) - 2
         strides = attr.get('strides', [1] * dim_for_pool)
         dilations = attr.get('dilations', [1] * dim_for_pool)
-        ceil_mode = attr.get('ceil_mode', 0)
+        ceil_mode = attr.get('ceil_mode', 0) == 1
         kernel_shape = attr.get('kernel_shape', None)
         storage_order = attr.get('storage_order', 0)  # TODO: what's the usage of storage_order?
         assert kernel_shape is not None
@@ -670,6 +670,131 @@ class Interpreter(object):
         ans.splits = X.splits[:2] + splits
 
         return ans if not need_index else (ans, None), list()
+
+    def interp_AveragePool(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        X = Abstraction()
+        X.lb = abstracts[0].lb
+        X.ub = abstracts[0].ub
+        X.splits = abstracts[0].splits.copy()
+        X.shape = abstracts[0].shape.copy()
+        X.var_name = 'X'
+        dim_for_pool = len(X.shape) - 2
+        strides = attr.get('strides', [1] * dim_for_pool)
+        dilations = [1] * dim_for_pool
+        ceil_mode = attr.get('ceil_mode', 0) == 1
+        kernel_shape = attr.get('kernel_shape', None)
+        count_include_pad = attr.get('count_include_pad', 0) == 1
+        assert kernel_shape is not None
+        auto_pad = attr.get('auto_pad', None)
+        pads = attr.get('pads', None)
+        if auto_pad is None and pads is None:
+            pads = [0] * (2 * dim_for_pool)
+
+        out_shape, padding = compute_outshape_padding(attr.get('auto_pad', 'NOTSET'), pads,
+                                                      X.shape[2:], kernel_shape,
+                                                      dilations, strides, ceil_mode=ceil_mode)
+        padding = np.array(padding)
+
+        """append the padding to the abstraction, so that all conv becomes valid padding ops"""
+        add_padding_to_X(X, padding, float('NAN'))
+
+        """compute mapping to abst indices after conv"""
+        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
+                                                                 strides)
+
+        """exclude NAN paddings and interpret them as padding"""
+        nan_begin_paddings = []
+        for i in range(dim_for_pool):
+            nan_begin_paddings.append(0)
+            indices = [slice(None)] * len(new_X_lb.shape)
+            for j in range(0, new_X_lb.shape[2 + i]):
+                indices[2 + i] = j
+                if new_X_lb[tuple(indices)].isnan().all():
+                    nan_begin_paddings[-1] = j + 1
+                else:
+                    break
+
+            if nan_begin_paddings[-1] > 0:
+                indices = [slice(None)] * len(new_X_lb.shape)
+                indices[2 + i] = slice(nan_begin_paddings[-1], None)
+                new_X_lb = new_X_lb[tuple(indices)]
+                new_X_ub = new_X_ub[tuple(indices)]
+
+        nan_end_paddings = []
+        for i in range(dim_for_pool):
+            nan_end_paddings.append(0)
+            indices = [slice(None)] * len(new_X_lb.shape)
+            for j in range(0, new_X_lb.shape[2 + i]):
+                indices[2 + i] = new_X_lb.shape[2 + i] - j - 1
+                if new_X_lb[tuple(indices)].isnan().all():
+                    nan_end_paddings[-1] = j + 1
+                else:
+                    break
+
+            if nan_end_paddings[-1] > 0:
+                indices = [slice(None)] * len(new_X_lb.shape)
+                indices[2 + i] = slice(None, -nan_end_paddings[-1])
+                new_X_lb = new_X_lb[tuple(indices)]
+                new_X_ub = new_X_ub[tuple(indices)]
+
+        assert not new_X_lb.isnan().any()
+        if count_include_pad:
+            if any(x != y for x, y in zip(nan_begin_paddings, nan_end_paddings)):
+                raise NotImplementedError("odd SAME_UPPER or SAME_LOWER not implemented for count_include_pad == 1")
+        nan_paddings = [max(x, y) for x, y in zip(nan_begin_paddings, nan_end_paddings)]
+
+        """core pool operation"""
+        if dim_for_pool == 1:
+            func = torch.nn.functional.avg_pool1d
+        elif dim_for_pool == 2:
+            func = torch.nn.functional.avg_pool2d
+        elif dim_for_pool == 3:
+            func = torch.nn.functional.avg_pool3d
+        else:
+            raise NotImplementedError("No convXd for X > 3!")
+
+        Cmin = func(new_X_lb, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
+                    count_include_pad=count_include_pad, ceil_mode=ceil_mode)
+        Cmax = func(new_X_ub, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
+                    count_include_pad=count_include_pad, ceil_mode=ceil_mode)
+
+        """fix Cmin Cmax for odd SAME_UPPER or SAME_LOWER"""
+        if nan_begin_paddings[0] < nan_end_paddings[0]:
+            indices = [slice(None)] * 2 + [slice(nan_end_paddings[i] - nan_begin_paddings[i], None) for i in
+                                           range(dim_for_pool)]
+            Cmin = Cmin[tuple(indices)]
+            Cmax = Cmax[tuple(indices)]
+        elif nan_begin_paddings[0] > nan_end_paddings[0]:
+            indices = [slice(None)] * 2 + [slice(None, nan_end_paddings[i] - nan_begin_paddings[i]) for i in
+                                           range(dim_for_pool)]
+            Cmin = Cmin[tuple(indices)]
+            Cmax = Cmax[tuple(indices)]
+
+        """infer splits and shape"""
+        splits = [list() for _ in range(dim_for_pool)]
+        for index in range(dim_for_pool):
+            lpxs = lpses[index]
+            rpxs = rpses[index]
+            for i in range(len(lpxs)):
+                if i == 0 or (lpxs[i] != rpxs[i]) or (lpxs[i] != lpxs[i - 1]):
+                    splits[index].append(i)
+
+        try:
+            for i in range(dim_for_pool):
+                assert (Cmin.shape[2 + i] == len(splits[i]))
+                assert (Cmax.shape[2 + i] == len(splits[i]))
+        except Exception:
+            print(f'! shape does not match: expected ({[len(x) for x in splits]})')
+            print(f'                        got ({[Cmin.shape[i + 2] for i in range(dim_for_pool)]})')
+
+        ans = Abstraction()
+        ans.lb = Cmin
+        ans.ub = Cmax
+        ans.shape = X.shape[:2] + out_shape
+        ans.splits = X.splits[:2] + splits
+
+        return ans, list()
 
     def interp_Conv(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
