@@ -2,6 +2,7 @@ import unittest
 import torch
 import numpy as np
 from onnx import helper, TensorProto
+from onnx.backend.test.case.node.pool_op_common import get_output_shape, pool, get_pad_shape
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
@@ -1174,7 +1175,7 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(correct_abstraction(aRes, y))
 
         # =======
-        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10,])
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10, ])
         conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4, 4, 3])
         conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[5])
 
@@ -1223,8 +1224,262 @@ class TestAbstraction(unittest.TestCase):
         aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node6, 'Conv', 'res')
         self.assertTrue(correct_abstraction(aRes, res))
 
-    def test_conv(self):
-        pass
+    def test_MaxPool(self):
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 2])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2, 4, 5, 5])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3, 5, 10, 10, 10])
+
+        def check(conf, node, x, y):
+            ax = Abstraction().load(conf, 'X', x.shape, 'FLOAT', x)
+            aRes, _ = interp.interp_MaxPool([ax], node, 'MaxPool', 'res')
+            self.assertTrue(correct_abstraction(aRes, y))
+
+        # maxpool_1d_default
+        pool_node1 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2],
+        )
+        x = np.random.randn(1, 3, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = [2]
+        strides = [1]
+        out_shape = get_output_shape('VALID', x_shape[2:], kernel_shape, strides)
+        padded = x
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, [0], 'MAX')
+        check(conf1, pool_node1, x, y)
+
+        # maxpool_2d_ceil
+        pool_node2 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[3, 3],
+            strides=[2, 2],
+            ceil_mode=True
+        )
+        x = np.array([[[
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [9, 10, 11, 12],
+            [13, 14, 15, 16],
+        ]]]).astype(np.float32)
+        y = np.array([[[
+            [11, 12],
+            [15, 16]]]]).astype(np.float32)
+
+        check(conf2, pool_node2, x, y)
+
+        # maxpool_2d_default
+        pool_node3 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2, 2],
+        )
+        x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (2, 2)
+        strides = (1, 1)
+        out_shape = get_output_shape('VALID', x_shape[2:], kernel_shape, strides)
+        padded = x
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, (0, 0), 'MAX')
+
+        check(conf2, pool_node3, x, y)
+
+        # maxpool_2d_dilations
+        pool_node4 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2, 2],
+            strides=[1, 1],
+            dilations=[2, 2]
+        )
+        x = np.array([[[
+            [1, 2, 3, 4],
+            [5, 6, 7, 8],
+            [9, 10, 11, 12],
+            [13, 14, 15, 16],
+        ]]]).astype(np.float32)
+        y = np.array([[[
+            [11, 12],
+            [15, 16]]]]).astype(np.float32)
+
+        check(conf2, pool_node4, x, y)
+
+        # maxpool_2d_pads
+        pool_node5 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[3, 3],
+            pads=[2, 2, 2, 2]
+        )
+        x = np.random.randn(1, 3, 28, 28).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (3, 3)
+        strides = (1, 1)
+        pad_bottom = pad_top = pad_right = pad_left = 2
+        pad_shape = [pad_top + pad_bottom, pad_left + pad_right]
+        out_shape = get_output_shape('VALID', np.add(x_shape[2:], pad_shape), kernel_shape, strides)
+        padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
+                        constant_values=np.nan)
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'MAX')
+
+        check(conf2, pool_node5, x, y)
+
+        # maxpool_2d_precomputed_pads
+        pool_node6 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[5, 5],
+            pads=[2, 2, 2, 2]
+
+        )
+        x = np.array([[[
+            [1, 2, 3, 4, 5],
+            [6, 7, 8, 9, 10],
+            [11, 12, 13, 14, 15],
+            [16, 17, 18, 19, 20],
+            [21, 22, 23, 24, 25],
+        ]]]).astype(np.float32)
+        y = np.array([[[
+            [13, 14, 15, 15, 15],
+            [18, 19, 20, 20, 20],
+            [23, 24, 25, 25, 25],
+            [23, 24, 25, 25, 25],
+            [23, 24, 25, 25, 25]]]]).astype(np.float32)
+
+        check(conf2, pool_node6, x, y)
+
+        # maxpool_2d_precomputed_same_upper
+        pool_node7 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[3, 3],
+            strides=[2, 2],
+            auto_pad='SAME_UPPER'
+        )
+        x = np.array([[[
+            [1, 2, 3, 4, 5],
+            [6, 7, 8, 9, 10],
+            [11, 12, 13, 14, 15],
+            [16, 17, 18, 19, 20],
+            [21, 22, 23, 24, 25],
+        ]]]).astype(np.float32)
+        y = np.array([[[[7, 9, 10],
+                        [17, 19, 20],
+                        [22, 24, 25]]]]).astype(np.float32)
+
+        check(conf2, pool_node7, x, y)
+
+        # maxpool_2d_precomputed_strides
+        pool_node8 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2, 2],
+            strides=[2, 2]
+        )
+        x = np.array([[[
+            [1, 2, 3, 4, 5],
+            [6, 7, 8, 9, 10],
+            [11, 12, 13, 14, 15],
+            [16, 17, 18, 19, 20],
+            [21, 22, 23, 24, 25],
+        ]]]).astype(np.float32)
+        y = np.array([[[[7, 9],
+                        [17, 19]]]]).astype(np.float32)
+
+        check(conf2, pool_node8, x, y)
+
+        # maxpool_2d_same_lower
+        pool_node9 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2, 2],
+            auto_pad='SAME_LOWER'
+        )
+        x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (2, 2)
+        strides = (1, 1)
+        out_shape = get_output_shape('SAME_LOWER', x_shape[2:], kernel_shape, strides)
+        pad_shape = get_pad_shape('SAME_LOWER', x_shape[2:], kernel_shape, strides, out_shape)
+        pad_bottom = pad_shape[0] // 2
+        pad_top = pad_shape[0] - pad_bottom
+        pad_right = pad_shape[1] // 2
+        pad_left = pad_shape[1] - pad_right
+        padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
+                        constant_values=np.nan)
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'MAX')
+
+        check(conf2, pool_node9, x, y)
+
+        # maxpool_2d_same_upper
+        pool_node10 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2, 2],
+            auto_pad='SAME_UPPER'
+        )
+        x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (2, 2)
+        strides = (1, 1)
+        out_shape = get_output_shape('SAME_UPPER', x_shape[2:], kernel_shape, strides)
+        pad_shape = get_pad_shape('SAME_UPPER', x_shape[2:], kernel_shape, strides, out_shape)
+        pad_top = pad_shape[0] // 2
+        pad_bottom = pad_shape[0] - pad_top
+        pad_left = pad_shape[1] // 2
+        pad_right = pad_shape[1] - pad_left
+        padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
+                        constant_values=np.nan)
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'MAX')
+
+        check(conf2, pool_node10, x, y)
+
+        # maxpool_2d_strides
+        pool_node11 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[5, 5],
+            strides=[3, 3]
+        )
+        x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (5, 5)
+        strides = (3, 3)
+        out_shape = get_output_shape('VALID', x_shape[2:], kernel_shape, strides)
+        padded = x
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, (0, 0), 'MAX')
+
+        check(conf2, pool_node11, x, y)
+
+        # maxpool_3d_default
+        pool_node12 = helper.make_node(
+            'MaxPool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[2, 2, 2],
+        )
+        x = np.random.randn(1, 3, 32, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = [2, 2, 2]
+        strides = [1, 1, 1]
+        out_shape = get_output_shape('VALID', x_shape[2:], kernel_shape, strides)
+        padded = x
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, [0, 0, 0], 'MAX')
+
+        check(conf3, pool_node12, x, y)
 
 
 if __name__ == '__main__':

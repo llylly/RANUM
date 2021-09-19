@@ -598,6 +598,79 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_MaxPool(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        need_index = len(node.output) > 1  # need we return indices?
+        X = Abstraction()
+        X.lb = abstracts[0].lb
+        X.ub = abstracts[0].ub
+        X.splits = abstracts[0].splits.copy()
+        X.shape = abstracts[0].shape.copy()
+        X.var_name = 'X'
+        dim_for_pool = len(X.shape) - 2
+        strides = attr.get('strides', [1] * dim_for_pool)
+        dilations = attr.get('dilations', [1] * dim_for_pool)
+        ceil_mode = attr.get('ceil_mode', 0)
+        kernel_shape = attr.get('kernel_shape', None)
+        storage_order = attr.get('storage_order', 0)  # TODO: what's the usage of storage_order?
+        assert kernel_shape is not None
+        auto_pad = attr.get('auto_pad', None)
+        pads = attr.get('pads', None)
+        if auto_pad is None and pads is None:
+            pads = [0] * (2 * dim_for_pool)
+
+        out_shape, padding = compute_outshape_padding(attr.get('auto_pad', 'NOTSET'), pads,
+                                                      X.shape[2:], kernel_shape,
+                                                      dilations, strides, ceil_mode=ceil_mode)
+        padding = np.array(padding)
+
+        """append the padding to the abstraction, so that all conv becomes valid padding ops"""
+        add_padding_to_X(X, padding, float("-Inf"))
+
+        """compute mapping to abst indices after conv"""
+        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
+                                                                 strides)
+
+        """core pool operation"""
+        if dim_for_pool == 1:
+            func = torch.nn.functional.max_pool1d
+        elif dim_for_pool == 2:
+            func = torch.nn.functional.max_pool2d
+        elif dim_for_pool == 3:
+            func = torch.nn.functional.max_pool3d
+        else:
+            raise NotImplementedError("No convXd for X > 3!")
+
+        Cmin = func(new_X_lb, kernel_size=kernel_shape, stride=strides, padding=0, dilation=dilations,
+                    ceil_mode=ceil_mode == 1)
+        Cmax = func(new_X_ub, kernel_size=kernel_shape, stride=strides, padding=0, dilation=dilations,
+                    ceil_mode=ceil_mode == 1)
+
+        """infer splits and shape"""
+        splits = [list() for _ in range(dim_for_pool)]
+        for index in range(dim_for_pool):
+            lpxs = lpses[index]
+            rpxs = rpses[index]
+            for i in range(len(lpxs)):
+                if i == 0 or (lpxs[i] != rpxs[i]) or (lpxs[i] != lpxs[i - 1]):
+                    splits[index].append(i)
+
+        try:
+            for i in range(dim_for_pool):
+                assert (Cmin.shape[2 + i] == len(splits[i]))
+                assert (Cmax.shape[2 + i] == len(splits[i]))
+        except Exception:
+            print(f'! shape does not match: expected ({[len(x) for x in splits]})')
+            print(f'                        got ({[Cmin.shape[i + 2] for i in range(dim_for_pool)]})')
+
+        ans = Abstraction()
+        ans.lb = Cmin
+        ans.ub = Cmax
+        ans.shape = X.shape[:2] + out_shape
+        ans.splits = X.splits[:2] + splits
+
+        return ans if not need_index else (ans, None), list()
+
     def interp_Conv(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
 
@@ -632,55 +705,7 @@ class Interpreter(object):
         # print('padding:', padding)
 
         """append the padding to the abstraction, so that all conv becomes valid padding ops"""
-        if any(padding < 0):
-            # trim the input if there exists padding < 0
-            # print('detected padding < 0 case')
-            for i in range(len(padding)):
-                if padding[i] < 0:
-                    begin = i % 2 == 0
-                    index_of_padding = i // 2
-                    if begin:
-                        start_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding], -padding[i]) - 1
-                        if start_h_ind > 0:
-                            indexes = [slice(None)] * len(X.shape)
-                            indexes[2 + index_of_padding] = slice(start_h_ind, None)
-                            X.lb = X.lb[indexes]
-                            X.ub = X.ub[indexes]
-                            X.splits[2 + index_of_padding] = [max(item + padding[i], 0) for item in
-                                                              X.splits[2 + index_of_padding][start_h_ind:]]
-                    else:
-                        end_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding],
-                                                        X.shape[2 + index_of_padding] + padding[i]) - 1
-                        if end_h_ind < X.lb.shape[2 + index_of_padding] - 1:
-                            indexes = [slice(None)] * len(X.shape)
-                            indexes[2 + index_of_padding] = slice(None, end_h_ind)
-                            X.lb = X.lb[indexes]
-                            X.ub = X.ub[indexes]
-                            X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding][:end_h_ind]
-
-                    X.shape[2 + index_of_padding] += padding[i]
-
-        elif any(padding > 0):
-            # prepend the input if there exists padding > 0
-            for i in range(len(padding)):
-                if padding[i] > 0:
-                    begin = i % 2 == 0
-                    index_of_padding = i // 2
-                    to_pend_shape = list(X.lb.shape)
-                    to_pend_shape[2 + index_of_padding] = 1
-                    to_pend = torch.zeros(to_pend_shape).to(X.lb.device)
-                    if begin:
-                        X.lb = torch.cat([to_pend, X.lb], dim=2 + index_of_padding)
-                        X.ub = torch.cat([to_pend, X.ub], dim=2 + index_of_padding)
-                        X.splits[2 + index_of_padding] = [0] + [item + padding[i] for item in
-                                                                X.splits[2 + index_of_padding]]
-                        X.shape[2 + index_of_padding] += padding[i]
-                    else:
-                        X.lb = torch.cat([X.lb, to_pend], dim=2 + index_of_padding)
-                        X.ub = torch.cat([X.ub, to_pend], dim=2 + index_of_padding)
-                        X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding] + [
-                            X.shape[2 + index_of_padding]]
-                        X.shape[2 + index_of_padding] += padding[i]
+        add_padding_to_X(X, padding, 0)
 
         W_ref_channels = list(set([item % (X.shape[1] // group) for item in X.splits[1]]))
         W.split_by([W.splits[0] if B is None else B.splits[0], W_ref_channels] + [list(range(x)) for x in
@@ -697,51 +722,8 @@ class Interpreter(object):
         X.ub = X.ub * torch.tensor(channel_strides, device=X.ub.device)
 
         """compute mapping to abst indices after conv"""
-        lpses = []  # the list of [lpxs, lpys] when dim_for_conv == 2
-        rpses = []  # the list of [rpxs, rpys] when dim_for_conv == 2
-        repses = []  # the list of [xreps, yreps] when dim_for_conv == 2
-        for i in range(dim_for_conv):
-            lp = rp = 0
-            lx = 0
-            rx = dilations[i] * (kernel_shape[i] - 1)
-            lpxs, rpxs = list(), list()
-            xreps = [0 for _ in X.splits[2 + i]]
-
-            for x in range(out_shape[i]):
-                prelp = lp
-                while lp < X.lb.shape[2 + i] - 1 and X.splits[2 + i][lp + 1] <= lx:
-                    lp += 1
-                while rp < X.lb.shape[2 + i] - 1 and X.splits[2 + i][rp + 1] <= rx:
-                    rp += 1
-                # print(lx, rx, lp, rp)
-                if lp == rp == prelp and lx != 0:
-                    xreps[lp] += 1
-                lpxs.append(lp)
-                rpxs.append(rp)
-                lx += strides[i]
-                rx += strides[i]
-
-            lpses.append(lpxs)
-            rpses.append(rpxs)
-            repses.append(xreps)
-
-        # print(repses)
-
-        """fold repeated indices"""
-        blklens = [np.array(X.splits[2 + i][1:] + [X.shape[2 + i]]) - np.array(X.splits[2 + i]) for i in
-                   range(dim_for_conv)]
-        indexes = [[i for i, lx in enumerate(X.splits[2 + index])
-                    for _ in range(blklens[index][i] - repses[index][i] * strides[index])] for index
-                   in range(dim_for_conv)]
-
-        # print(x_index, y_index)
-        # print(len(x_index), len(y_index))
-
-        new_X_lb = X.lb
-        new_X_ub = X.ub
-        for i in range(dim_for_conv):
-            new_X_lb = new_X_lb.index_select(dim=2 + i, index=torch.tensor(indexes[i]).to(X.lb.device))
-            new_X_ub = new_X_ub.index_select(dim=2 + i, index=torch.tensor(indexes[i]).to(X.ub.device))
+        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations,
+                                                                 strides)
 
         """core conv operation"""
         if dim_for_conv == 1:
@@ -754,13 +736,13 @@ class Interpreter(object):
             raise NotImplementedError("No convXd for X > 3!")
 
         C1 = func(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                                        groups=group)
+                  groups=group)
         C2 = func(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
-                                        groups=group)
+                  groups=group)
         C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                                        groups=group)
+                  groups=group)
         C4 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                                        groups=group)
+                  groups=group)
         Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
         Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
         if B is not None:
@@ -2139,3 +2121,105 @@ def compute_outshape_padding(pad_mode, prev_pads, x_conv_shape, kernel_shape, di
                     padding_deltas.extend([delta - delta // 2, delta // 2])
 
         return out_shape, padding_deltas
+
+
+def add_padding_to_X(X, padding, value):
+    if any(padding < 0):
+        # trim the input if there exists padding < 0
+        # print('detected padding < 0 case')
+        for i in range(len(padding)):
+            if padding[i] < 0:
+                begin = i % 2 == 0
+                index_of_padding = i // 2
+                if begin:
+                    start_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding], -padding[i]) - 1
+                    if start_h_ind > 0:
+                        indexes = [slice(None)] * len(X.shape)
+                        indexes[2 + index_of_padding] = slice(start_h_ind, None)
+                        X.lb = X.lb[indexes]
+                        X.ub = X.ub[indexes]
+                        X.splits[2 + index_of_padding] = [max(item + padding[i], 0) for item in
+                                                          X.splits[2 + index_of_padding][start_h_ind:]]
+                else:
+                    end_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding],
+                                                    X.shape[2 + index_of_padding] + padding[i]) - 1
+                    if end_h_ind < X.lb.shape[2 + index_of_padding] - 1:
+                        indexes = [slice(None)] * len(X.shape)
+                        indexes[2 + index_of_padding] = slice(None, end_h_ind)
+                        X.lb = X.lb[indexes]
+                        X.ub = X.ub[indexes]
+                        X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding][:end_h_ind]
+
+                X.shape[2 + index_of_padding] += padding[i]
+
+    elif any(padding > 0):
+        # prepend the input if there exists padding > 0
+        for i in range(len(padding)):
+            if padding[i] > 0:
+                begin = i % 2 == 0
+                index_of_padding = i // 2
+                to_pend_shape = list(X.lb.shape)
+                to_pend_shape[2 + index_of_padding] = 1
+                to_pend = torch.full(to_pend_shape, value).to(X.lb.device)
+                if begin:
+                    X.lb = torch.cat([to_pend, X.lb], dim=2 + index_of_padding)
+                    X.ub = torch.cat([to_pend, X.ub], dim=2 + index_of_padding)
+                    X.splits[2 + index_of_padding] = [0] + [item + padding[i] for item in
+                                                            X.splits[2 + index_of_padding]]
+                    X.shape[2 + index_of_padding] += padding[i]
+                else:
+                    X.lb = torch.cat([X.lb, to_pend], dim=2 + index_of_padding)
+                    X.ub = torch.cat([X.ub, to_pend], dim=2 + index_of_padding)
+                    X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding] + [
+                        X.shape[2 + index_of_padding]]
+                    X.shape[2 + index_of_padding] += padding[i]
+
+
+def fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations, strides):
+    lpses = []  # the list of [lpxs, lpys] when dim_for_conv == 2
+    rpses = []  # the list of [rpxs, rpys] when dim_for_conv == 2
+    repses = []  # the list of [xreps, yreps] when dim_for_conv == 2
+    for i in range(dim_for_conv):
+        lp = rp = 0
+        lx = 0
+        rx = dilations[i] * (kernel_shape[i] - 1)
+        lpxs, rpxs = list(), list()
+        xreps = [0 for _ in X.splits[2 + i]]
+
+        for x in range(out_shape[i]):
+            prelp = lp
+            while lp < X.lb.shape[2 + i] - 1 and X.splits[2 + i][lp + 1] <= lx:
+                lp += 1
+            while rp < X.lb.shape[2 + i] - 1 and X.splits[2 + i][rp + 1] <= rx:
+                rp += 1
+            # print(lx, rx, lp, rp)
+            if lp == rp == prelp and lx != 0:
+                xreps[lp] += 1
+            lpxs.append(lp)
+            rpxs.append(rp)
+            lx += strides[i]
+            rx += strides[i]
+
+        lpses.append(lpxs)
+        rpses.append(rpxs)
+        repses.append(xreps)
+
+    # print(repses)
+
+    """fold repeated indices"""
+    blklens = [np.array(X.splits[2 + i][1:] + [X.shape[2 + i]]) - np.array(X.splits[2 + i]) for i in
+               range(dim_for_conv)]
+    indexes = [[i for i, lx in enumerate(X.splits[2 + index])
+                for _ in range(blklens[index][i] - repses[index][i] * strides[index])] for index
+               in range(dim_for_conv)]
+
+    # print(x_index, y_index)
+    # print(len(x_index), len(y_index))
+
+    new_X_lb = X.lb
+    new_X_ub = X.ub
+    for i in range(dim_for_conv):
+        new_X_lb = new_X_lb.index_select(dim=2 + i, index=torch.tensor(indexes[i]).to(X.lb.device))
+        new_X_ub = new_X_ub.index_select(dim=2 + i, index=torch.tensor(indexes[i]).to(X.ub.device))
+
+    return new_X_lb, new_X_ub, lpses, rpses
