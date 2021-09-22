@@ -82,7 +82,6 @@ class Abstraction(object):
                 try:
                     assert len(stride) == len(tensor_shape)
                 except:
-                    raise Exception(f'Variable {var_name}: stride config {stride} should much {tensor_shape}')
                     raise Exception(f'Variable {var_name}: stride config {stride} should match {tensor_shape}')
 
             if len(tensor_shape) == 0:
