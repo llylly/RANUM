@@ -83,6 +83,7 @@ class Abstraction(object):
                     assert len(stride) == len(tensor_shape)
                 except:
                     raise Exception(f'Variable {var_name}: stride config {stride} should much {tensor_shape}')
+                    raise Exception(f'Variable {var_name}: stride config {stride} should match {tensor_shape}')
 
             if len(tensor_shape) == 0:
                 # scalar
@@ -387,7 +388,8 @@ class Interpreter(object):
     """
 
     def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
-                 loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1)):
+                 loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1),
+                 average_pool_mode='precise'):
         # default smash threshold
         self.smash = smash_thres
 
@@ -397,9 +399,11 @@ class Interpreter(object):
         # the coarse means that, the corase bound is (lb, ub+1) for ceil and (lb-1, ub) for floor, which is imprecise but we can obtain the gradient
         assert ceil in ['precise', 'identical', 'coarse']
         assert floor in ['precise', 'identical', 'coarse']
+        assert average_pool_mode in ['precise', 'coarse']
         self.ceil = ceil
         self.floor = floor
         self.loop_constant_abst_cfg = loop_constant_abst_cfg
+        self.average_pool_mode = average_pool_mode
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -600,7 +604,7 @@ class Interpreter(object):
 
     def interp_MaxPool(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
-        need_index = len(node.output) > 1  # need we return indices?
+        need_index = len(node.output) > 1  # need we return indices? # I returned a very coarse index range
         X = Abstraction()
         X.lb = abstracts[0].lb
         X.ub = abstracts[0].ub
@@ -639,7 +643,7 @@ class Interpreter(object):
         elif dim_for_pool == 3:
             func = torch.nn.functional.max_pool3d
         else:
-            raise NotImplementedError("No convXd for X > 3!")
+            raise NotImplementedError("No max_poolXd for X > 3!")
 
         Cmin = func(new_X_lb, kernel_size=kernel_shape, stride=strides, padding=0, dilation=dilations,
                     ceil_mode=ceil_mode == 1)
@@ -668,10 +672,25 @@ class Interpreter(object):
         ans.ub = Cmax
         ans.shape = X.shape[:2] + out_shape
         ans.splits = X.splits[:2] + splits
+        ans.var_name = var_name
 
-        return ans if not need_index else (ans, None), list()
+        if need_index:
+            ans.var_name = node.output[0]
+            indices_abst = Abstraction()
+            indices_abst.lb = torch.zeros((1,) * ans.get_dim(), device=ans.lb.device)
+            indices_abst.ub = torch.zeros((1,) * ans.get_dim(), device=ans.lb.device) + max(reduce(lambda x, y: x * y, ans.shape) - 1, 0)
+            indices_abst.shape = ans.shape.copy()
+            indices_abst.splits = [[0] for _ in ans.shape]
+            indices_abst.var_name = node.output[1]
+
+        return ans if not need_index else [ans, indices_abst], list()
 
     def interp_AveragePool(self, abstracts, node, optype, var_name):
+        """
+            @TODO: for precise mode, need to handle these cases later
+                1. count_include_pad = False, left pad < right pad
+                2. count_include_pad = False, left pad > right pad, stride > 1
+        """
         attr = parse_attribute(node)
         X = Abstraction()
         X.lb = abstracts[0].lb
@@ -696,81 +715,113 @@ class Interpreter(object):
                                                       dilations, strides, ceil_mode=ceil_mode)
         padding = np.array(padding)
 
-        """append the padding to the abstraction, so that all conv becomes valid padding ops"""
-        if count_include_pad:
-            add_padding_to_X(X, padding, 0)
-        else:
-            add_padding_to_X(X, padding, float('NAN'))
+        if self.average_pool_mode == 'precise':
+            """append the padding to the abstraction, so that all conv becomes valid padding ops"""
+            if count_include_pad:
+                add_padding_to_X(X, padding, 0)
+            else:
+                add_padding_to_X(X, padding, float('NAN'))
 
-        """compute mapping to abst indices after conv"""
-        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
-                                                                 strides)
+            """compute mapping to abst indices after conv"""
+            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
+                                                                     strides)
 
-        """exclude NAN paddings and interpret them as padding"""
-        nan_begin_paddings = []
-        for i in range(dim_for_pool):
-            nan_begin_paddings.append(0)
-            indices = [slice(None)] * len(new_X_lb.shape)
-            for j in range(0, new_X_lb.shape[2 + i]):
-                indices[2 + i] = j
-                if new_X_lb[tuple(indices)].isnan().all():
-                    nan_begin_paddings[-1] = j + 1
-                else:
-                    break
-
-            if nan_begin_paddings[-1] > 0:
+            """exclude NAN paddings and interpret them as padding"""
+            nan_begin_paddings = []
+            for i in range(dim_for_pool):
+                nan_begin_paddings.append(0)
                 indices = [slice(None)] * len(new_X_lb.shape)
-                indices[2 + i] = slice(nan_begin_paddings[-1], None)
-                new_X_lb = new_X_lb[tuple(indices)]
-                new_X_ub = new_X_ub[tuple(indices)]
+                for j in range(0, new_X_lb.shape[2 + i]):
+                    indices[2 + i] = j
+                    if new_X_lb[tuple(indices)].isnan().all():
+                        nan_begin_paddings[-1] = j + 1
+                    else:
+                        break
 
-        nan_end_paddings = []
-        for i in range(dim_for_pool):
-            nan_end_paddings.append(0)
-            indices = [slice(None)] * len(new_X_lb.shape)
-            for j in range(0, new_X_lb.shape[2 + i]):
-                indices[2 + i] = new_X_lb.shape[2 + i] - j - 1
-                if new_X_lb[tuple(indices)].isnan().all():
-                    nan_end_paddings[-1] = j + 1
-                else:
-                    break
+                if nan_begin_paddings[-1] > 0:
+                    indices = [slice(None)] * len(new_X_lb.shape)
+                    indices[2 + i] = slice(nan_begin_paddings[-1], None)
+                    new_X_lb = new_X_lb[tuple(indices)]
+                    new_X_ub = new_X_ub[tuple(indices)]
 
-            if nan_end_paddings[-1] > 0:
+            nan_end_paddings = []
+            for i in range(dim_for_pool):
+                nan_end_paddings.append(0)
                 indices = [slice(None)] * len(new_X_lb.shape)
-                indices[2 + i] = slice(None, -nan_end_paddings[-1])
-                new_X_lb = new_X_lb[tuple(indices)]
-                new_X_ub = new_X_ub[tuple(indices)]
+                for j in range(0, new_X_lb.shape[2 + i]):
+                    indices[2 + i] = new_X_lb.shape[2 + i] - j - 1
+                    if new_X_lb[tuple(indices)].isnan().all():
+                        nan_end_paddings[-1] = j + 1
+                    else:
+                        break
 
-        assert not new_X_lb.isnan().any()
-        if not count_include_pad:
-            if any(x < y for x, y in zip(nan_begin_paddings, nan_end_paddings)):
-                raise NotImplementedError("odd SAME_UPPER not implemented for count_include_pad == 1")
-        nan_paddings = [max(x, y) for x, y in zip(nan_begin_paddings, nan_end_paddings)]
+                if nan_end_paddings[-1] > 0:
+                    indices = [slice(None)] * len(new_X_lb.shape)
+                    indices[2 + i] = slice(None, -nan_end_paddings[-1])
+                    new_X_lb = new_X_lb[tuple(indices)]
+                    new_X_ub = new_X_ub[tuple(indices)]
 
-        """core pool operation"""
-        if dim_for_pool == 1:
-            func = torch.nn.functional.avg_pool1d
-        elif dim_for_pool == 2:
-            func = torch.nn.functional.avg_pool2d
-        elif dim_for_pool == 3:
-            func = torch.nn.functional.avg_pool3d
+            assert not new_X_lb.isnan().any()
+            if not count_include_pad:
+                if any(x < y for x, y in zip(nan_begin_paddings, nan_end_paddings)):
+                    raise NotImplementedError("odd SAME_UPPER not implemented for count_include_pad == 1")
+            nan_paddings = [max(x, y) for x, y in zip(nan_begin_paddings, nan_end_paddings)]
+
+            """core pool operation"""
+            if dim_for_pool == 1:
+                func = torch.nn.functional.avg_pool1d
+            elif dim_for_pool == 2:
+                func = torch.nn.functional.avg_pool2d
+            elif dim_for_pool == 3:
+                func = torch.nn.functional.avg_pool3d
+            else:
+                raise NotImplementedError("No convXd for X > 3!")
+
+            Cmin = func(new_X_lb, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
+                        count_include_pad=count_include_pad, ceil_mode=ceil_mode)
+            Cmax = func(new_X_ub, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
+                        count_include_pad=count_include_pad, ceil_mode=ceil_mode)
+
+            """fix Cmin Cmax for odd SAME_LOWER"""
+            indices = [slice(None)] * 2 + [
+                slice(None, nan_end_paddings[i] - nan_begin_paddings[i])
+                if nan_begin_paddings[i] - nan_end_paddings[i] >= strides[
+                    i]  # only if strides[i] == 1 and nan_begin_paddings[i] > nan_end_paddings[i]
+                else slice(None)
+                for i in range(dim_for_pool)]
+            Cmin = Cmin[tuple(indices)]
+            Cmax = Cmax[tuple(indices)]
+
+        elif self.average_pool_mode == 'coarse':
+
+            """append the padding to the abstraction, so that all conv becomes valid padding ops"""
+            if count_include_pad:
+                add_padding_to_X(X, padding, 0)
+            else:
+                add_padding_to_X(X, padding, float('NAN'), mode='minmax')
+
+            """compute mapping to abst indices after conv"""
+            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
+                                                                     strides)
+
+            """core pool operation"""
+            if dim_for_pool == 1:
+                func = torch.nn.functional.avg_pool1d
+            elif dim_for_pool == 2:
+                func = torch.nn.functional.avg_pool2d
+            elif dim_for_pool == 3:
+                func = torch.nn.functional.avg_pool3d
+            else:
+                raise NotImplementedError("No avg_poolXd for X > 3!")
+
+            Cmin = func(new_X_lb, kernel_size=kernel_shape, stride=strides, padding=0, count_include_pad=False,
+                        ceil_mode=ceil_mode == 1)
+            Cmax = func(new_X_ub, kernel_size=kernel_shape, stride=strides, padding=0, count_include_pad=False,
+                        ceil_mode=ceil_mode == 1)
+
         else:
-            raise NotImplementedError("No convXd for X > 3!")
+            raise NotImplementedError(f'Unknown average pooling abstraction mode: {self.average_pool_mode}')
 
-        Cmin = func(new_X_lb, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
-                    count_include_pad=count_include_pad, ceil_mode=ceil_mode)
-        Cmax = func(new_X_ub, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
-                    count_include_pad=count_include_pad, ceil_mode=ceil_mode)
-
-        """fix Cmin Cmax for odd SAME_LOWER"""
-        indices = [slice(None)] * 2 + [
-            slice(None, nan_end_paddings[i] - nan_begin_paddings[i])
-            if nan_begin_paddings[i] - nan_end_paddings[i] >= strides[
-                i]  # only if strides[i] == 1 and nan_begin_paddings[i] > nan_end_paddings[i]
-            else slice(None)
-            for i in range(dim_for_pool)]
-        Cmin = Cmin[tuple(indices)]
-        Cmax = Cmax[tuple(indices)]
 
         """infer splits and shape"""
         splits = [list() for _ in range(dim_for_pool)]
@@ -900,6 +951,7 @@ class Interpreter(object):
         ans.ub = Cmax
         ans.shape = [X.shape[0], W.shape[0]] + out_shape
         ans.splits = [X.splits[0], W.splits[0]] + splits
+        ans.var_name = var_name
 
         # print('after conv shape:', ans.shape)
         # ans.print()
@@ -2249,7 +2301,8 @@ def compute_outshape_padding(pad_mode, prev_pads, x_conv_shape, kernel_shape, di
         return out_shape, padding_deltas
 
 
-def add_padding_to_X(X, padding, value):
+def add_padding_to_X(X, padding, value, mode='value'):
+    assert mode in ['value', 'minmax']
     if any(padding < 0):
         # trim the input if there exists padding < 0
         # print('detected padding < 0 case')
@@ -2286,16 +2339,21 @@ def add_padding_to_X(X, padding, value):
                 index_of_padding = i // 2
                 to_pend_shape = list(X.lb.shape)
                 to_pend_shape[2 + index_of_padding] = 1
-                to_pend = torch.full(to_pend_shape, value).to(X.lb.device)
+                if mode == 'value':
+                    to_pend_min = torch.full(to_pend_shape, value).to(X.lb.device)
+                    to_pend_max = to_pend_min
+                elif mode == 'minmax':
+                    to_pend_min = torch.min(X.lb, dim=2 + index_of_padding, keepdim=True)[0]
+                    to_pend_max = torch.max(X.ub, dim=2 + index_of_padding, keepdim=True)[0]
                 if begin:
-                    X.lb = torch.cat([to_pend, X.lb], dim=2 + index_of_padding)
-                    X.ub = torch.cat([to_pend, X.ub], dim=2 + index_of_padding)
+                    X.lb = torch.cat([to_pend_min, X.lb], dim=2 + index_of_padding)
+                    X.ub = torch.cat([to_pend_max, X.ub], dim=2 + index_of_padding)
                     X.splits[2 + index_of_padding] = [0] + [item + padding[i] for item in
                                                             X.splits[2 + index_of_padding]]
                     X.shape[2 + index_of_padding] += padding[i]
                 else:
-                    X.lb = torch.cat([X.lb, to_pend], dim=2 + index_of_padding)
-                    X.ub = torch.cat([X.ub, to_pend], dim=2 + index_of_padding)
+                    X.lb = torch.cat([X.lb, to_pend_min], dim=2 + index_of_padding)
+                    X.ub = torch.cat([X.ub, to_pend_max], dim=2 + index_of_padding)
                     X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding] + [
                         X.shape[2 + index_of_padding]]
                     X.shape[2 + index_of_padding] += padding[i]
