@@ -1924,6 +1924,69 @@ class TestAbstraction(unittest.TestCase):
 
             check(conf2, node, x, y)
 
+    def test_Flatten(self):
+        """
+            Test flatten
+        :return:
+        """
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf2 = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+
+        targ_shape = [5, 5, -1]
+
+        a = np.array(list(range(5 * 5 * 5 * 5 * 2))).reshape((5, 5, 5, 5, 2))
+        abst1 = Abstraction()
+        abst1.load(conf1, 'v1', [5, 5, 5, 5, 2], 'FLOAT', a)
+
+
+        node = helper.make_node(
+            'Flatten',
+            inputs=['x'],
+            outputs=['y'],
+            axis=2
+        )
+
+        b = a.reshape(tuple(targ_shape))
+        abst2, _ = interp.interp_Flatten([abst1], node, 'Flatten', 'y')
+        self.assertTrue(correct_abstraction(abst2, b))
+
+        # =========
+
+        targ_shape = [-1]
+        c = a.reshape(tuple(targ_shape))
+
+        node = helper.make_node(
+            'Flatten',
+            inputs=['x'],
+            outputs=['y'],
+            axis=0
+        )
+        abst3, _ = interp.interp_Flatten([abst1], node, 'Flatten', 'y')
+        self.assertTrue(correct_abstraction(abst3, c))
+
+        # summary(abst3)
+
+        # ============
+
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3, 3, 3])
+
+        targ_shape = [6, -1]
+
+        a = np.array(list(range(6 * 6 * 6))).reshape((6, 6, 6))
+        abst1 = Abstraction()
+        abst1.load(conf3, 'v2', [6, 6, 6], 'FLOAT', a)
+
+        d = a.reshape(tuple(targ_shape))
+        node = helper.make_node(
+            'Flatten',
+            inputs=['x'],
+            outputs=['y'],
+        )
+        abst4, _ = interp.interp_Flatten([abst1], node, 'Flatten', 'y')
+        self.assertTrue(correct_abstraction(abst4, d))
+
+        # summary(abst4)
 
 if __name__ == '__main__':
     unittest.main()

@@ -211,7 +211,7 @@ class InterpModule():
                (None if now_dim.dim_value is None else now_dim.dim_value) for now_dim in shape.dim]
         return ans
 
-    def analyze(self, init_config=None):
+    def analyze(self, init_config=None, interp_config=dict()):
 
         # independent abstraction variables
         self.initial_abstracts = dict()
@@ -281,7 +281,7 @@ class InterpModule():
         for k, v in self.initial_abstracts.items():
             self.abstracts[k] = v
 
-        interpreter = Interpreter()
+        interpreter = Interpreter(**interp_config)
 
         print('topology sort based interpretation...', flush=True)
         queue = list(self.start_points).copy()

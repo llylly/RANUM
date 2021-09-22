@@ -23,7 +23,7 @@ if __name__ == '__main__':
     model = load_onnx_from_file(args.modelpath)
     prompt('model initialized')
 
-    res = model.analyze(model.gen_abstraction_heuristics())
+    res = model.analyze(model.gen_abstraction_heuristics(), {'average_pool_mode': 'coarse'})
     prompt('analysis done')
     if len(res) == 0:
         print('No numerical bug')

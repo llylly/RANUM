@@ -1228,6 +1228,17 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_Flatten(self, abstracts, node, optype, var_name):
+        data = abstracts[0]
+        attrs = parse_attribute(node)
+        axis = attrs.get('axis', 1)
+        if axis < 0:
+            axis = data.get_dim() + axis
+        ans = self.general_flatten(data, axis)
+        if var_name is not None:
+            ans.var_name = var_name
+        return ans, list()
+
     def interp_Transpose(self, abstracts, node, optype, var_name):
         attrs = parse_attribute(node)
         inp = abstracts[0]
