@@ -1686,7 +1686,32 @@ class TestAbstraction(unittest.TestCase):
 
         check(conf2, node, x, y)
 
-        # averagepool_2d_same_lower
+        # averagepool_2d_same_lower strides != 1
+        node = helper.make_node(
+            'AveragePool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[3, 3],
+            strides=[2, 2],
+            auto_pad='SAME_LOWER'
+        )
+        x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (3, 3)
+        strides = (2, 2)
+        out_shape = get_output_shape('SAME_LOWER', x_shape[2:], kernel_shape, strides)
+        pad_shape = get_pad_shape('SAME_LOWER', x_shape[2:], kernel_shape, strides, out_shape)
+        pad_bottom = pad_shape[0] // 2
+        pad_top = pad_shape[0] - pad_bottom
+        pad_right = pad_shape[1] // 2
+        pad_left = pad_shape[1] - pad_right
+        padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
+                        constant_values=np.nan)
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'AVG')
+
+        check(conf2, node, x, y)
+
+        # averagepool_2d_same_lower strides == 1
         node = helper.make_node(
             'AveragePool',
             inputs=['x'],
@@ -1710,7 +1735,7 @@ class TestAbstraction(unittest.TestCase):
 
         check(conf2, node, x, y)
 
-        # averagepool_2d_same_upper
+        # averagepool_2d_same_upper strides == 1
         node = helper.make_node(
             'AveragePool',
             inputs=['x'],
@@ -1732,7 +1757,34 @@ class TestAbstraction(unittest.TestCase):
                         constant_values=np.nan)
         y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'AVG')
 
-        check(conf2, node, x, y)
+        with self.assertRaises(NotImplementedError):
+            check(conf2, node, x, y)
+
+            # averagepool_2d_same_upper strides != 1
+            node = helper.make_node(
+                'AveragePool',
+                inputs=['x'],
+                outputs=['y'],
+                kernel_shape=[3, 3],
+                strides=[2, 2],
+                auto_pad='SAME_UPPER'
+            )
+            x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+            x_shape = np.shape(x)
+            kernel_shape = (3, 3)
+            strides = (2, 2)
+            out_shape = get_output_shape('SAME_UPPER', x_shape[2:], kernel_shape, strides)
+            pad_shape = get_pad_shape('SAME_UPPER', x_shape[2:], kernel_shape, strides, out_shape)
+            pad_top = pad_shape[0] // 2
+            pad_bottom = pad_shape[0] - pad_top
+            pad_left = pad_shape[1] // 2
+            pad_right = pad_shape[1] - pad_left
+            padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
+                            constant_values=np.nan)
+            y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'AVG')
+
+            with self.assertRaises(NotImplementedError):
+                check(conf2, node, x, y)
 
         # averagepool_2d_strides
         node = helper.make_node(
@@ -1789,11 +1841,36 @@ class TestAbstraction(unittest.TestCase):
         pad_right = pad_shape[1] // 2
         pad_left = pad_shape[1] - pad_right
         padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
-                        constant_values=np.nan)
+                        constant_values=0)
         y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'AVG', count_include_pad=1)
 
-        with self.assertRaises(NotImplementedError):
-            check(conf2, node, x, y)
+        check(conf2, node, x, y)
+
+        # averagepool_2d_same_upper_count_include_pad strides != 1
+        node = helper.make_node(
+            'AveragePool',
+            inputs=['x'],
+            outputs=['y'],
+            kernel_shape=[3, 3],
+            auto_pad='SAME_UPPER',
+            strides=[2, 2],
+            count_include_pad=1
+        )
+        x = np.random.randn(1, 3, 32, 32).astype(np.float32)
+        x_shape = np.shape(x)
+        kernel_shape = (3, 3)
+        strides = (2, 2)
+        out_shape = get_output_shape('SAME_UPPER', x_shape[2:], kernel_shape, strides)
+        pad_shape = get_pad_shape('SAME_UPPER', x_shape[2:], kernel_shape, strides, out_shape)
+        pad_top = pad_shape[0] // 2
+        pad_bottom = pad_shape[0] - pad_top
+        pad_left = pad_shape[1] // 2
+        pad_right = pad_shape[1] - pad_left
+        padded = np.pad(x, ((0, 0), (0, 0), (pad_top, pad_bottom), (pad_left, pad_right)), mode='constant',
+                        constant_values=0)
+        y = pool(padded, x_shape, kernel_shape, strides, out_shape, pad_shape, 'AVG', count_include_pad=1)
+
+        check(conf2, node, x, y)
 
 
 if __name__ == '__main__':

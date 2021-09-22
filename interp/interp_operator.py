@@ -697,7 +697,10 @@ class Interpreter(object):
         padding = np.array(padding)
 
         """append the padding to the abstraction, so that all conv becomes valid padding ops"""
-        add_padding_to_X(X, padding, float('NAN'))
+        if count_include_pad:
+            add_padding_to_X(X, padding, 0)
+        else:
+            add_padding_to_X(X, padding, float('NAN'))
 
         """compute mapping to abst indices after conv"""
         new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
@@ -739,9 +742,9 @@ class Interpreter(object):
                 new_X_ub = new_X_ub[tuple(indices)]
 
         assert not new_X_lb.isnan().any()
-        if count_include_pad:
-            if any(x != y for x, y in zip(nan_begin_paddings, nan_end_paddings)):
-                raise NotImplementedError("odd SAME_UPPER or SAME_LOWER not implemented for count_include_pad == 1")
+        if not count_include_pad:
+            if any(x < y for x, y in zip(nan_begin_paddings, nan_end_paddings)):
+                raise NotImplementedError("odd SAME_UPPER not implemented for count_include_pad == 1")
         nan_paddings = [max(x, y) for x, y in zip(nan_begin_paddings, nan_end_paddings)]
 
         """core pool operation"""
@@ -759,17 +762,15 @@ class Interpreter(object):
         Cmax = func(new_X_ub, kernel_size=kernel_shape, stride=strides, padding=nan_paddings,
                     count_include_pad=count_include_pad, ceil_mode=ceil_mode)
 
-        """fix Cmin Cmax for odd SAME_UPPER or SAME_LOWER"""
-        if nan_begin_paddings[0] < nan_end_paddings[0]:
-            indices = [slice(None)] * 2 + [slice(nan_end_paddings[i] - nan_begin_paddings[i], None) for i in
-                                           range(dim_for_pool)]
-            Cmin = Cmin[tuple(indices)]
-            Cmax = Cmax[tuple(indices)]
-        elif nan_begin_paddings[0] > nan_end_paddings[0]:
-            indices = [slice(None)] * 2 + [slice(None, nan_end_paddings[i] - nan_begin_paddings[i]) for i in
-                                           range(dim_for_pool)]
-            Cmin = Cmin[tuple(indices)]
-            Cmax = Cmax[tuple(indices)]
+        """fix Cmin Cmax for odd SAME_LOWER"""
+        indices = [slice(None)] * 2 + [
+            slice(None, nan_end_paddings[i] - nan_begin_paddings[i])
+            if nan_begin_paddings[i] - nan_end_paddings[i] >= strides[
+                i]  # only if strides[i] == 1 and nan_begin_paddings[i] > nan_end_paddings[i]
+            else slice(None)
+            for i in range(dim_for_pool)]
+        Cmin = Cmin[tuple(indices)]
+        Cmax = Cmax[tuple(indices)]
 
         """infer splits and shape"""
         splits = [list() for _ in range(dim_for_pool)]
