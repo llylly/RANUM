@@ -215,7 +215,7 @@ class Abstraction(object):
                                 new_index.append(p1)
                             p1 += 1
                         else:
-                            if len(new_s) == 0 or ref_s[p2] > new_s[-1]:
+                            if (len(new_s) == 0 or ref_s[p2] > new_s[-1]) and (ref_s[p2] < self.shape[i]):
                                 new_s.append(ref_s[p2])
                                 if (p1 < len1) and (ref_s[p2] >= old_s[p1]):
                                     new_index.append(p1)
@@ -598,6 +598,90 @@ class Interpreter(object):
         # print(abstracts[1].print())
         # print('A @ B = ')
         # print(ans.print())
+
+        return ans, list()
+
+    def interp_Gemm(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        alpha = attr.get('alpha', 1.0)
+        beta = attr.get('beta', 1.0)
+        transA = attr.get('transA', 0) > 0
+        transB = attr.get('transB', 0) > 0
+
+        A = abstracts[0]
+        B = abstracts[1]
+        if len(abstracts) > 2:
+            C = abstracts[2]
+        else:
+            C = None
+
+        if transA:
+            newA = Abstraction()
+            newA.lb, newA.ub = A.lb.transpose(0, 1), A.ub.transpose(0, 1)
+            newA.shape = A.shape[::-1]
+            newA.splits = A.splits[::-1]
+            newA.var_name = A.var_name + '_transpose'
+            A = newA
+        if transB:
+            newB = Abstraction()
+            newB.lb, newB.ub = B.lb.transpose(0, 1), B.ub.transpose(0, 1)
+            newB.shape = B.shape[::-1]
+            newB.splits = B.splits[::-1]
+            newB.var_name = B.var_name + '_transpose'
+            B = newB
+
+
+        target_splits = A.splits.copy()
+        target_splits[1] = B.splits[0]
+        A = A.split_by(target_splits, inplace=False)
+
+        target_splits = B.splits.copy()
+        target_splits[0] = A.splits[1]
+        B = B.split_by(target_splits, inplace=False)
+
+        coeff = np.array(A.splits[1][1:] + [A.shape[-1]]) - np.array(A.splits[1])
+        coeff = torch.tensor(coeff).to(A.lb.device)
+        A.lb = A.lb * coeff
+        A.ub = A.ub * coeff
+
+        ans = Abstraction()
+        ans.lb = torch.minimum(torch.matmul(A.lb, B.lb),
+                               torch.minimum(torch.matmul(A.lb, B.ub),
+                                             torch.minimum(torch.matmul(A.ub, B.lb),
+                                                           torch.matmul(A.ub, B.ub))))
+
+        ans.ub = torch.maximum(torch.matmul(A.lb, B.lb),
+                               torch.maximum(torch.matmul(A.lb, B.ub),
+                                             torch.maximum(torch.matmul(A.ub, B.lb),
+                                                           torch.matmul(A.ub, B.ub))))
+
+        if alpha >= 0.:
+            ans.lb, ans.ub = ans.lb * alpha, ans.ub * alpha
+        else:
+            ans.lb, ans.ub = ans.ub * alpha, ans.lb * alpha
+
+        ans.splits = [A.splits[0], B.splits[1]]
+        ans.shape = [A.shape[0], B.shape[1]]
+
+        if C is not None:
+            C = C.extend_dim(ans.get_dim(), inplace=False)
+
+            if beta >= 0.:
+                C.lb, C.ub = C.lb * beta, C.ub * beta
+            else:
+                C.lb, C.ub = C.ub * beta, C.lb * beta
+
+            ans.split_by(C.splits, inplace=True)
+            C.split_by(ans.splits, inplace=True)
+
+            ans_new = Abstraction()
+            ans_new.shape, ans_new.splits = get_shape_split_with_broadcasting(ans, C)
+            ans_new.lb = ans.lb + C.lb
+            ans_new.ub = ans.ub + C.ub
+
+            ans = ans_new
+
+        ans.var_name = var_name
 
         return ans, list()
 

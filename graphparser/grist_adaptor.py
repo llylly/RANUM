@@ -13,7 +13,8 @@
 
 current_selected_scripts = {
     "ID_1": "model_zoo/grist_models/ID_1/ghips1_grist.py",
-    "ID_2": "model_zoo/grist_models/ID_2/command_line/run_logistic_regression_grist.py",
+    "ID_2a": "model_zoo/grist_models/ID_2/command_line/run_logistic_regression_grist.py",
+    "ID_2b": "model_zoo/grist_models/ID_2/command_line/run_logistic_regression_log2_grist.py",
     "ID_3": "model_zoo/grist_models/ID_3/ghips9_grist.py",
     "ID_4": "model_zoo/grist_models/ID_4/test/nn/models/test_autoencoder_grist.py",
     "ID_5": "model_zoo/grist_models/ID_5/tests/test_losses_grist.py",
@@ -79,16 +80,20 @@ current_selected_scripts = {
 
 current_new_scripts = {
     "ID_1": "model_zoo/grist_models/ID_1/ghips1_DEBARUS.py",
-    "ID_2": "model_zoo/grist_models/ID_2/command_line/run_logistic_regression_DEBARUS.py",
+    "ID_2a": "model_zoo/grist_models/ID_2/command_line/run_logistic_regression_DEBARUS.py",
+    "ID_2b": "model_zoo/grist_models/ID_2/command_line/run_logistic_regression_log2_DEBARUS.py",
     "ID_3": "model_zoo/grist_models/ID_3/ghips9_DEBARUS.py",
     "ID_4": "model_zoo/grist_models/ID_4/test/nn/models/test_autoencoder_DEBARUS.py",
     "ID_5": "model_zoo/grist_models/ID_5/tests/test_losses_DEBARUS.py",
     "ID_6": "model_zoo/grist_models/ID_6/soips1_DEBARUS.py",
     "ID_7": "model_zoo/grist_models/ID_7/soips2_DEBARUS.py",
     "ID_8": "model_zoo/grist_models/ID_8/soips6_DEBARUS.py",
-    "ID_9": "model_zoo/grist_models/ID_9/soips7_DEBARUS.py",
+    "ID_9a": "model_zoo/grist_models/ID_9/soips7_DEBARUS.py",
+    "ID_9b": "model_zoo/grist_models/ID_9/soips7_log2_DEBARUS.py",
     "ID_10": "model_zoo/grist_models/ID_10/soips14_DEBARUS.py",
-    "ID_11": "model_zoo/grist_models/ID_11/nan_model_truediv_DEBARUS.py",
+    "ID_11a": "model_zoo/grist_models/ID_11/nan_model_truediv_DEBARUS.py",
+    "ID_11b": "model_zoo/grist_models/ID_11/nan_model_exp_DEBARUS.py",
+    "ID_11c": "model_zoo/grist_models/ID_11/nan_model_log_DEBARUS.py",
     "ID_12": "model_zoo/grist_models/ID_12/main_DEBARUS.py",
     "ID_13": "model_zoo/grist_models/ID_13/test/utils/test_softmax_DEBARUS.py",
     "ID_14": "model_zoo/grist_models/ID_14/v3/train_DEBARUS.py",
@@ -145,16 +150,20 @@ current_new_scripts = {
 
 package_info = {
     "ID_1": "tensorflow",
-    "ID_2": "tensorflow",
+    "ID_2a": "tensorflow",
+    "ID_2b": "tensorflow",
     "ID_3": "tensorflow",
     "ID_4": "torch",
     "ID_5": "torch",
     "ID_6": "tensorflow",
     "ID_7": "tensorflow",
     "ID_8": "tensorflow",
-    "ID_9": "tensorflow",
+    "ID_9a": "tensorflow",
+    "ID_9b": "tensorflow",
     "ID_10": "tensorflow",
-    "ID_11": "tensorflow",
+    "ID_11a": "tensorflow",
+    "ID_11b": "tensorflow",
+    "ID_11c": "tensorflow",
     "ID_12": "torch",
     "ID_13": "torch",
     "ID_14": "tensorflow",
@@ -209,21 +218,25 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = [11]
+run_ids = ['12']
 
 # only for tensorflow models
 inputs_outputs = {
     "ID_1": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
-    "ID_2": (['x-input', 'y-input'], ['cost/cost', 'cost/obj_function']),
+    "ID_2a": (['x-input', 'y-input'], ['cost/cost', 'cost/obj_function']),
+    "ID_2b": (['x-input', 'y-input'], ['cost/cost', 'cost/obj_function']),
     "ID_3": (['x', 'y'], ['cost', 'obj_function']),
     "ID_6": (['x', 'y', 'keep_prob'], ['cross_entropy']),
     "ID_7": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
     "ID_8": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
-    "ID_9": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_9a": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_9b": (['x', 'y'], ['loss', 'obj_function']),
     "ID_10": (['x', 'y'], ['cross_entropy', 'obj_function']),
     # seems the DynamicStitch is still not supported by tf2onnx
     # "ID_11": (['x', 'y'], ['loss', 'obj_function', 'obj_grad']),
-    "ID_11": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_11a": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_11b": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_11c": (['x', 'y'], ['loss', 'obj_function']),
 }
 
 import sys
@@ -343,7 +356,7 @@ def script_runner(white_list=[], black_list=[]):
     :return:
     """
     for id, script_path in current_new_scripts.items():
-        num = int(id[3:])
+        num = id[3:]
         if len(white_list) > 0 and num not in white_list: continue
         if num in black_list: continue
 
