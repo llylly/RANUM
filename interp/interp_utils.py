@@ -104,6 +104,10 @@ fine_grain_parameters = {
     'ConstantOfShape': [0],
     'Gather': [1],
     'ReduceSum': [1],
+    'ScatterElements': [1],
+    'Expand': [1],
+    # for NLL loss, this item may be removed
+    'NegativeLogLikelihoodLoss': [1]
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction

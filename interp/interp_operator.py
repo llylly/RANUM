@@ -1866,9 +1866,11 @@ class Interpreter(object):
         attr = parse_attribute(node)
         keepdims = attr.get('keepdims', 1)
         axes = attr.get('axes', None)
-        assert axes is not None
-        axes = [(axis + abstracts[0].get_dim()) % abstracts[0].get_dim() for axis in axes]
-        axes.sort()
+        if axes is None:
+            axes = list(range(abstracts[0].get_dim()))
+        else:
+            axes = [(axis + abstracts[0].get_dim()) % abstracts[0].get_dim() for axis in axes]
+            axes.sort()
         ans = Abstraction()
         ans.lb = abstracts[0].lb
         ans.ub = abstracts[0].ub
