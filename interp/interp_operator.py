@@ -1979,6 +1979,7 @@ class Interpreter(object):
         attrs = parse_attribute(node)
         ignore_index = attrs.get('ignore_index', None)
         reduction = attrs.get('reduction', 'mean')
+        reduction = (reduction).decode('ascii')
 
         input = abstracts[0]
         target = abstracts[1]
@@ -1993,14 +1994,14 @@ class Interpreter(object):
             weight = weight.split_by([input.splits[1]], inplace=False)
 
         # get non-reduced values
+        ans = Abstraction()
         if not exact_target:
-            ans = Abstraction()
             if weight is None:
-                lb = ans.lb
-                ub = ans.ub
+                lb = input.lb
+                ub = input.ub
             else:
-                weight_lb_broadcast = weight.lb.view([1, -1] + [1] * (ans.get_dim() - 2))
-                weight_ub_broadcast = weight.ub.view([1, -1] + [1] * (ans.get_dim() - 2))
+                weight_lb_broadcast = weight.lb.view([1, -1] + [1] * (input.get_dim() - 2))
+                weight_ub_broadcast = weight.ub.view([1, -1] + [1] * (input.get_dim() - 2))
                 LL = input.lb * weight_lb_broadcast
                 LU = input.lb * weight_ub_broadcast
                 UL = input.ub * weight_lb_broadcast
@@ -2021,10 +2022,9 @@ class Interpreter(object):
                 ans.lb = torch.minimum(ans.lb, select_lb)
                 ans.ub = torch.maximum(ans.ub, select_ub)
         else:
-            ans = Abstraction()
             if weight is None:
-                lb = ans.lb
-                ub = ans.ub
+                lb = input.lb
+                ub = input.ub
             else:
                 weight_lb_broadcast = weight.lb.view([1, -1] + [1] * (input.get_dim() - 2))
                 weight_ub_broadcast = weight.ub.view([1, -1] + [1] * (input.get_dim() - 2))
@@ -2036,36 +2036,33 @@ class Interpreter(object):
                 ub = torch.stack([LL, LU, UL, UU], dim=0).max(dim=0)[0]
 
             index_map = [bisect.bisect_right(input.splits[1], ind) - 1 for ind in range(C)]
-            target_value = target.lb.int()
+            target_value = target.lb.long()
 
             if ignore_index is not None:
                 # rewrite those equals to ignore_index to C
                 # and map C to the new attached zero-valued slice (shape_1)
-                lb = torch.cat([lb, torch.zeros([lb.shape[0], 1] + lb.shape[2:])], dim=1)
-                ub = torch.cat([ub, torch.zeros([ub.shape[0], 1] + ub.shape[2:])], dim=1)
+                lb = torch.cat([lb, torch.zeros([lb.shape[0], 1] + list(lb.shape[2:]))], dim=1)
+                ub = torch.cat([ub, torch.zeros([ub.shape[0], 1] + list(ub.shape[2:]))], dim=1)
                 target_value = torch.where(target_value == ignore_index,
-                                           torch.ones_like(target_value).to(target_value.device).int() * C,
+                                           torch.ones_like(target_value).to(target_value.device).long() * len(input.splits[1]),
                                            target_value)
                 index_map.append(lb.shape[1])
 
-            index_map = np.tensor(index_map).to(target_value.device)
+            index_map = torch.tensor(index_map).to(target_value.device)
 
-            ans.lb = torch.nn.functional.nll_loss(lb, index_map[target_value], reduction='none')
-            ans.ub = torch.nn.functional.nll_loss(ub, index_map[target_value], reduction='none')
+            ans.lb = torch.nn.functional.nll_loss(ub, index_map[target_value], reduction='none')
+            ans.ub = torch.nn.functional.nll_loss(lb, index_map[target_value], reduction='none')
             ans.shape = [input.shape[0]] + input.shape[2:]
             ans.splits = [input.splits[0]] + input.splits[2:]
 
-
         if reduction == 'mean':
-            deno_min, deno_max = None, None
-
             numel = reduce(lambda x, y: x * y, [input.shape[0]] + input.shape[2:])
+            all_dim = list(range(ans.get_dim()))
+            multiplies = self.cal_multiplies_for_sum(ans, all_dim)
 
             if ignore_index is None:
                 possible_ignore_numels, certain_ignore_numels = 0, 0
             else:
-                all_dim = list(range(ans.get_dim()))
-                multiplies = self.cal_multiplies_for_sum(ans, all_dim)
                 possible_ignore_numels = torch.sum((target.lb <= ignore_index) * (ignore_index <= target.ub) * multiplies)
                 certain_ignore_numels = torch.sum((target.lb == ignore_index) * (ignore_index == target.ub) * multiplies)
 
@@ -2088,22 +2085,22 @@ class Interpreter(object):
                     wU = torch.ones_like(input.ub) * weight_ub_broadcast
 
                     index_map = [bisect.bisect_right(input.splits[1], ind) - 1 for ind in range(C)]
-                    target_value = target.lb.int()
+                    target_value = target.lb.long()
 
                     if ignore_index is not None:
                         # rewrite those equals to ignore_index to C
                         # and map C to the new attached zero-valued slice (shape_1)
-                        wL = torch.cat([wL, torch.zeros([wL.shape[0], 1] + wL.shape[2:])], dim=1)
-                        wU = torch.cat([wU, torch.zeros([wU.shape[0], 1] + ub.shape[2:])], dim=1)
+                        wL = torch.cat([wL, torch.zeros([wL.shape[0], 1] + list(wL.shape[2:]))], dim=1)
+                        wU = torch.cat([wU, torch.zeros([wU.shape[0], 1] + list(wU.shape[2:]))], dim=1)
                         target_value = torch.where(target_value == ignore_index,
-                                                   torch.ones_like(target_value).to(target_value.device).int() * C,
+                                                   torch.ones_like(target_value).to(target_value.device).long() * len(input.splits[1]),
                                                    target_value)
                         index_map.append(lb.shape[1])
 
-                    index_map = np.tensor(index_map).to(target_value.device)
+                    index_map = torch.tensor(index_map).to(target_value.device)
 
-                    wL = torch.nn.functional.nll_loss(wL, index_map[target_value], reduction='none')
-                    wU = torch.nn.functional.nll_loss(wU, index_map[target_value], reduction='none')
+                    wL = - torch.nn.functional.nll_loss(wL, index_map[target_value], reduction='none')
+                    wU = - torch.nn.functional.nll_loss(wU, index_map[target_value], reduction='none')
 
                     wL, wU = wL * multiplies, wU * multiplies
 
@@ -2113,13 +2110,13 @@ class Interpreter(object):
         if reduction in ['sum', 'mean']:
             all_dim = list(range(ans.get_dim()))
             multiplies = self.cal_multiplies_for_sum(ans, all_dim)
-            ans.lb = torch.sum(abstracts[0].lb * multiplies, dim=all_dim)
-            ans.ub = torch.sum(abstracts[0].ub * multiplies, dim=all_dim)
+            ans.lb = torch.sum(ans.lb * multiplies, dim=all_dim)
+            ans.ub = torch.sum(ans.ub * multiplies, dim=all_dim)
             ans.shape = list()
             ans.splits = list()
 
         if reduction == 'mean':
-            if deno_min <= PossibleNumericalError.UNDERFLOW_LIMIT or deno_max >= -PossibleNumericalError.UNDERFLOW_LIMIT:
+            if deno_min <= PossibleNumericalError.UNDERFLOW_LIMIT and deno_max >= -PossibleNumericalError.UNDERFLOW_LIMIT:
                 return None, [
                     PossibleNumericalError(optype, var_name, [torch.tensor(deno_min), torch.tensor(deno_max)],
                                            PossibleNumericalError.ERROR_CONTAINS_ZERO)]

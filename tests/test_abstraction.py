@@ -2133,6 +2133,276 @@ class TestAbstraction(unittest.TestCase):
 
         self.assertTrue(correct_abstraction(abst_y, y))
 
+    def test_nllloss(self):
+
+        interp = Interpreter()
+        conf_exact_1d = AbstractionInitConfig(diff=True, from_init=True, stride=[1])
+        conf_exact_2d = AbstractionInitConfig(diff=True, from_init=True, stride=[1,1])
+        conf_exact_3d = AbstractionInitConfig(diff=True, from_init=True, stride=[1,1,1])
+        conf_strd_2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2,2,2])
+        conf_strd_2_2d = AbstractionInitConfig(diff=True, from_init=True, stride=[2,2])
+        conf_strd_2_1d = AbstractionInitConfig(diff=True, from_init=True, stride=[2])
+
+        # negative log likelihood loss, "none" reduction
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+
+        loss = np.zeros((N, d1))
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1]
+
+        abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target'],
+            outputs=['loss'],
+            reduction='none'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        self.assertTrue(correct_abstraction(abst_loss, loss))
+
+        # =======
+
+        abs_input = Abstraction().load(conf_exact_3d, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target'],
+            outputs=['loss'],
+            reduction='none'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        self.assertTrue(correct_abstraction(abst_loss, loss, tight=True))
+
+        # weighted negative log likelihood loss, sum reduction
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+        weight = [0.2, 0.3, 0.1]
+        loss = np.zeros((N, d1))
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1] * weight[c]
+
+        # loss = np.array(loss)
+        loss = np.sum(loss)
+
+        abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target', 'weight'],
+            outputs=['loss'],
+            reduction='sum'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss))
+
+        # =======
+
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+        weight = [0.2, 0.3, 0.1]
+        loss = np.zeros((N, d1))
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1] * weight[c]
+
+        # loss = np.array(loss)
+        loss = np.sum(loss)
+
+        abs_input = Abstraction().load(conf_exact_3d, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        abs_weight = Abstraction().load(conf_exact_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target', 'weight'],
+            outputs=['loss'],
+            reduction='sum'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss, tight=True))
+
+        # weighted negative log likelihood loss, mean reduction
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+        weight = [0.2, 0.3, 0.1]
+        loss = np.zeros((N, d1))
+        weight_total = 0
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1] * weight[c]
+                weight_total = weight_total + weight[c]
+
+        loss = np.sum(loss) / weight_total
+
+        abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target', 'weight'],
+            outputs=['loss'],
+            reduction='mean'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss))
+
+        # =======
+
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+        weight = [0.2, 0.3, 0.1]
+        loss = np.zeros((N, d1))
+        weight_total = 0
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1] * weight[c]
+                weight_total = weight_total + weight[c]
+
+        loss = np.sum(loss) / weight_total
+
+        abs_input = Abstraction().load(conf_exact_3d, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        abs_weight = Abstraction().load(conf_exact_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target', 'weight'],
+            outputs=['loss'],
+            reduction='mean'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss, tight=True))
+
+        # ===== below we test non-exact target =====
+
+        # negative log likelihood loss, "none" reduction
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+
+        loss = np.zeros((N, d1))
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1]
+
+        abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_strd_2_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target'],
+            outputs=['loss'],
+            reduction='mean'
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss))
+
+        # =======
+
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+        weight = [0.2, 0.3, 0.1]
+        loss = np.zeros((N, d1))
+        weight_total = 0
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                loss[n][d_1] = -input[n][c][d_1] * weight[c]
+                weight_total = weight_total + weight[c]
+
+        loss = np.sum(loss) / weight_total
+
+        abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_strd_2_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target', 'weight'],
+            outputs=['loss'],
+            reduction='mean',
+            ignore_index=100
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss))
+
+
+        # =======
+
+        N, C, d1 = 2, 3, 2
+        input = [[[1.0, 2.0], [2.0, 2.0], [3.0, 2.0]],
+                 [[0.0, 1.0], [2.0, 2.0], [1.0, 2]]]
+        target = [[2, 1], [0, 2]]
+        weight = [0.2, 0.3, 0.1]
+        loss = np.zeros((N, d1))
+        weight_total = 0
+        for n in range(N):
+            for d_1 in range(d1):
+                c = target[n][d_1]
+                if c != 0:
+                    loss[n][d_1] = -input[n][c][d_1] * weight[c]
+                    weight_total = weight_total + weight[c]
+
+        loss = np.sum(loss) / weight_total
+
+        abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
+        abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        node = helper.make_node(
+            'NegativeLogLikelihoodLoss',
+            inputs=['input', 'target', 'weight'],
+            outputs=['loss'],
+            reduction='mean',
+            ignore_index=0
+        )
+        abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
+                                                               'NegativeLogLikelihoodLoss', 'loss')
+        # abst_loss.print()
+        # print(loss)
+        self.assertTrue(correct_abstraction(abst_loss, loss))
+
+
+
 
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
                                   transB=0):  # type: (np.ndarray, np.ndarray, Optional[np.ndarray], float, float, int, int) -> np.ndarray
@@ -2145,4 +2415,5 @@ def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
     return Y
 
 if __name__ == '__main__':
-    unittest.main()
+    # unittest.main()
+    TestAbstraction().test_nllloss()
