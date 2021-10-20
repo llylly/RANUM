@@ -218,7 +218,7 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = ['14']
+run_ids = ['15']
 
 # only for tensorflow models
 inputs_outputs = {
@@ -237,7 +237,8 @@ inputs_outputs = {
     "ID_11a": (['x', 'y'], ['loss', 'obj_function']),
     "ID_11b": (['x', 'y'], ['loss', 'obj_function']),
     "ID_11c": (['x', 'y'], ['loss', 'obj_function']),
-    "ID_14": (['input_x', 'label'], ['loss'])
+    "ID_14": (['input_x', 'label'], ['loss']),
+    "ID_15": (['X', 'S1', 'S2', 'y'], ['cost', 'err', 'obj_function'])
 }
 
 import sys
@@ -374,6 +375,7 @@ def script_runner(white_list=[], black_list=[]):
             # for tf models, we externally run tf2onnx to convert it to onnx
             print('  Convert to onnx...')
             subproc = subprocess.Popen(f'timeout {timeout_for_grist_execution} {SERVER_PYTHON_PATH} -m tf2onnx.convert '
+                                       f'--opset 13 '
                                        f'--checkpoint model_zoo/grist_protobufs/{id}/model.ckpt.meta '
                                        f'--output model_zoo/grist_protobufs/{id}/model.onnx '
                                        f'--inputs {",".join([x + ":0" for x in inputs_outputs[id][0]])} '

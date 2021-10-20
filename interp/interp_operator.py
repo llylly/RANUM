@@ -1536,12 +1536,22 @@ class Interpreter(object):
     def interp_Gather(self, abstracts, node, optype, var_name):
         data, indices = abstracts[0], abstracts[1]
 
-        if indices.is_exact():
-            indices = indices.lb.detach().cpu().numpy().astype(np.int)
-            axis = parse_attribute(node).get('axis', 0)
-            axis_split = data.splits[axis]
-            cord = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1,
-                                       arr=indices.reshape(-1, 1)) - 1
+        ind_lb = indices.lb.detach().cpu().numpy().astype(np.int)
+        ind_ub = indices.lb.detach().cpu().numpy().astype(np.int)
+        axis = parse_attribute(node).get('axis', 0)
+        axis_split = data.splits[axis]
+        cord_lb = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1,
+                                   arr=ind_lb.reshape(-1, 1)) - 1
+        cord_ub = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1,
+                                      arr=ind_ub.reshape(-1, 1)) - 1
+
+        if (cord_lb == cord_ub).all():
+            # indices = indices.lb.detach().cpu().numpy().astype(np.int)
+            # axis = parse_attribute(node).get('axis', 0)
+            # axis_split = data.splits[axis]
+            # cord = np.apply_along_axis(lambda x: bisect.bisect_right(axis_split, x[0]), axis=1,
+            #                            arr=indices.reshape(-1, 1)) - 1
+            cord = cord_lb
             cord = cord.reshape(indices.shape)
 
             # print(axis, indices, indices.shape)
