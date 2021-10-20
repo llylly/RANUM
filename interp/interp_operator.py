@@ -336,10 +336,13 @@ class Abstraction(object):
         :param eps:
         :return:
         """
-        local_lb = self.lb.cpu().detach().reshape(-1)
-        local_ub = self.ub.cpu().detach().reshape(-1)
+        local_lb = self.lb.cpu().detach().reshape(-1).float()
+        local_ub = self.ub.cpu().detach().reshape(-1).float()
         dif = torch.norm(local_ub - local_lb).item()
         return dif < eps
+
+    def is_atomic(self):
+        return all([len(x) == y for x, y in zip(self.splits, self.shape)])
 
     def is_empty(self):
         return any([s == 0 for s in self.shape])
@@ -1231,7 +1234,7 @@ class Interpreter(object):
         abst_shape = abstracts[1]
         assert isinstance(abst_data, Abstraction)
 
-        assert abst_shape.is_exact()
+        assert abst_shape.is_exact() and abst_shape.is_atomic()
         desired_shape = abst_shape.lb.detach().cpu().type(torch.int).tolist()
 
         # smash policy init
@@ -1645,6 +1648,123 @@ class Interpreter(object):
         now_abst.var_name = var_name
         return now_abst, list()
 
+    def interp_ScatterElements(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        axis = attr.get('axis', 0)
+        reduction = attr.get('reduction', b'none')
+        reduction = reduction.decode('ascii')
+
+        data, indices, updates = abstracts[0], abstracts[1], abstracts[2]
+        if axis < 0:
+            axis += data.get_dim()
+
+        index_map = [0 for _ in range(data.shape[axis])]
+        for item in data.splits[axis]:
+            index_map[item] += 1
+        p = -1
+        for i, item in enumerate(index_map):
+            p += item
+            index_map[i] = p
+        index_map = torch.tensor(index_map, dtype=torch.long, device=indices.lb.device)
+
+        ind_lb = indices.lb.long()
+        ind_ub = indices.ub.long()
+        ind_new_lb = index_map[ind_lb]
+        ind_new_ub = index_map[ind_ub]
+
+        new_indices = Abstraction()
+        new_indices.lb = ind_new_lb
+        new_indices.ub = ind_new_ub
+        new_indices.shape = indices.shape
+        new_indices.splits = indices.splits
+
+        ans = Abstraction()
+
+        if new_indices.is_exact():
+            # print('!!!!! exact')
+            new_indices.split_by(updates.splits, inplace=True)
+            ref_splits = updates.splits.copy()
+            ref_splits[axis] = data.splits[axis]
+            data = data.split_by(ref_splits, inplace=False)
+            ref_splits = data.splits.copy()
+            ref_splits[axis] = new_indices.splits[axis]
+            new_indices.split_by(ref_splits, inplace=True)
+            updates = updates.split_by(new_indices.splits, inplace=False)
+
+            old_lb, old_ub = data.lb, data.ub
+            if reduction == 'none':
+                new_lb = torch.scatter(old_lb, axis, new_indices.lb, updates.lb)
+                new_ub = torch.scatter(old_ub, axis, new_indices.lb, updates.ub)
+            elif reduction == 'add':
+                new_lb = torch.scatter_add(old_lb, axis, new_indices.lb, updates.lb)
+                new_ub = torch.scatter_add(old_ub, axis, new_indices.lb, updates.ub)
+            elif reduction == 'mul':
+                new_lb = torch.zeros_like(old_lb) + old_lb
+                new_ub = torch.zeros_like(old_ub) + old_ub
+                new_lbl = new_lb.scatter_(axis, new_indices.lb, updates.lb, reduce='multiply')
+                new_lbu = new_lb.scatter_(axis, new_indices.lb, updates.ub, reduce='multiply')
+                new_ubl = new_ub.scatter_(axis, new_indices.lb, updates.lb, reduce='multiply')
+                new_ubu = new_ub.scatter_(axis, new_indices.lb, updates.ub, reduce='multiply')
+                choices = torch.stack([new_lbl, new_lbu, new_ubl, new_ubu], dim=0)
+                new_lb = torch.min(choices, dim=0)[0]
+                new_ub = torch.max(choices, dim=0)[0]
+            ans.lb = torch.minimum(old_lb, new_lb)
+            ans.ub = torch.maximum(old_ub, new_ub)
+        else:
+            # This over-approximation causes discontinuities, may need further improvement.
+            ref_splits = data.splits.copy()
+            ref_splits[axis] = updates.splits[axis]
+            updates = updates.split_by(ref_splits, inplace=False)
+            ref_splits = updates.splits.copy()
+            ref_splits[axis] = data.splits[axis]
+            data = data.split_by(ref_splits, inplace=False)
+
+            old_lb, old_ub = data.lb, data.ub
+            updates_min = torch.min(updates.lb, dim=axis, keepdim=True)[0]
+            updates_max = torch.max(updates.ub, dim=axis, keepdim=True)[0]
+            if reduction == 'none':
+                new_lb = torch.minimum(old_lb, updates_min)
+                new_ub = torch.maximum(old_ub, updates_max)
+            elif reduction == 'add':
+                new_lb = old_lb + updates_min
+                new_ub = old_ub + updates_max
+            elif reduction == 'mul':
+                new_lbl = old_lb * updates_min
+                new_lbu = old_lb * updates_max
+                new_ubl = old_ub * updates_min
+                new_ubu = old_ub * updates_max
+                choices = torch.stack([new_lbl, new_lbu, new_ubl, new_ubu], dim=0)
+                new_lb = torch.min(choices, dim=0)[0]
+                new_ub = torch.max(choices, dim=0)[0]
+            ans.lb = torch.minimum(old_lb, new_lb)
+            ans.ub = torch.maximum(old_ub, new_ub)
+
+        ans.splits = data.splits
+        ans.shape = data.shape
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Expand(self, abstracts, node, optype, var_name):
+        input, shape = abstracts[0], abstracts[1]
+        assert shape.is_exact() and shape.is_atomic()
+        shape = shape.lb.long().detach().cpu().numpy()
+        old_shape = shape.copy()
+        if len(shape) < input.get_dim():
+            shape = input.shape[: input.get_dim() - len(shape)] + shape
+        ans = input.extend_dim(len(shape), inplace=False)
+        for i in range(len(shape)):
+            if shape[i] == 1 and ans.shape[i] != 1:
+                shape[i] = ans.shape[i]
+            elif shape[i] > 1 and ans.shape[i] == 1:
+                ans.shape[i] = shape[i]
+            else:
+                try:
+                    assert shape[i] == ans.shape[i]
+                except:
+                    raise Exception(f'Expand shape not much: {input.shape} and {old_shape}')
+        ans.var_name = var_name
+        return ans, list()
+
     def interp_Concat(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
         axis = attr['axis']
@@ -1978,7 +2098,7 @@ class Interpreter(object):
     def interp_NegativeLogLikelihoodLoss(self, abstracts, node, optype, var_name):
         attrs = parse_attribute(node)
         ignore_index = attrs.get('ignore_index', None)
-        reduction = attrs.get('reduction', 'mean')
+        reduction = attrs.get('reduction', b'mean')
         reduction = (reduction).decode('ascii')
 
         input = abstracts[0]

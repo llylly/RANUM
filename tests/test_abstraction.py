@@ -2265,7 +2265,7 @@ class TestAbstraction(unittest.TestCase):
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
             outputs=['loss'],
-            reduction='mean'
+            # reduction='mean'
         )
         abst_loss, _ = interp.interp_NegativeLogLikelihoodLoss([abs_input, abs_target, abs_weight], node,
                                                                'NegativeLogLikelihoodLoss', 'loss')
@@ -2401,6 +2401,126 @@ class TestAbstraction(unittest.TestCase):
         # print(loss)
         self.assertTrue(correct_abstraction(abst_loss, loss))
 
+    def test_ScatterElements(self):
+
+        interp = Interpreter()
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=[1,1])
+        conf_strd_2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2,2])
+        conf_strd_3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3,3])
+
+        data = [
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0],
+        ]
+        indices = [
+            [1, 0, 2],
+            [0, 2, 1],
+        ]
+        updates = [
+            [1.0, 1.1, 1.2],
+            [2.0, 2.1, 2.2],
+        ]
+        output = [
+            [2.0, 1.1, 0.0],
+            [1.0, 0.0, 2.2],
+            [0.0, 2.1, 1.2]
+        ]
+
+        data = np.array(data)
+        indices = np.array(indices)
+        updates = np.array(updates)
+        output = np.array(output)
+
+        node = helper.make_node(
+            'ScatterElements',
+            inputs=['data', 'indices', 'updates'],
+            outputs=['y'],
+            axis=0,
+        )
+
+        a_data = Abstraction().load(conf_strd_2, 'data', data.shape, 'FLOAT', data)
+        a_indices = Abstraction().load(conf_strd_2, 'indices', indices.shape, 'FLOAT', indices)
+        a_updates = Abstraction().load(conf_strd_2, 'updates', updates.shape, 'FLOAT', updates)
+        a_res, _ = interp.interp_ScatterElements([a_data, a_indices, a_updates], node, 'ScatterElements', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, output))
+
+
+        a_data = Abstraction().load(conf_strd_3, 'data', data.shape, 'FLOAT', data)
+        a_indices = Abstraction().load(conf_strd_2, 'indices', indices.shape, 'FLOAT', indices)
+        a_updates = Abstraction().load(conf_strd_2, 'updates', updates.shape, 'FLOAT', updates)
+        a_res, _ = interp.interp_ScatterElements([a_data, a_indices, a_updates], node, 'ScatterElements', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, output))
+
+        # ============
+
+        data = [[1.0, 2.0, 3.0, 4.0, 5.0]]
+        indices = [[1, 3]]
+        updates = [[1.1, 2.1]]
+        axis = 1
+        output = [[1.0, 1.1, 3.0, 2.1, 5.0]]
+
+        data = np.array(data)
+        indices = np.array(indices)
+        updates = np.array(updates)
+        output = np.array(output)
+
+        node = helper.make_node(
+            'ScatterElements',
+            inputs=['data', 'indices', 'updates'],
+            outputs=['y'],
+            axis=axis,
+        )
+
+        a_data = Abstraction().load(conf_strd_2, 'data', data.shape, 'FLOAT', data)
+        a_indices = Abstraction().load(conf_strd_2, 'indices', indices.shape, 'FLOAT', indices)
+        a_updates = Abstraction().load(conf_strd_2, 'updates', updates.shape, 'FLOAT', updates)
+        a_res, _ = interp.interp_ScatterElements([a_data, a_indices, a_updates], node, 'ScatterElements', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, output))
+
+
+        a_data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+        a_indices = Abstraction().load(conf_exact, 'indices', indices.shape, 'FLOAT', indices)
+        a_updates = Abstraction().load(conf_exact, 'updates', updates.shape, 'FLOAT', updates)
+        a_res, _ = interp.interp_ScatterElements([a_data, a_indices, a_updates], node, 'ScatterElements', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, output))
+
+    def test_Expand(self):
+        interp = Interpreter()
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=[1])
+
+        conf_strd_5 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
+        a = np.random.randn(8,9,1)
+        b = np.array([5,1,1,6])
+
+        a_a = Abstraction().load(conf_strd_5, 'a', a.shape, 'FLOAT', a)
+        a_b = Abstraction().load(conf_exact, 'b', b.shape, 'FLOAT', b)
+        a_res, _ = interp.interp_Expand([a_a, a_b], None, 'Expand', 'res')
+        self.assertTrue(correct_format(a_res))
+        self.assertListEqual(a_res.shape, [5, 8, 9, 6])
+
+        a = np.random.randn(3,1)
+        b = np.array([2,1,6])
+
+        a_a = Abstraction().load(conf_strd_5, 'a', a.shape, 'FLOAT', a)
+        a_b = Abstraction().load(conf_exact, 'b', b.shape, 'FLOAT', b)
+        a_res, _ = interp.interp_Expand([a_a, a_b], None, 'Expand', 'res')
+        self.assertTrue(correct_format(a_res))
+        self.assertListEqual(a_res.shape, [2, 3, 6])
+
+
+        a = np.random.randn(3,1)
+        b = np.array([3,4])
+
+        a_a = Abstraction().load(conf_strd_5, 'a', a.shape, 'FLOAT', a)
+        a_b = Abstraction().load(conf_exact, 'b', b.shape, 'FLOAT', b)
+        a_res, _ = interp.interp_Expand([a_a, a_b], None, 'Expand', 'res')
+        self.assertTrue(correct_format(a_res))
+        self.assertListEqual(a_res.shape, [3, 4])
 
 
 
@@ -2415,5 +2535,4 @@ def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
     return Y
 
 if __name__ == '__main__':
-    # unittest.main()
-    TestAbstraction().test_nllloss()
+    unittest.main()
