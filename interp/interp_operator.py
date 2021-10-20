@@ -1004,7 +1004,7 @@ class Interpreter(object):
                   groups=group)
         C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
                   groups=group)
-        C4 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
+        C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
                   groups=group)
         Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
         Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
@@ -2653,7 +2653,7 @@ def compute_outshape_padding(pad_mode, prev_pads, x_conv_shape, kernel_shape, di
             pad_mode = pad_mode.decode('ascii')
         padding_deltas = []
         out_shape = []
-        if pad_mode == "VALID":
+        if pad_mode in ["VALID", "NOTSET"]:
             for i in range(dim_for_conv):
                 out_shape.append(math.ceil(
                     (x_conv_shape[i] - ((kernel_shape[i] - 1) * dilations[i] + 1) + 1) /

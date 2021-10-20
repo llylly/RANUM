@@ -334,6 +334,9 @@ class InterpModule():
             l += 1
 
         # place to inspect abstraction for debug
+        # self.abstracts['MaxPool:0'].print()
+        # self.abstracts['Variable_2/read:0'].print()
+        # self.abstracts['Conv2D_1:0'].print()
 
         return self.possible_numerical_errors
 
