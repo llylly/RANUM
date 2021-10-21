@@ -2184,6 +2184,47 @@ class Interpreter(object):
     def interp_ReduceMean(self, abstracts, node, optype, var_name, op=torch.sum):
         return self.interp_ReduceSum(abstracts, node, optype, var_name, op=torch.mean)
 
+    def interp_ArgMax(self, abstracts, node, optype, var_name, mode='max'):
+        attr = parse_attribute(node)
+        axis = attr.get('axis', 0)
+        keepdims = attr.get('keepdims', 1)
+        select_last_index = attr.get('select_last_index', 0)
+
+        data = abstracts[0]
+        if mode == 'max':
+            max_lb = torch.max(data.lb, dim=axis, keepdim=True)[0]
+            possible = (data.ub >= max_lb)
+        else:
+            min_ub = torch.min(data.ub, dim=axis, keepdim=True)[0]
+            possible = (data.lb <= min_ub)
+        ans_lb = possible.max(axis, keepdim=bool(keepdims))[1]
+        ans_ub = possible.shape[axis] - 1 - possible.flip(dims=[axis]).max(dim=axis, keepdim=bool(keepdims))[1]
+
+        if len(data.splits[axis]) < data.shape[axis]:
+            lb_mapping = torch.tensor(data.splits[axis], device=ans_lb.device)
+            ub_mapping = torch.tensor(data.splits[axis][1:] + [data.shape[axis]], device=ans_lb.device) - 1
+            ans_lb = lb_mapping[ans_lb]
+            ans_ub = ub_mapping[ans_ub]
+
+        ans = Abstraction()
+        ans.lb = ans_lb
+        ans.ub = ans_ub
+        ans.splits = data.splits.copy()
+        if keepdims:
+            ans.splits[axis] = [0]
+        else:
+            ans.splits.remove(axis)
+        ans.shape = data.shape.copy()
+        if keepdims:
+            ans.shape[axis] = 1
+        else:
+            ans.shape.remove(axis)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_ArgMin(self, abstracts, node, optype, var_name):
+        return self.interp_ArgMax(abstracts, node, optype, var_name, mode='min')
+
     def interp_Tile(self, abstracts, node, optype, var_name):
         in_abst = abstracts[0]
         repeats = abstracts[1]
