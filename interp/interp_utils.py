@@ -16,7 +16,7 @@ class AbstractionInitConfig(object):
         self.ub = ub
         # if real tensor values are present, whether to use them to determine lower and upper bounds
         self.from_init = from_init
-        # if from_init=True, the margin of abstraction from the init data, usually set to 0
+        # if from_init=True, the relative margin of abstraction from the init data, set to 0 means precisely capture the init data's range
         self.from_init_margin = from_init_margin
         # the stride of abstract, int or list of int (if it is not a list, then cast to all dimensions)
         # "-1" means stride = infty, i.e., the whole dimension is abstracted by a single element
@@ -29,6 +29,7 @@ class AbstractionInitConfig(object):
         self.from_init = bool(d['from_init'])
         self.from_init_margin = float(d['from_init_margin'])
         self.stride = d['stride']
+        return self
 
     def to_dict(self):
         return {

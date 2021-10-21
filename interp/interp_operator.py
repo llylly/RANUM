@@ -115,8 +115,14 @@ class Abstraction(object):
                             f'Variable {var_name}: tensor data (shape:{tensor_data.shape}) cannot be casted to required shape({tensor_shape})')
 
                     lb_data, ub_data = self.summarize_data_and_assign(tensor_data, self.splits)
-                    lb_data = np.array(lb_data, dtype=np.float64) - from_init_margin
-                    ub_data = np.array(ub_data, dtype=np.float64) + from_init_margin
+                    lb_data = np.array(lb_data, dtype=np.float64)
+                    ub_data = np.array(ub_data, dtype=np.float64)
+                    if from_init_margin > 1e-6:
+                        lb_min = np.min(lb_data)
+                        ub_max = np.max(ub_data)
+                        delta = (ub_max - lb_min) * from_init_margin
+                        lb_data -= delta
+                        ub_data += delta
                     self.lb, self.ub = \
                         torch.tensor(lb_data, dtype=torch.float64, requires_grad=diff), \
                         torch.tensor(ub_data, dtype=torch.float64, requires_grad=diff)
@@ -1614,6 +1620,9 @@ class Interpreter(object):
         r = a_data.get_dim()
         q = a_indices.get_dim()
 
+        # a_data.print()
+        # a_indices.print()
+
         # split the block to align
         ref_splits = a_data.splits.copy()
         ref_splits[:b] = a_indices.splits[:b]
@@ -1630,8 +1639,8 @@ class Interpreter(object):
             nowdim = b + k
             ind_mapping = torch.tensor([bisect.bisect_right(a_data.splits[nowdim], ind) - 1 for ind in range(a_data.shape[nowdim])],
                                        dtype=torch.long, device=ind_lb.device)
-            lbind = ind_mapping[ind_lb.select(-1, k)].unsqueeze(-1)
-            ubind = ind_mapping[ind_ub.select(-1, k)].unsqueeze(-1)
+            lbind = ind_mapping[ind_lb.select(-1, k).clamp(min=0, max=a_data.shape[nowdim]-1)].unsqueeze(-1)
+            ubind = ind_mapping[ind_ub.select(-1, k).clamp(min=0, max=a_data.shape[nowdim]-1)].unsqueeze(-1)
             if (lbind == ubind).all():
                 map_ind.append(lbind)
             else:
@@ -1682,6 +1691,7 @@ class Interpreter(object):
         ans.ub = ans_ub
         ans.splits = a_data.splits[:b] + a_indices.splits[b: -1] + a_data.splits[b+K:]
         ans.shape = a_data.shape[:b] + a_indices.shape[b: -1] + a_data.shape[b+K:]
+        ans.var_name = var_name
 
         return ans, list()
 
@@ -1926,6 +1936,31 @@ class Interpreter(object):
         ans.splits = [[0] for _ in range(len(ans.shape))]
         ans.lb = torch.full([1] * len(ans.shape), low, device=device)
         ans.ub = torch.full([1] * len(ans.shape), high, device=device)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Range(self, abstracts, node, optype, var_name):
+        start, limit, delta = abstracts[0], abstracts[1], abstracts[2]
+        if start.is_exact() and limit.is_exact() and delta.is_exact():
+            lb = torch.arange(start=start.lb.cpu().item(), end=limit.lb.cpu().item(), step=delta.lb.cpu().item(), device=start.lb.device)
+            ub = lb.clone()
+            ans = Abstraction()
+            ans.lb, ans.ub = lb, ub
+            ans.splits = [list(range(lb.shape[0]))]
+            ans.shape = [lb.shape[0]]
+        else:
+            max_range = torch.maximum(torch.abs(start.lb - limit.ub), torch.abs(start.ub - limit.lb))
+            if delta.lb < 0. < delta.ub:
+                return None, [
+                    PossibleNumericalError(optype, var_name, [delta.lb, delta.ub],
+                                           PossibleNumericalError.ERROR_CONTAINS_ZERO)]
+            min_step = torch.minimum(torch.abs(delta.lb), torch.abs(delta.ub))
+            max_element = torch.ceil(max_range / min_step).cpu().long().item()
+            ans = Abstraction()
+            ans.lb = torch.minimum(start.lb, limit.lb).view(-1)
+            ans.ub = torch.maximum(start.ub, limit.ub).view(-1)
+            ans.splits = [[0]]
+            ans.shape = [max_element]
         ans.var_name = var_name
         return ans, list()
 

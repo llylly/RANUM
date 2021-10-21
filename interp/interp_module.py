@@ -211,7 +211,9 @@ class InterpModule():
                (None if now_dim.dim_value is None else now_dim.dim_value) for now_dim in shape.dim]
         return ans
 
-    def analyze(self, init_config=None, interp_config=dict()):
+    def analyze(self, init_config=None, interp_config=dict(),
+                input_config=AbstractionInitConfig(diff=True, stride=-1, from_init=False, from_init_margin=1.),
+                weight_config=AbstractionInitConfig(diff=True, stride=-1, from_init=True, from_init_margin=1.)):
 
         # independent abstraction variables
         self.initial_abstracts = dict()
@@ -262,10 +264,14 @@ class InterpModule():
                 else:
                     if s in self.input_vars:
                         # for input tensors, usually we don't use raw initialized data to load the Abstraction
-                        init_config[s] = AbstractionInitConfig(diff=self.signature_dict[s][0] not in discrete_types, stride=-1, from_init=False)
+                        now_config = AbstractionInitConfig(False).load_from_dict(input_config.to_dict())
+                        now_config.diff = not self.signature_dict[s][0] in discrete_types
+                        init_config[s] = now_config
                     else:
                         # for weights, to get a better sense of the weight range, we use raw initialized data to load
-                        init_config[s] = AbstractionInitConfig(diff=self.signature_dict[s][0] not in discrete_types, stride=-1, from_init=True)
+                        now_config = AbstractionInitConfig(False).load_from_dict(weight_config.to_dict())
+                        now_config.diff = not self.signature_dict[s][0] in discrete_types
+                        init_config[s] = now_config
             else:
                 assert isinstance(init_config[s], AbstractionInitConfig)
                 if s in require_fine_grain_vars:
@@ -334,9 +340,11 @@ class InterpModule():
             l += 1
 
         # place to inspect abstraction for debug
+        # self.abstracts['X:0'].print()
+        # self.abstracts['strided_slice:0'].print()
         # self.abstracts['q_out:0'].print()
-        # self.abstracts['Variable_2/read:0'].print()
-        # self.abstracts['Conv2D_1:0'].print()
+        # self.abstracts['MatMul:0'].print()
+        # self.abstracts['output:0'].print()
 
         return self.possible_numerical_errors
 

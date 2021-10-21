@@ -2579,6 +2579,60 @@ class TestAbstraction(unittest.TestCase):
         # a_output.print()
         self.assertTrue(correct_abstraction(a_output, expected_output, tight=True))
 
+    def test_Range(self):
+        interp = Interpreter()
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        conf_exact_nodiff = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+
+        start = 3
+        limit = 9
+        delta = 3
+
+        start = np.array(start)
+        limit = np.array(limit)
+        delta = np.array(delta)
+
+        a_start = Abstraction().load(conf_exact, 'start', start.shape, 'FLOAT', start)
+        a_limit = Abstraction().load(conf_exact, 'limit', limit.shape, 'FLOAT', limit)
+        a_delta = Abstraction().load(conf_exact, 'delta', delta.shape, 'FLOAT', delta)
+        a_output, _ = interp.interp_Range([a_start, a_limit, a_delta], None, 'Range', 'output')
+        # a_output.print()
+        self.assertTrue(correct_abstraction(a_output, np.array([3., 6.]), tight=True))
+
+
+        start = 10
+        limit = 4
+        delta = -2
+
+        start = np.array(start)
+        limit = np.array(limit)
+        delta = np.array(delta)
+
+        a_start = Abstraction().load(conf_exact, 'start', start.shape, 'FLOAT', start)
+        a_limit = Abstraction().load(conf_exact, 'limit', limit.shape, 'FLOAT', limit)
+        a_delta = Abstraction().load(conf_exact, 'delta', delta.shape, 'FLOAT', delta)
+        a_output, _ = interp.interp_Range([a_start, a_limit, a_delta], None, 'Range', 'output')
+        # a_output.print()
+        self.assertTrue(correct_abstraction(a_output, np.array([10, 8, 6]), tight=True))
+
+
+        start = 10
+        limit = 4
+        delta = -2
+
+        start = np.array(start)
+        limit = np.array(limit)
+        delta = np.array(delta)
+
+        a_start = Abstraction().load(conf_exact_nodiff, 'start', start.shape, 'FLOAT', start)
+        a_limit = Abstraction().load(conf_exact_nodiff, 'limit', limit.shape, 'FLOAT', limit)
+        a_delta = Abstraction().load(conf_exact_nodiff, 'delta', delta.shape, 'FLOAT', delta)
+        a_delta.lb -= 1.
+        a_delta.ub += 1.
+        a_output, _ = interp.interp_Range([a_start, a_limit, a_delta], None, 'Range', 'output')
+        # a_output.print()
+        # self.assertTrue(correct_abstraction(a_output, np.array([10, 8, 6]), tight=True))
 
 
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
@@ -2635,4 +2689,4 @@ def gather_nd_impl(data, indices, batch_dims):
 
 if __name__ == '__main__':
     # unittest.main()
-    TestAbstraction().test_GatherND()
+    TestAbstraction().test_Range()
