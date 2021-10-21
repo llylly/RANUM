@@ -772,10 +772,10 @@ class TestAbstraction(unittest.TestCase):
             y = np.random.randn(1, 10, 1).astype(np.float64)
             conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
             abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
-            ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y]
-            op_names = ["Less", "LessOrEqual", "Greater", "GreaterOrEqual"]
+            ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y, lambda x, y: x == y]
+            op_names = ["Less", "LessOrEqual", "Greater", "GreaterOrEqual", "Equal"]
             op_interps = [interp.interp_Less, interp.interp_LessOrEqual, interp.interp_Greater,
-                          interp.interp_GreaterOrEqual]
+                          interp.interp_GreaterOrEqual, interp.interp_Equal]
 
             not_node = helper.make_node(
                 "Not", ['x'], ['a'], "Not:0"
@@ -2643,72 +2643,64 @@ class TestAbstraction(unittest.TestCase):
         conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
         conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
 
-        for mode in ['ArgMin', 'ArgMax']:
-            if mode == 'ArgMin':
-                interp_func = Interpreter.interp_ArgMin
-                check_func = argmin_use_numpy
-            else:
-                interp_func = Interpreter.interp_ArgMax
-                check_func = argmax_use_numpy
+        for keepdims in [0, 1]:
+            for mode in ['ArgMin', 'ArgMax']:
+                if mode == 'ArgMin':
+                    interp_func = Interpreter.interp_ArgMin
+                    check_func = argmin_use_numpy
+                else:
+                    interp_func = Interpreter.interp_ArgMax
+                    check_func = argmax_use_numpy
 
 
-            data = np.array([[2, 1], [3, 10]], dtype=np.float32)
-            keepdims = 1
-            node = helper.make_node(
-                mode,
-                inputs=['data'],
-                outputs=['result'],
-                keepdims=keepdims)
-            # result: [[1], [1]]
-            result = check_func(data, keepdims=keepdims)
+                data = np.array([[2, 1], [3, 10]], dtype=np.float32)
+                node = helper.make_node(
+                    mode,
+                    inputs=['data'],
+                    outputs=['result'],
+                    keepdims=keepdims)
+                # result: [[1], [1]]
+                result = check_func(data, keepdims=keepdims)
 
-            a_data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
-            a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
-            # a_result.print()
-            self.assertTrue(correct_abstraction(a_result, result, tight=True))
+                a_data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+                a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
+                # a_result.print()
+                self.assertTrue(correct_abstraction(a_result, result, tight=True))
 
-            node = helper.make_node(
-                mode,
-                inputs=['data'],
-                outputs=['result'],
-                keepdims=keepdims,
-                axis=-1)
-            result = check_func(data, keepdims=keepdims, axis=-1)
-            a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
-            # a_result.print()
-            self.assertTrue(correct_abstraction(a_result, result, tight=True))
+                node = helper.make_node(
+                    mode,
+                    inputs=['data'],
+                    outputs=['result'],
+                    keepdims=keepdims,
+                    axis=-1)
+                result = check_func(data, keepdims=keepdims, axis=-1)
+                a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
+                # a_result.print()
+                self.assertTrue(correct_abstraction(a_result, result, tight=True))
 
-            data = np.random.random((10, 10, 10))
-            node = helper.make_node(
-                mode,
-                inputs=['data'],
-                outputs=['result'],
-                keepdims=keepdims,
-                axis=1)
-            result = check_func(data, keepdims=keepdims, axis=1)
+                data = np.random.random((10, 10, 10))
+                node = helper.make_node(
+                    mode,
+                    inputs=['data'],
+                    outputs=['result'],
+                    keepdims=keepdims,
+                    axis=1)
+                result = check_func(data, keepdims=keepdims, axis=1)
 
-            a_data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
-            a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
-            # a_result.print()
-            self.assertTrue(correct_abstraction(a_result, result, tight=True))
+                a_data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+                a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
+                # a_result.print()
+                self.assertTrue(correct_abstraction(a_result, result, tight=True))
 
-            a_data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
-            a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
-            # a_result.print()
-            self.assertTrue(correct_abstraction(a_result, result))
+                a_data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+                a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
+                # a_result.print()
+                self.assertTrue(correct_abstraction(a_result, result))
 
-            a_data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
-            a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
-            # a_result.print()
-            self.assertTrue(correct_abstraction(a_result, result))
-
-
-
-
-
-def test_Equal(self):
-    pass
-
+                a_data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+                a_result, _ = interp_func(interp, [a_data], node, 'ArgMax', 'result')
+                # a_result.print()
+                self.assertTrue(correct_abstraction(a_result, result))
 
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
                                   transB=0):  # type: (np.ndarray, np.ndarray, Optional[np.ndarray], float, float, int, int) -> np.ndarray
@@ -2775,5 +2767,5 @@ def argmin_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) 
     return result.astype(np.int64)
 
 if __name__ == '__main__':
-    unittest.main()
-    # TestAbstraction().test_ArgMinMax()
+    # unittest.main()
+    TestAbstraction().test_ArgMinMax()

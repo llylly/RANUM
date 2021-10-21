@@ -1979,8 +1979,8 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-        ones = torch.ones_like(abst0.lb)
-        zeros = torch.zeros_like(abst0.lb)
+        ones = torch.ones_like(abst0.lb, dtype=abst0.lb.dtype, device=abst0.lb.device)
+        zeros = torch.zeros_like(abst0.lb, dtype=abst0.ub.dtype, device=abst0.lb.device)
         ans.lb = torch.where(abst0.ub >= abst1.lb, zeros, ones)
         ans.ub = torch.where(abst0.lb < abst1.ub, ones, zeros)
         ans.var_name = var_name
@@ -1995,8 +1995,8 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-        ones = torch.ones_like(abst0.lb)
-        zeros = torch.zeros_like(abst0.lb)
+        ones = torch.ones_like(abst0.lb, dtype=abst0.lb.dtype, device=abst0.lb.device)
+        zeros = torch.zeros_like(abst0.lb, dtype=abst0.ub.dtype, device=abst0.lb.device)
         ans.lb = torch.where(abst0.ub > abst1.lb, zeros, ones)
         ans.ub = torch.where(abst0.lb <= abst1.ub, ones, zeros)
         ans.var_name = var_name
@@ -2011,8 +2011,8 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-        ones = torch.ones_like(abst0.lb)
-        zeros = torch.zeros_like(abst0.lb)
+        ones = torch.ones_like(abst0.lb, dtype=abst0.lb.dtype, device=abst0.lb.device)
+        zeros = torch.zeros_like(abst0.lb, dtype=abst0.ub.dtype, device=abst0.lb.device)
         ans.lb = torch.where(abst0.lb <= abst1.ub, zeros, ones)
         ans.ub = torch.where(abst0.ub > abst1.lb, ones, zeros)
         ans.var_name = var_name
@@ -2027,10 +2027,26 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-        ones = torch.ones_like(abst0.lb)
-        zeros = torch.zeros_like(abst0.lb)
+        ones = torch.ones_like(abst0.lb, dtype=abst0.lb.dtype, device=abst0.lb.device)
+        zeros = torch.zeros_like(abst0.lb, dtype=abst0.ub.dtype, device=abst0.lb.device)
         ans.lb = torch.where(abst0.lb < abst1.ub, zeros, ones)
         ans.ub = torch.where(abst0.ub >= abst1.lb, ones, zeros)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Equal(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ones = torch.ones_like(abst0.lb, dtype=abst0.lb.dtype, device=abst0.lb.device)
+        zeros = torch.zeros_like(abst0.lb, dtype=abst0.ub.dtype, device=abst0.lb.device)
+        ans.lb = torch.where((abst0.lb < abst1.ub) + (abst0.ub > abst1.lb), zeros, ones)
+        ans.ub = torch.where((abst0.ub < abst1.lb) + (abst0.lb > abst1.ub), zeros, ones)
         ans.var_name = var_name
         return ans, list()
 
@@ -2201,8 +2217,8 @@ class Interpreter(object):
         ans_ub = possible.shape[axis] - 1 - possible.flip(dims=[axis]).max(dim=axis, keepdim=bool(keepdims))[1]
 
         if len(data.splits[axis]) < data.shape[axis]:
-            lb_mapping = torch.tensor(data.splits[axis], device=ans_lb.device)
-            ub_mapping = torch.tensor(data.splits[axis][1:] + [data.shape[axis]], device=ans_lb.device) - 1
+            lb_mapping = torch.tensor(data.splits[axis], device=ans_lb.device, dtype=torch.float64)
+            ub_mapping = torch.tensor(data.splits[axis][1:] + [data.shape[axis]], device=ans_lb.device, dtype=torch.float64) - 1
             ans_lb = lb_mapping[ans_lb]
             ans_ub = ub_mapping[ans_ub]
 
@@ -2213,12 +2229,12 @@ class Interpreter(object):
         if keepdims:
             ans.splits[axis] = [0]
         else:
-            ans.splits.remove(axis)
+            del ans.splits[axis]
         ans.shape = data.shape.copy()
         if keepdims:
             ans.shape[axis] = 1
         else:
-            ans.shape.remove(axis)
+            del ans.shape[axis]
         ans.var_name = var_name
         return ans, list()
 
@@ -2754,7 +2770,7 @@ class Interpreter(object):
             split_sizes = [splits[i] - splits[i - 1] for i in range(1, len(splits))]
             view_shape = [1] * len(abstract.shape)
             view_shape[d] = len(abstract.splits[d])
-            multiplies *= torch.Tensor(split_sizes).view(view_shape)
+            multiplies *= torch.tensor(split_sizes).view(view_shape)
 
         return multiplies
 
