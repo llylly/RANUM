@@ -1607,6 +1607,84 @@ class Interpreter(object):
 
             return ans, list()
 
+    def interp_GatherND(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        b = attr.get('batch_dims', 0)
+        a_data, a_indices = abstracts[0], abstracts[1]
+        r = a_data.get_dim()
+        q = a_indices.get_dim()
+
+        # split the block to align
+        ref_splits = a_data.splits.copy()
+        ref_splits[:b] = a_indices.splits[:b]
+        a_data = a_data.split_by(ref_splits, inplace=False)
+        ref_splits = a_indices.splits.copy()
+        ref_splits[:b] = a_data.splits[:b]
+        ref_splits[-1] = list(range(a_indices.shape[-1]))
+        a_indices = a_indices.split_by(ref_splits, inplace=False)
+
+        # map the actual indexing to abstract indexing
+        ind_lb, ind_ub = a_indices.lb.type(torch.long), a_indices.ub.type(torch.long)
+        map_ind = list()
+        for k in range(a_indices.shape[-1]):
+            nowdim = b + k
+            ind_mapping = torch.tensor([bisect.bisect_right(a_data.splits[nowdim], ind) - 1 for ind in range(a_data.shape[nowdim])],
+                                       dtype=torch.long, device=ind_lb.device)
+            lbind = ind_mapping[ind_lb.select(-1, k)].unsqueeze(-1)
+            ubind = ind_mapping[ind_ub.select(-1, k)].unsqueeze(-1)
+            if (lbind == ubind).all():
+                map_ind.append(lbind)
+            else:
+                a_data.lb = a_data.lb.min(nowdim, keepdim=True)[0]
+                a_data.ub = a_data.ub.max(nowdim, keepdim=True)[0]
+                lbind = torch.zeros_like(lbind, dtype=torch.long, device=lbind.device)
+                map_ind.append(lbind)
+        map_ind = torch.cat(map_ind, dim=-1)
+        # print(map_ind)
+
+        # figure out the index in 1-dimensional array
+        K = a_indices.shape[-1]
+        multipler = torch.ones(K, dtype=torch.long)
+        for i in range(1, r-b):
+            multipler[:i] *= a_data.lb.shape[b+i]
+        multipler = multipler.to(map_ind.device)
+        # print('multipler', multipler)
+        onedim_ind = torch.matmul(map_ind, multipler).unsqueeze(-1)
+        remainder = 1
+        for i in range(b+K, r):
+            remainder *= a_data.lb.shape[i]
+        onedim_ind = onedim_ind.tile((1,) * (onedim_ind.dim() - 1) + (remainder,))
+        onedim_ind += torch.tensor(list(range(remainder)), dtype=torch.long, device=onedim_ind.device)
+        # print(onedim_ind.shape, onedim_ind)
+
+        multipler = torch.ones(b, dtype=torch.long)
+        for i in range(1, r):
+            multipler[:i] *= a_data.lb.shape[i]
+        for i in range(b):
+            now_multipler = torch.tensor(list(range(a_data.lb.shape[i])), dtype=torch.long, device=onedim_ind.device) * multipler[i]
+            for j in range(onedim_ind.dim()):
+                if j < i:
+                    now_multipler.unsqueeze_(dim=0)
+                elif j > i:
+                    now_multipler.unsqueeze_(dim=-1)
+            # print('b =', i, now_multipler, now_multipler.shape)
+            onedim_ind += now_multipler
+
+        # main work
+        shape_desiree = a_data.lb.shape[:b] + map_ind.shape[b: -1] + a_data.lb.shape[b+K:]
+        ans_lb = a_data.lb.reshape(-1).take(onedim_ind.reshape(-1))
+        ans_ub = a_data.ub.reshape(-1).take(onedim_ind.reshape(-1))
+        ans_lb = ans_lb.reshape(shape_desiree)
+        ans_ub = ans_ub.reshape(shape_desiree)
+
+        ans = Abstraction()
+        ans.lb = ans_lb
+        ans.ub = ans_ub
+        ans.splits = a_data.splits[:b] + a_indices.splits[b: -1] + a_data.splits[b+K:]
+        ans.shape = a_data.shape[:b] + a_indices.shape[b: -1] + a_data.shape[b+K:]
+
+        return ans, list()
+
     def interp_Squeeze(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
         if 'axes' in attr:

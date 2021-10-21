@@ -103,6 +103,7 @@ fine_grain_parameters = {
     'SequenceInsert': [2],
     'ConstantOfShape': [0],
     'Gather': [1],
+    'GatherND': [1],
     'ReduceSum': [1],
     'ScatterElements': [1],
     'Expand': [1],
