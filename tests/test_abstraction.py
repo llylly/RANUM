@@ -2128,6 +2128,7 @@ class TestAbstraction(unittest.TestCase):
         a = np.random.ranf([3, 6]).astype(np.float32)
         b = np.random.ranf([4, 6]).astype(np.float32)
         c = np.zeros([1, 4]).astype(np.float32)
+        y = gemm_reference_implementation(a, b, c, transB=1)
 
         _a = Abstraction().load(conf12d, 'a', a.shape, 'FLOAT', a)
         _b = Abstraction().load(conf12d, 'b', b.shape, 'FLOAT', b)
@@ -2767,5 +2768,5 @@ def argmin_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) 
     return result.astype(np.int64)
 
 if __name__ == '__main__':
-    # unittest.main()
-    TestAbstraction().test_ArgMinMax()
+    unittest.main()
+    # TestAbstraction().test_ArgMinMax()

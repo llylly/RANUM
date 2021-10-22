@@ -160,8 +160,8 @@ class Abstraction(object):
                 new_abst.var_name = self.var_name + '_smash'
                 return new_abst
 
-        lb = torch.min(self.lb)
-        ub = torch.max(self.ub)
+        lb = torch.amin(self.lb)
+        ub = torch.amax(self.ub)
         new_splits = [[0]] * len(self.shape)
         new_lb, new_ub = torch.ones([1] * len(self.shape)) * lb, torch.ones([1] * len(self.shape)) * ub
 
@@ -313,11 +313,11 @@ class Abstraction(object):
                 old_l = bisect.bisect_right(old_split, l) - 1
                 old_r = bisect.bisect_left(old_split, r)
                 ts_list_lb.append(
-                    now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_lb.device)).min(
-                        dim=dim)[0])
+                    now_lb.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_lb.device)).amin(
+                        dim=dim))
                 ts_list_ub.append(
-                    now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_ub.device)).max(
-                        dim=dim)[0])
+                    now_ub.index_select(dim=dim, index=torch.tensor(range(old_l, old_r)).to(now_ub.device)).amax(
+                        dim=dim))
 
             now_lb = torch.stack(ts_list_lb, dim=dim)
             now_ub = torch.stack(ts_list_ub, dim=dim)
@@ -472,8 +472,8 @@ class Interpreter(object):
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
         choices = torch.stack([abst0.lb * abst1.lb, abst0.lb * abst1.ub, abst0.ub * abst1.lb, abst0.ub * abst1.ub],
                               dim=0)
-        ans.lb = torch.min(choices, dim=0)[0]
-        ans.ub = torch.max(choices, dim=0)[0]
+        ans.lb = torch.amin(choices, dim=0)
+        ans.ub = torch.amax(choices, dim=0)
         ans.var_name = var_name
 
         return ans, list()
@@ -508,8 +508,8 @@ class Interpreter(object):
         if any(PossibleNumericalError.is_invalid(x) for x in choices_float32):
             return None, [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
                                                  PossibleNumericalError.ERROR_OVERFLOW)]
-        ans.lb = torch.min(choices, dim=0)[0]
-        ans.ub = torch.max(choices, dim=0)[0]
+        ans.lb = torch.amin(choices, dim=0)
+        ans.ub = torch.amax(choices, dim=0)
         ans.var_name = var_name
 
         return ans, list()
@@ -530,8 +530,8 @@ class Interpreter(object):
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
         choices = torch.stack([abst0.lb / abst1.lb, abst0.lb / abst1.ub, abst0.ub / abst1.lb, abst0.ub / abst1.ub],
                               dim=0)
-        ans.lb = torch.min(choices, dim=0)[0]
-        ans.ub = torch.max(choices, dim=0)[0]
+        ans.lb = torch.amin(choices, dim=0)
+        ans.ub = torch.amax(choices, dim=0)
         # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
         #     return None, PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
         #                                         PossibleNumericalError.ERROR_CONTAINS_ZERO)
@@ -1594,8 +1594,8 @@ class Interpreter(object):
         else:
 
             axis = parse_attribute(node).get('axis', 0)
-            lb = data.lb.min(dim=axis)[0]
-            ub = data.ub.max(dim=axis)[0]
+            lb = data.lb.amin(dim=axis)
+            ub = data.ub.amax(dim=axis)
 
             for _ in range(indices.get_dim()):
                 lb = lb.unsqueeze(dim=axis)
@@ -1644,8 +1644,8 @@ class Interpreter(object):
             if (lbind == ubind).all():
                 map_ind.append(lbind)
             else:
-                a_data.lb = a_data.lb.min(nowdim, keepdim=True)[0]
-                a_data.ub = a_data.ub.max(nowdim, keepdim=True)[0]
+                a_data.lb = a_data.lb.amin(nowdim, keepdim=True)
+                a_data.ub = a_data.ub.amax(nowdim, keepdim=True)
                 lbind = torch.zeros_like(lbind, dtype=torch.long, device=lbind.device)
                 map_ind.append(lbind)
         map_ind = torch.cat(map_ind, dim=-1)
@@ -1804,8 +1804,8 @@ class Interpreter(object):
                 new_ubl = new_ub.scatter_(axis, new_indices.lb, updates.lb, reduce='multiply')
                 new_ubu = new_ub.scatter_(axis, new_indices.lb, updates.ub, reduce='multiply')
                 choices = torch.stack([new_lbl, new_lbu, new_ubl, new_ubu], dim=0)
-                new_lb = torch.min(choices, dim=0)[0]
-                new_ub = torch.max(choices, dim=0)[0]
+                new_lb = torch.amin(choices, dim=0)
+                new_ub = torch.amax(choices, dim=0)
             ans.lb = torch.minimum(old_lb, new_lb)
             ans.ub = torch.maximum(old_ub, new_ub)
         else:
@@ -1818,8 +1818,8 @@ class Interpreter(object):
             data = data.split_by(ref_splits, inplace=False)
 
             old_lb, old_ub = data.lb, data.ub
-            updates_min = torch.min(updates.lb, dim=axis, keepdim=True)[0]
-            updates_max = torch.max(updates.ub, dim=axis, keepdim=True)[0]
+            updates_min = torch.amin(updates.lb, dim=axis, keepdim=True)
+            updates_max = torch.amax(updates.ub, dim=axis, keepdim=True)
             if reduction == 'none':
                 new_lb = torch.minimum(old_lb, updates_min)
                 new_ub = torch.maximum(old_ub, updates_max)
@@ -1832,8 +1832,8 @@ class Interpreter(object):
                 new_ubl = old_ub * updates_min
                 new_ubu = old_ub * updates_max
                 choices = torch.stack([new_lbl, new_lbu, new_ubl, new_ubu], dim=0)
-                new_lb = torch.min(choices, dim=0)[0]
-                new_ub = torch.max(choices, dim=0)[0]
+                new_lb = torch.amin(choices, dim=0)
+                new_ub = torch.amax(choices, dim=0)
             ans.lb = torch.minimum(old_lb, new_lb)
             ans.ub = torch.maximum(old_ub, new_ub)
 
@@ -2208,10 +2208,10 @@ class Interpreter(object):
 
         data = abstracts[0]
         if mode == 'max':
-            max_lb = torch.max(data.lb, dim=axis, keepdim=True)[0]
+            max_lb = torch.amax(data.lb, dim=axis, keepdim=True)
             possible = (data.ub >= max_lb)
         else:
-            min_ub = torch.min(data.ub, dim=axis, keepdim=True)[0]
+            min_ub = torch.amin(data.ub, dim=axis, keepdim=True)
             possible = (data.lb <= min_ub)
         ans_lb = possible.max(axis, keepdim=bool(keepdims))[1]
         ans_ub = possible.shape[axis] - 1 - possible.flip(dims=[axis]).max(dim=axis, keepdim=bool(keepdims))[1]
@@ -2306,11 +2306,11 @@ class Interpreter(object):
                 LU = input.lb * weight_ub_broadcast
                 UL = input.ub * weight_lb_broadcast
                 UU = input.ub * weight_ub_broadcast
-                lb = torch.stack([LL, LU, UL, UU], dim=0).min(dim=0)[0]
-                ub = torch.stack([LL, LU, UL, UU], dim=0).max(dim=0)[0]
+                lb = torch.stack([LL, LU, UL, UU], dim=0).amin(dim=0)
+                ub = torch.stack([LL, LU, UL, UU], dim=0).amax(dim=0)
 
-            ans.lb = - ub.max(dim=1)[0]
-            ans.ub = - lb.min(dim=1)[0]
+            ans.lb = - ub.amax(dim=1)
+            ans.ub = - lb.amin(dim=1)
             ans.shape = [input.shape[0]] + input.shape[2:]
             ans.splits = [input.splits[0]] + input.splits[2:]
 
@@ -2332,8 +2332,8 @@ class Interpreter(object):
                 LU = input.lb * weight_ub_broadcast
                 UL = input.ub * weight_lb_broadcast
                 UU = input.ub * weight_ub_broadcast
-                lb = torch.stack([LL, LU, UL, UU], dim=0).min(dim=0)[0]
-                ub = torch.stack([LL, LU, UL, UU], dim=0).max(dim=0)[0]
+                lb = torch.stack([LL, LU, UL, UU], dim=0).amin(dim=0)
+                ub = torch.stack([LL, LU, UL, UU], dim=0).amax(dim=0)
 
             index_map = [bisect.bisect_right(input.splits[1], ind) - 1 for ind in range(C)]
             target_value = target.lb.long()
@@ -2374,8 +2374,8 @@ class Interpreter(object):
                     deno_max = float(numel - certain_ignore_numels)
             else:
                 if not exact_target:
-                    w_min = torch.min(weight.lb)
-                    w_max = torch.max(weight.ub)
+                    w_min = torch.amin(weight.lb)
+                    w_max = torch.amax(weight.ub)
                     deno_min = min(w_min * (numel - possible_ignore_numels), w_min * (numel - certain_ignore_numels))
                     deno_max = max(w_max * (numel - possible_ignore_numels), w_max * (numel - certain_ignore_numels))
                 else:
@@ -2421,12 +2421,12 @@ class Interpreter(object):
                     PossibleNumericalError(optype, var_name, [torch.tensor(deno_min), torch.tensor(deno_max)],
                                            PossibleNumericalError.ERROR_CONTAINS_ZERO)]
             elif deno_max < 0.:
-                ans.lb = torch.min(ans.ub / deno_min, ans.ub / deno_max)
-                ans.ub = torch.max(ans.lb / deno_min, ans.lb / deno_max)
+                ans.lb = torch.minimum(ans.ub / deno_min, ans.ub / deno_max)
+                ans.ub = torch.maximum(ans.lb / deno_min, ans.lb / deno_max)
             else:
                 # deno_min > 0.
-                ans.lb = torch.min(ans.lb / deno_min, ans.lb / deno_max)
-                ans.ub = torch.max(ans.ub / deno_min, ans.ub / deno_max)
+                ans.lb = torch.minimum(ans.lb / deno_min, ans.lb / deno_max)
+                ans.ub = torch.maximum(ans.ub / deno_min, ans.ub / deno_max)
 
         ans.var_name = var_name
         return ans, list()
@@ -2895,8 +2895,8 @@ def add_padding_to_X(X, padding, value, mode='value'):
                     to_pend_min = torch.full(to_pend_shape, value).to(X.lb.device)
                     to_pend_max = to_pend_min
                 elif mode == 'minmax':
-                    to_pend_min = torch.min(X.lb, dim=2 + index_of_padding, keepdim=True)[0]
-                    to_pend_max = torch.max(X.ub, dim=2 + index_of_padding, keepdim=True)[0]
+                    to_pend_min = torch.amin(X.lb, dim=2 + index_of_padding, keepdim=True)
+                    to_pend_max = torch.amax(X.ub, dim=2 + index_of_padding, keepdim=True)
                 if begin:
                     X.lb = torch.cat([to_pend_min, X.lb], dim=2 + index_of_padding)
                     X.ub = torch.cat([to_pend_max, X.ub], dim=2 + index_of_padding)
