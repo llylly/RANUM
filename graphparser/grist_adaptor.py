@@ -28,7 +28,9 @@ current_selected_scripts = {
     "ID_13": "model_zoo/grist_models/ID_13/test/utils/test_softmax_grist.py",
     "ID_14": "model_zoo/grist_models/ID_14/v3/train_grist.py",
     "ID_15": "model_zoo/grist_models/ID_15/train_grist.py",
-    "ID_16": "model_zoo/grist_models/ID_16/nan_model_grist.py",
+    "ID_16a": "model_zoo/grist_models/ID_16/nan_model_grist.py",
+    "ID_16b": "model_zoo/grist_models/ID_16/nan_model_log_grist.py",
+    "ID_16c": "model_zoo/grist_models/ID_16/nan_model_truediv_grist.py",
     "ID_17": "model_zoo/grist_models/ID_17/test_toy_grist.py",
     "ID_18": "model_zoo/grist_models/ID_18/code_10_image_grist.py",
     "ID_19": "model_zoo/grist_models/ID_19/mnist_grist.py",
@@ -98,7 +100,9 @@ current_new_scripts = {
     "ID_13": "model_zoo/grist_models/ID_13/test/utils/test_softmax_DEBARUS.py",
     "ID_14": "model_zoo/grist_models/ID_14/v3/train_DEBARUS.py",
     "ID_15": "model_zoo/grist_models/ID_15/train_DEBARUS.py",
-    "ID_16": "model_zoo/grist_models/ID_16/nan_model_DEBARUS.py",
+    "ID_16a": "model_zoo/grist_models/ID_16/nan_model_DEBARUS.py",
+    "ID_16b": "model_zoo/grist_models/ID_16/nan_model_log_DEBARUS.py",
+    "ID_16c": "model_zoo/grist_models/ID_16/nan_model_truediv_DEBARUS.py",
     "ID_17": "model_zoo/grist_models/ID_17/test_toy_DEBARUS.py",
     "ID_18": "model_zoo/grist_models/ID_18/code_10_image_DEBARUS.py",
     "ID_19": "model_zoo/grist_models/ID_19/mnist_DEBARUS.py",
@@ -168,7 +172,9 @@ package_info = {
     "ID_13": "torch",
     "ID_14": "tensorflow",
     "ID_15": "tensorflow",
-    "ID_16": "tensorflow",
+    "ID_16a": "tensorflow",
+    "ID_16b": "tensorflow",
+    "ID_16c": "tensorflow",
     "ID_17": "tensorflow",
     "ID_18": "tensorflow",
     "ID_19": "tensorflow",
@@ -218,7 +224,7 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = ['15']
+run_ids = ['17']
 
 # only for tensorflow models
 inputs_outputs = {
@@ -238,7 +244,11 @@ inputs_outputs = {
     "ID_11b": (['x', 'y'], ['loss', 'obj_function']),
     "ID_11c": (['x', 'y'], ['loss', 'obj_function']),
     "ID_14": (['input_x', 'label'], ['loss']),
-    "ID_15": (['X', 'S1', 'S2', 'y'], ['cost', 'err', 'obj_function'])
+    "ID_15": (['X', 'S1', 'S2', 'y'], ['cost', 'err', 'obj_function']),
+    "ID_16a": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_16b": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_16c": (['x', 'y'], ['loss', 'obj_function']),
+    "ID_17": (['x', 'y'], ['cross_entropy', 'loss', 'accuracy', 'obj_function'])
 }
 
 import sys
