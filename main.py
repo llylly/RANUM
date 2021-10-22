@@ -20,7 +20,8 @@ parser.add_argument('modelpath', type=str, help='model architecture file path')
 if __name__ == '__main__':
     args = parser.parse_args()
 
-    model = load_onnx_from_file(args.modelpath)
+    model = load_onnx_from_file(args.modelpath,
+                                customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
     prompt('model initialized')
 
     res = model.analyze(model.gen_abstraction_heuristics(), {'average_pool_mode': 'coarse'})

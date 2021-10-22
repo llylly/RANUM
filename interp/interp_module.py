@@ -10,7 +10,7 @@ from interp.interp_utils import AbstractionInitConfig, fine_grain_parameters, fo
 
 class InterpModule():
 
-    def __init__(self, onnx_model, debug=True):
+    def __init__(self, onnx_model, debug=True, customize_shape=None):
         self.onnx_model = onnx_model
 
         """init type mappers"""
@@ -91,12 +91,12 @@ class InterpModule():
             for s in values[1]:
                 if isinstance(s, str):
                     self.shape_identifiers.add(s)
-        print(f'  shape identifiers are {self.shape_identifiers}, all are set to 1 (batch size=1 case)')
+        print(f'  shape identifiers are {self.shape_identifiers}, all are set to 1 (batch size=1 case) except specified')
 
         for values in self.signature_dict.values():
             for id, item in enumerate(values[1]):
                 if isinstance(item, str):
-                    values[1][id] = 1
+                    values[1][id] = 1 if customize_shape is None or item not in customize_shape else customize_shape[item]
 
         """construct the computational graph, and check whether there are unknown variables"""
         if debug: print('construct graph')
@@ -340,7 +340,7 @@ class InterpModule():
             l += 1
 
         # place to inspect abstraction for debug
-        # self.abstracts['X:0'].print()
+        # self.abstracts['dropout_5/sub/x:0'].print()
         # self.abstracts['strided_slice:0'].print()
         # self.abstracts['q_out:0'].print()
         # self.abstracts['MatMul:0'].print()
@@ -368,7 +368,7 @@ class InterpModule():
         return result
 
 
-def load_onnx_from_file(path):
+def load_onnx_from_file(path, customize_shape=None):
     onnx_model = onnx.load_model(path)
-    return InterpModule(onnx_model)
+    return InterpModule(onnx_model, customize_shape=customize_shape)
 

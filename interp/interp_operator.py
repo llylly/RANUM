@@ -89,8 +89,8 @@ class Abstraction(object):
                 if from_init and tensor_data is not None:
                     tensor_data = tensor_data.reshape(())
                     self.lb, self.ub = \
-                        torch.tensor(tensor_data - from_init_margin, dtype=torch.float64, requires_grad=diff), \
-                        torch.tensor(tensor_data + from_init_margin, dtype=torch.float64, requires_grad=diff)
+                        torch.tensor(tensor_data, dtype=torch.float64, requires_grad=diff), \
+                        torch.tensor(tensor_data, dtype=torch.float64, requires_grad=diff)
                 else:
                     self.lb, self.ub = \
                         torch.tensor(lb, dtype=torch.float64, requires_grad=diff), \
@@ -968,6 +968,7 @@ class Interpreter(object):
                                                       dilations, strides)
         padding = np.array(padding)
 
+        # print(abstracts[0].var_name)
         # print([abst.shape for abst in abstracts])
         # print(attr)
         # print('out_shape:', out_shape)
