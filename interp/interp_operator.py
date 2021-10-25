@@ -1051,6 +1051,130 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_ConvTranspose(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+
+        X = Abstraction()
+        X.lb = abstracts[0].lb
+        X.ub = abstracts[0].ub
+        X.splits = abstracts[0].splits.copy()
+        X.shape = abstracts[0].shape.copy()
+        X.var_name = 'X'
+        W = abstracts[1]
+        W.lb = abstracts[1].lb
+        W.ub = abstracts[1].ub
+        W.splits = abstracts[1].splits.copy()
+        W.shape = abstracts[1].shape.copy()
+        W.var_name = 'W'
+        B = abstracts[2] if len(abstracts) >= 3 else None
+
+        dim_for_transconv = len(X.shape) - 2
+        strides = attr.get('strides', [1] * dim_for_transconv)
+        group = attr.get('group', 1)
+        if group == -1: group = 1
+        dilations = attr.get('dilations', [1] * dim_for_transconv)
+        kernel_shape = W.shape[2:]
+        out_shape, padding = compute_outshape_padding_trans(attr.get('auto_pad', 'NOTSET'),
+                                                            attr.get('pads', None),
+                                                            attr.get('output_shape', None),
+                                                            attr.get('output_padding', None),
+                                                            X.shape[2:], kernel_shape,
+                                                            dilations, strides)
+        padding = np.array(padding)
+
+        # print(abstracts[0].var_name)
+        # print([abst.shape for abst in abstracts])
+        # print(attr)
+        # print('out_shape:', out_shape)
+        # print('padding:', padding)
+
+        """split and align"""
+        X_ref_channels = sorted(list(set([item % (X.shape[1] // group) for item in W.splits[0] + X.splits[1]])))
+        X_ref_channels = [item + j * X.shape[1] // group for j in range(group) for item in X_ref_channels]
+        X.split_by([X.splits[0], X_ref_channels] + X.splits[2:], inplace=True)
+        if B is not None:
+            W_ref_channels = list(set([item % (W.shape[1]) for item in B.splits[0]]))
+        else:
+            W_ref_channels = list(range(W.shape[1]))
+        W.split_by([X.splits[1], W_ref_channels] + [list(range(x)) for x in W.shape[2:]])
+        if B is not None:
+            B_ref_channels = [item + now_group * W.shape[1] for now_group in range(group) for item in W.splits[1]]
+            B = B.split_by([B_ref_channels], inplace=False)
+
+        """multiple X with channel strides"""
+        channel_strides = (np.array(X.splits[1][1:] + [X.shape[1]]) - np.array(X.splits[1])).reshape(
+            *([-1] + [1] * dim_for_transconv))
+        X.lb = X.lb * torch.tensor(channel_strides, device=X.lb.device)
+        X.ub = X.ub * torch.tensor(channel_strides, device=X.ub.device)
+        # X.print()
+
+        """compute mapping to abst indices after conv"""
+        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices_trans(X, dim_for_transconv, kernel_shape, dilations, strides)
+        # print(new_X_lb.shape, len(lpses[0]), len(rpses[0]))
+        # print(lpses[0])
+        # print(rpses[0])
+
+        """core conv operation"""
+        if dim_for_transconv == 1:
+            func = torch.nn.functional.conv_transpose1d
+        elif dim_for_transconv == 2:
+            func = torch.nn.functional.conv_transpose2d
+        elif dim_for_transconv == 3:
+            func = torch.nn.functional.conv_transpose3d
+        else:
+            raise NotImplementedError("No conv_transposeXd for X > 3!")
+
+        C1 = func(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
+                  groups=group)
+        C2 = func(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
+                  groups=group)
+        C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
+                  groups=group)
+        C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
+                  groups=group)
+        Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
+        Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
+        if B is not None:
+            Cmin = Cmin + B.lb.reshape(*([-1] + [1] * dim_for_transconv))
+            Cmax = Cmax + B.ub.reshape(*([-1] + [1] * dim_for_transconv))
+
+        """infer splits and shape"""
+        """Note: current abstraction may be unsound for strides > 1 due to non-continuous index mapping after folding for output"""
+
+        splits = [list() for _ in range(dim_for_transconv)]
+        for index in range(dim_for_transconv):
+            for i in range(len(lpses[index])):
+                now_rx = rpses[index][i] * strides[index] + (kernel_shape[index] - 1) * dilations[index]
+                if i == 0:
+                    splits[index].extend(list(range(1 + (kernel_shape[index] - 1) * dilations[index])))
+                else:
+                    splits[index].extend(list(range(now_rx - strides[index] + 1, now_rx + 1)))
+        # print(splits)
+
+        try:
+            for i in range(dim_for_transconv):
+                assert (Cmin.shape[2 + i] == len(splits[i]))
+                assert (Cmax.shape[2 + i] == len(splits[i]))
+        except Exception:
+            print(f'! shape does not match: expected ({[len(x) for x in splits]})')
+            print(f'                        got ({[Cmin.shape[i + 2] for i in range(dim_for_transconv)]})')
+
+        ans = Abstraction()
+        ans.lb = Cmin
+        ans.ub = Cmax
+        ans.shape = [X.shape[0], W.shape[1] * group] + [1 + (X.shape[2 + i] - 1) * strides[i] + (kernel_shape[i] - 1) * dilations[i]  for i in range(dim_for_transconv)]
+        ans.splits = [X.splits[0], [item + j * W.shape[1] for j in range(group) for item in W.splits[1]]] + splits
+        ans.var_name = var_name
+        # ans.print()
+        # print('padding:', padding)
+
+        """cropping"""
+        """append the padding to the abstraction, so that all conv becomes valid padding ops"""
+        add_padding_to_X(ans, -padding, 0)
+
+        return ans, list()
+
+
     def interp_Reciprocal(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
@@ -2854,6 +2978,60 @@ def compute_outshape_padding(pad_mode, prev_pads, x_conv_shape, kernel_shape, di
         return out_shape, padding_deltas
 
 
+def compute_outshape_padding_trans(pad_mode, prev_pads, output_shape, output_padding,
+                                   x_conv_shape, kernel_shape, dilations, strides):
+    # note: the padding is on output and is indeed cropping instead of padding
+    dim_for_conv = len(x_conv_shape)
+
+    if not isinstance(pad_mode, str):
+        pad_mode = pad_mode.decode('ascii')
+
+    if output_shape is not None:
+        out_shape = output_shape.copy()
+        padding = list()
+        for i in range(dim_for_conv):
+            total_padding = strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - out_shape[i]
+            if pad_mode == 'SAME_UPPER':
+                padding.extend([total_padding // 2, total_padding - total_padding // 2])
+            else:
+                padding.extend([total_padding - total_padding // 2, total_padding // 2])
+        return out_shape, padding
+    elif prev_pads is not None:
+        prev_pads_order_by_dim = []
+        out_shape = list()
+        for i in range(dim_for_conv):
+            low, high = prev_pads[i], prev_pads[i + dim_for_conv]
+            if output_padding is not None:
+                high -= output_padding[i]
+            prev_pads_order_by_dim.extend([low, high])
+            padding_size = low + high
+            out_shape.append(strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - padding_size)
+        return out_shape, prev_pads_order_by_dim
+    else:
+        out_shape = list()
+        padding_deltas = list()
+        if pad_mode in ["VALID", "NOTSET"]:
+            for i in range(dim_for_conv):
+                out_shape.append(strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1))
+                padding_deltas.extend([0, 0])
+                if output_padding is not None:
+                    out_shape[-1] += output_padding[i]
+                    padding_deltas[-1] -= output_padding[i]
+        elif pad_mode in ['SAME_UPPER', 'SAME_LOWER']:
+            for i in range(dim_for_conv):
+                out_shape.append(strides[i] * x_conv_shape[i])
+                total_padding = strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - out_shape[-1]
+                if pad_mode == 'SAME_UPPER':
+                    padding_deltas.extend([total_padding // 2, total_padding - total_padding // 2])
+                else:
+                    padding_deltas.extend([total_padding - total_padding // 2, total_padding // 2])
+                if output_padding is not None:
+                    padding_deltas[-1] -= output_padding[-1]
+                    out_shape[-1] += output_padding[i]
+
+        return out_shape, padding_deltas
+
+
 def add_padding_to_X(X, padding, value, mode='value'):
     assert mode in ['value', 'minmax']
     if any(padding < 0):
@@ -2868,17 +3046,21 @@ def add_padding_to_X(X, padding, value, mode='value'):
                     if start_h_ind > 0:
                         indexes = [slice(None)] * len(X.shape)
                         indexes[2 + index_of_padding] = slice(start_h_ind, None)
+                        # print('start', indexes, X.lb.shape)
                         X.lb = X.lb[indexes]
+                        # print(X.lb.shape)
                         X.ub = X.ub[indexes]
                         X.splits[2 + index_of_padding] = [max(item + padding[i], 0) for item in
                                                           X.splits[2 + index_of_padding][start_h_ind:]]
                 else:
                     end_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding],
-                                                    X.shape[2 + index_of_padding] + padding[i]) - 1
-                    if end_h_ind < X.lb.shape[2 + index_of_padding] - 1:
+                                                    X.shape[2 + index_of_padding] + padding[i] - 1)
+                    if end_h_ind < X.lb.shape[2 + index_of_padding]:
                         indexes = [slice(None)] * len(X.shape)
                         indexes[2 + index_of_padding] = slice(None, end_h_ind)
+                        # print('end', indexes, X.lb.shape)
                         X.lb = X.lb[indexes]
+                        # print(X.lb.shape)
                         X.ub = X.ub[indexes]
                         X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding][:end_h_ind]
 
@@ -2958,5 +3140,57 @@ def fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations, s
     for i in range(dim_for_conv):
         new_X_lb = new_X_lb.index_select(dim=2 + i, index=torch.tensor(indexes[i]).to(X.lb.device))
         new_X_ub = new_X_ub.index_select(dim=2 + i, index=torch.tensor(indexes[i]).to(X.ub.device))
+
+    return new_X_lb, new_X_ub, lpses, rpses
+
+
+def fold_repeated_indices_trans(X, dim_for_convtrans, kernel_shape, dilations, strides):
+    lpses = []  # the list of [lpxs, lpys] when dim_for_convtrans == 2
+    rpses = []  # the list of [rpxs, rpys] when dim_for_convtrans == 2
+    repses = []  # the list of [xreps, yreps] when dim_for_convtrans == 2
+
+    for i in range(dim_for_convtrans):
+        p = 0
+        prev_avail = -1
+
+        lpxs, rpxs, xreps = list(), list(), list()
+
+        for x in range(X.shape[2 + i]):
+            while p < X.lb.shape[2 + i] - 1 and X.splits[2 + i][p + 1] <= x:
+                p += 1
+            lx = strides[i] * x
+            rx = strides[i] * x + (kernel_shape[i] - 1) * dilations[i]
+            r_bound = (strides[i] * (X.splits[2 + i][p] - 1) + (kernel_shape[i] - 1) * dilations[i]) if p > 0 else \
+                (strides[i] * (-1) + (kernel_shape[i] - 1) * dilations[i])
+            l_bound = (strides[i] * (X.splits[2 + i][p + 1])) if p < X.lb.shape[2 + i] - 1 else \
+                (strides[i] * X.shape[2 + i])
+            if lx > r_bound and rx < l_bound:
+                avail = p
+            else:
+                avail = -1
+            if avail == prev_avail and avail != -1:
+                rpxs[-1] = x
+                xreps[-1] += 1
+            else:
+                lpxs.append(x)
+                rpxs.append(x)
+                xreps.append(1)
+            prev_avail = avail
+
+        lpses.append(lpxs)
+        rpses.append(rpxs)
+        repses.append(xreps)
+
+    """fold repeated indices"""
+    origindexes = [[j for j, times in enumerate(np.array(X.splits[2 + i][1:] + [X.shape[2 + i]]) - np.array(X.splits[2 + i])) for _ in range(times)]
+               for i in range(dim_for_convtrans)]
+    indexes = [[origindexes[index][item] for item in lpses[index]] for index
+               in range(dim_for_convtrans)]
+
+    new_X_lb = X.lb
+    new_X_ub = X.ub
+    for i in range(dim_for_convtrans):
+        new_X_lb = new_X_lb.index_select(dim=2 + i, index=torch.tensor(indexes[i], dtype=torch.long).to(X.lb.device))
+        new_X_ub = new_X_ub.index_select(dim=2 + i, index=torch.tensor(indexes[i], dtype=torch.long).to(X.lb.device))
 
     return new_X_lb, new_X_ub, lpses, rpses
