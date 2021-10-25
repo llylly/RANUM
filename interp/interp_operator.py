@@ -240,9 +240,12 @@ class Abstraction(object):
                 tmp_s = old_s + [self.shape[i]]
                 new_index = [i for i, item in enumerate(old_s) for j in range(tmp_s[i + 1] - tmp_s[i])]
 
-                new_lb = torch.index_select(new_lb, i, torch.tensor(new_index).to(new_lb.device))
-                new_ub = torch.index_select(new_ub, i, torch.tensor(new_index).to(new_ub.device))
-                new_splits.append(list(range(self.shape[i])))
+                if len(new_index) > 0:
+                    new_lb = torch.index_select(new_lb, i, torch.tensor(new_index).to(new_lb.device))
+                    new_ub = torch.index_select(new_ub, i, torch.tensor(new_index).to(new_ub.device))
+                    new_splits.append(list(range(self.shape[i])))
+                else:
+                    new_splits.append(list())
 
         if inplace:
             self.lb, self.ub = new_lb, new_ub
@@ -2022,6 +2025,50 @@ class Interpreter(object):
         ret.var_name = var_name
 
         return ret, list()
+
+    def interp_Split(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        axis = attr.get('axis', 0)
+
+        if len(abstracts) > 1 and abstracts[1].is_exact():
+            split = abstracts[1].lb.detach().cpu().type(torch.long).tolist()
+            split = [0] + [x for x in split[:-1]]
+        else:
+            split = [i * (abstracts[0].shape[axis] // len(node.output)) for i in range(len(node.output))]
+
+        data = abstracts[0]
+        ref_splits = data.splits.copy()
+        ref_splits[axis] = sorted(list(set(split)))
+        data = data.split_by(ref_splits, inplace=False)
+        # data.print()
+
+        ans = list()
+
+        p = 0
+        for j, s_ind in enumerate(split):
+            e_ind = split[j + 1] - 1 if j < len(split) - 1 else data.shape[axis] - 1
+            if len(data.splits[axis]) > 0:
+                pe = bisect.bisect_right(data.splits[axis], e_ind)
+            else:
+                pe = 0
+            now_ans = Abstraction()
+            slices = [slice(None, None) for _ in data.shape]
+            slices[axis] = slice(p, pe)
+            now_ans.lb = data.lb[slices]
+            now_ans.ub = data.ub[slices]
+            now_ans.splits = data.splits.copy()
+            now_ans.splits[axis] = [x - s_ind for x in data.splits[axis][p: pe]]
+            now_ans.shape = data.shape.copy()
+            if (now_ans.lb.shape[axis]) > 0:
+                now_ans.shape[axis] = data.splits[axis][pe] - data.splits[axis][p] if pe < len(data.splits[axis]) else \
+                    data.shape[axis] - data.splits[axis][p]
+            else:
+                now_ans.shape[axis] = 0
+            now_ans.var_name = node.output[j]
+            ans.append(now_ans)
+            p = pe
+
+        return ans, list()
 
     def interp_Identity(self, abstracts, node, optype, var_name):
         ret = Abstraction()

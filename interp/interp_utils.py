@@ -108,6 +108,8 @@ fine_grain_parameters = {
     'ReduceSum': [1],
     'ScatterElements': [1],
     'Expand': [1],
+    'Split': [1],
+    'Pad': [1, 2],
     # for NLL loss, this item may be removed
     'NegativeLogLikelihoodLoss': [1]
 }

@@ -580,6 +580,105 @@ class TestAbstraction(unittest.TestCase):
         abst_z, _ = interp.interp_Concat([abst_x, abst_y], node, 'Concat', 'z')
         self.assertTrue(correct_abstraction(abst_z, np.concatenate([x, y], axis=1)))
 
+    def test_SplitOp(self):
+        interp = Interpreter()
+        conf_empty = AbstractionInitConfig(diff=True, from_init=False)
+        conf_s4 = AbstractionInitConfig(diff=True, from_init=True, stride=4)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf_s1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        conf_ind = AbstractionInitConfig(diff=False, from_init=True, stride=1)
+        conf_ind2 = AbstractionInitConfig(diff=False, from_init=True, stride=2)
+
+        input = np.array([1., 2., 3., 4., 5., 6.]).astype(np.float32)
+
+        node = helper.make_node(
+            'Split',
+            inputs=['input'],
+            outputs=['output_1', 'output_2', 'output_3'],
+            axis=0
+        )
+
+        expected_outputs = [np.array([1., 2.]).astype(np.float32), np.array([3., 4.]).astype(np.float32), np.array([5., 6.]).astype(np.float32)]
+
+        a_input = Abstraction().load(conf_s3, 'input', input.shape, 'FLOAT', input)
+        a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
+        self.assertTrue(correct_abstraction(a_out[0], expected_outputs[0]))
+        self.assertTrue(correct_abstraction(a_out[1], expected_outputs[1]))
+        self.assertTrue(correct_abstraction(a_out[2], expected_outputs[2]))
+
+        split = np.array([2, 4]).astype(np.int64)
+        a_split = Abstraction().load(conf_ind, 'split', split.shape, 'FLOAT', split)
+        a_out, _ = interp.interp_Split([a_input, a_split], node, 'Split', 'output')
+
+        expected_outputs = [np.array([1., 2.]).astype(np.float32), np.array([3., 4., 5., 6.]).astype(np.float32)]
+        self.assertTrue(correct_abstraction(a_out[0], expected_outputs[0]))
+        self.assertTrue(correct_abstraction(a_out[1], expected_outputs[1]))
+
+
+        input = np.array([[1., 2., 3., 4., 5., 6.],
+                          [7., 8., 9., 10., 11., 12.]]).astype(np.float32)
+
+        node = helper.make_node(
+            'Split',
+            inputs=['input'],
+            outputs=['output_1', 'output_2'],
+            axis=1
+        )
+
+        expected_outputs = [np.array([[1., 2., 3.], [7., 8., 9.]]).astype(np.float32),
+                            np.array([[4., 5., 6.], [10., 11., 12.]]).astype(np.float32)]
+
+        a_input = Abstraction().load(conf_s3, 'input', input.shape, 'FLOAT', input)
+        a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
+        self.assertTrue(correct_abstraction(a_out[0], expected_outputs[0]))
+        self.assertTrue(correct_abstraction(a_out[1], expected_outputs[1]))
+
+        a_input = Abstraction().load(conf_s1, 'input', input.shape, 'FLOAT', input)
+        a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
+        self.assertTrue(correct_abstraction(a_out[0], expected_outputs[0], tight=True))
+        self.assertTrue(correct_abstraction(a_out[1], expected_outputs[1], tight=True))
+
+        split = np.array([2, 4]).astype(np.int64)
+        node = helper.make_node(
+            'Split',
+            inputs=['input', 'split'],
+            outputs=['output_1', 'output_2'],
+            axis=1,
+        )
+
+        a_split = Abstraction().load(conf_ind, 'split', split.shape, 'FLOAT', split)
+        a_input = Abstraction().load(conf_s3, 'input', input.shape, 'FLOAT', input)
+        a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
+        self.assertTrue(correct_abstraction(a_out[0], expected_outputs[0]))
+        self.assertTrue(correct_abstraction(a_out[1], expected_outputs[1]))
+
+        node = helper.make_node(
+            'Split',
+            inputs=['input', 'split'],
+            outputs=['output_1', 'output_2', 'output_3'],
+            axis=0,
+        )
+
+        a_input = Abstraction().load(conf_empty, 'input', [0], 'FLOAT', None)
+        a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
+        for i in range(3):
+            self.assertListEqual(a_out[i].shape, [0])
+            self.assertListEqual(a_out[i].splits, [[]])
+
+        a_input = Abstraction().load(conf_s3, 'input', input.shape, 'FLOAT', input)
+        a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
+        for i in range(3):
+            if i < 2:
+                self.assertListEqual(a_out[i].shape, [0, 6])
+            else:
+                self.assertListEqual(a_out[i].shape, [2, 6])
+            if i < 2:
+                self.assertListEqual(a_out[i].splits, [[], [0, 3]])
+            else:
+                self.assertListEqual(a_out[i].splits, [[0], [0, 3]])
+
+
+
     def test_Reciprocal(self):
         interp = Interpreter()
         # test without errors
@@ -3232,4 +3331,4 @@ def argmin_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) 
 
 if __name__ == '__main__':
     unittest.main()
-    # TestAbstraction().test_ConvTranspose()
+    # TestAbstraction().test_SplitOp()
