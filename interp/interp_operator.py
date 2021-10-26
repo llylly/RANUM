@@ -944,7 +944,6 @@ class Interpreter(object):
         return ans, list()
 
     def interp_Conv(self, abstracts, node, optype, var_name):
-        print('Conv', var_name)
         attr = parse_attribute(node)
 
         X = Abstraction()
