@@ -114,7 +114,7 @@ current_new_scripts = {
     "ID_25": "model_zoo/grist_models/ID_25/mnist_DEBARUS.py",
     "ID_26": "model_zoo/grist_models/ID_26/0401_logistic_regression_DEBARUS.py",
     "ID_27": "model_zoo/grist_models/ID_27/0503_softmax_regression_cost_DEBARUS.py",
-    "ID_28": "model_zoo/grist_models/ID_28/sc_train_l2reg_div2_DEBARUS.py",
+    "ID_28a": "model_zoo/grist_models/ID_28/sc_train_l2reg_div2_DEBARUS.py",
     "ID_29": "model_zoo/grist_models/ID_29/temp_DEBARUS.py",
     "ID_30": "model_zoo/grist_models/ID_30/softmax_DEBARUS.py",
     "ID_31": "model_zoo/grist_models/ID_31/GAN_MNIST_DEBARUS.py",
@@ -186,7 +186,10 @@ package_info = {
     "ID_25": "tensorflow",
     "ID_26": "torch",
     "ID_27": "torch",
-    "ID_28": "tensorflow",
+    "ID_28a": "tensorflow",
+    "ID_28b": "tensorflow",
+    "ID_28c": "tensorflow",
+    "ID_28d": "tensorflow",
     "ID_29": "tensorflow",
     "ID_30": "tensorflow",
     "ID_31": "tensorflow",
@@ -224,7 +227,7 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = ['23']
+run_ids = ['28a']
 
 # only for tensorflow models
 inputs_outputs = {
@@ -253,6 +256,9 @@ inputs_outputs = {
     "ID_19": (['x_input', 'y'], ['cross_entropy', 'obj_var']),
     "ID_20": (['x', 'y'], ['cost', 'obj_var']),
     "ID_21": (['x', 'y'], ['cross_entropy', 'obj_function']),
+    "ID_24": (['input/x-input', 'input/y-input'], ['cross_entropy', 'obj_function']),
+    "ID_25": (['x', 'y'], ['cross_entropy', 'obj_var']),
+    "ID_28a": (['features', 'labels'], ['loss']),
 }
 
 import sys

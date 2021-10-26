@@ -969,6 +969,145 @@ class TestAbstraction(unittest.TestCase):
                 abst_z, _ = interp.interp_Softmax([abst_x], node, "Softmax", 'z')
                 self.assertTrue(correct_abstraction(abst_z, z, stride == 1))
 
+    def test_LogSoftmax(self):
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+        )
+        x = np.array([[-1, 0, 1]]).astype(np.float32)
+        # expected output
+        # [[-2.4076061 -1.407606  -0.407606 ]]
+        y = logsoftmax(x)
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
+        # =======
+
+        x = np.array([[0, 1, 2, 3], [10000, 10001, 10002, 10003]]
+                     ).astype(np.float32)
+        # expected output
+        # [[-3.4401896  -2.4401896  -1.4401896  -0.44018966]
+        # [-3.4401896  -2.4401896  -1.4401896  -0.44018966]]
+        y = logsoftmax(x)
+
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+        )
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, exceps = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        self.assertTrue(len(exceps) > 0)
+        # self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
+        x = np.abs(np.random.randn(3, 4, 5).astype(np.float32))
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+            axis=0,
+        )
+        y = logsoftmax(x, axis=0)
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+            axis=1,
+        )
+        y = logsoftmax(x, axis=1)
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+            axis=2,
+        )
+        y = logsoftmax(x, axis=2)
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+            axis=-1,
+        )
+        y = logsoftmax(x, axis=-1)
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
+        # default axis is -1
+        node = helper.make_node(
+            'LogSoftmax',
+            inputs=['x'],
+            outputs=['y'],
+        )
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=True))
+
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_LogSoftmax([a_x], node, 'LogSoftmax', 'y')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y, tight=False))
+
     def test_Tile(self):
         interp = Interpreter()
         x = np.random.randn(10, 12, 13)
@@ -3504,6 +3643,12 @@ def pad_impl(data, raw_pads, mode, constant_values=0.0):  # type: ignore
 
     return y
 
+def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
+    x_max = np.max(x, axis=axis, keepdims=True)
+    tmp = np.exp(x - x_max)
+    s = np.sum(tmp, axis=axis, keepdims=True)
+    return (x - x_max) - np.log(s)
+
 if __name__ == '__main__':
-    unittest.main()
-    # TestAbstraction().test_Pad()
+    # unittest.main()
+    TestAbstraction().test_LogSoftmax()

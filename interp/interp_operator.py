@@ -1344,6 +1344,11 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_LogSoftmax(self, abstracts, node, optype, var_name):
+        softmax, _ = self.interp_Softmax(abstracts, node, 'Softmax', var_name)
+        ans, exceps = self.interp_Log([softmax], node, 'LogSoftMax', var_name)
+        return ans, exceps
+
     def interp_Abs(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
