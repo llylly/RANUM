@@ -944,6 +944,7 @@ class Interpreter(object):
         return ans, list()
 
     def interp_Conv(self, abstracts, node, optype, var_name):
+        print('Conv', var_name)
         attr = parse_attribute(node)
 
         X = Abstraction()
@@ -963,7 +964,7 @@ class Interpreter(object):
         dim_for_conv = len(X.shape) - 2
         strides = attr.get('strides', [1] * dim_for_conv)
         group = attr.get('group', 1)
-        if group == -1: group = 1
+        if group == -1 or group == 0: group = 1
         dilations = attr.get('dilations', [1] * dim_for_conv)
         kernel_shape = W.shape[2:]
         out_shape, padding = compute_outshape_padding(attr.get('auto_pad', 'NOTSET'), attr.get('pads', None),
@@ -1074,7 +1075,7 @@ class Interpreter(object):
         dim_for_transconv = len(X.shape) - 2
         strides = attr.get('strides', [1] * dim_for_transconv)
         group = attr.get('group', 1)
-        if group == -1: group = 1
+        if group == -1 or group == 0: group = 1
         dilations = attr.get('dilations', [1] * dim_for_transconv)
         kernel_shape = W.shape[2:]
         out_shape, padding = compute_outshape_padding_trans(attr.get('auto_pad', 'NOTSET'),
@@ -1177,6 +1178,42 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_Pad(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        mode = attr.get('mode', 'constant')
+        if not isinstance(mode, str):
+            mode = mode.decode('ascii')
+        data = abstracts[0]
+        ans = Abstraction()
+        ans.lb = data.lb
+        ans.ub = data.ub
+        ans.splits = data.splits
+        ans.shape = data.shape.copy()
+        ans.var_name = var_name
+        pads = abstracts[1]
+        if pads.is_exact():
+            pads = pads.lb.type(torch.long).detach().cpu().tolist()
+        else:
+            print('! pads is not exact in Pad, return the original abstraction instead')
+            return data, list()
+        pads = [pads[i + j * data.get_dim()] for i in range(data.get_dim()) for j in [0, 1]]
+        pads = np.array(pads)
+        # print(pads)
+        if mode == 'constant':
+            if len(abstracts) > 2:
+                cv = abstracts[2].lb.detach().cpu().item()
+                cv_ub = abstracts[2].ub.detach().cpu().item()
+            else:
+                cv = cv_ub = 0.
+            add_padding_to_X(ans, pads, cv, shift=0, value_ub=cv_ub)
+        elif mode == 'edge':
+            add_padding_to_X(ans, pads, 0., 'edge', shift=0)
+        elif mode == 'reflect':
+            add_padding_to_X(ans, pads, 0., 'reflect', shift=0)
+        else:
+            raise Exception(f'! Unknown mode for padding: {mode}')
+
+        return ans, list()
 
     def interp_Reciprocal(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
@@ -2084,15 +2121,27 @@ class Interpreter(object):
         value = attr.get('value', 0)
         device = abstracts[0].lb.device
 
-        if not isinstance(value, int):
+        if not isinstance(value, int) and not isinstance(value, float):
             value = numpy_helper.to_array(value).reshape(-1)[0]
 
         if abstracts[0].is_exact():
             ans = Abstraction()
             ans.shape = list(abstracts[0].lb.long().numpy())
-            ans.splits = [[0] for _ in range(len(ans.shape))]
-            ans.lb = torch.full([1] * len(ans.shape), value, device=device)
-            ans.ub = torch.full([1] * len(ans.shape), value, device=device)
+            if len(ans.shape) == 0:
+                ans.splits = []
+                ans.shape = []
+                ans.lb = torch.tensor(float(value), dtype=torch.float64, device=device)
+                ans.ub = torch.tensor(float(value), dtype=torch.float64, device=device)
+            # elif (len(ans.shape) == 1) and ans.shape[0] == 0:
+            #     # empty tensor
+            #     ans.splits = []
+            #     ans.shape = []
+            #     ans.lb = torch.zeros((0), dtype=torch.float64, device=device)
+            #     ans.ub = torch.zeros((0), dtype=torch.float64, device=device)
+            else:
+                ans.splits = [[0] if ans.shape[i] > 0 else [] for i in range(len(ans.shape))]
+                ans.lb = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), device=device)
+                ans.ub = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), device=device)
             ans.var_name = var_name
             return ans, list()
         else:  # unknown shape
@@ -3079,8 +3128,8 @@ def compute_outshape_padding_trans(pad_mode, prev_pads, output_shape, output_pad
         return out_shape, padding_deltas
 
 
-def add_padding_to_X(X, padding, value, mode='value'):
-    assert mode in ['value', 'minmax']
+def add_padding_to_X(X, padding, value, mode='value', shift=2, value_ub=None):
+    assert mode in ['value', 'minmax', 'edge', 'reflect']
     if any(padding < 0):
         # trim the input if there exists padding < 0
         # print('detected padding < 0 case')
@@ -3089,57 +3138,92 @@ def add_padding_to_X(X, padding, value, mode='value'):
                 begin = i % 2 == 0
                 index_of_padding = i // 2
                 if begin:
-                    start_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding], -padding[i]) - 1
+                    start_h_ind = bisect.bisect_right(X.splits[shift + index_of_padding], -padding[i]) - 1
                     if start_h_ind > 0:
                         indexes = [slice(None)] * len(X.shape)
-                        indexes[2 + index_of_padding] = slice(start_h_ind, None)
+                        indexes[shift + index_of_padding] = slice(start_h_ind, None)
                         # print('start', indexes, X.lb.shape)
                         X.lb = X.lb[indexes]
                         # print(X.lb.shape)
                         X.ub = X.ub[indexes]
-                        X.splits[2 + index_of_padding] = [max(item + padding[i], 0) for item in
-                                                          X.splits[2 + index_of_padding][start_h_ind:]]
+                        X.splits[shift + index_of_padding] = [max(item + padding[i], 0) for item in
+                                                          X.splits[shift + index_of_padding][start_h_ind:]]
                 else:
-                    end_h_ind = bisect.bisect_right(X.splits[2 + index_of_padding],
-                                                    X.shape[2 + index_of_padding] + padding[i] - 1)
-                    if end_h_ind < X.lb.shape[2 + index_of_padding]:
+                    end_h_ind = bisect.bisect_right(X.splits[shift + index_of_padding],
+                                                    X.shape[shift + index_of_padding] + padding[i] - 1)
+                    if end_h_ind < X.lb.shape[shift + index_of_padding]:
                         indexes = [slice(None)] * len(X.shape)
-                        indexes[2 + index_of_padding] = slice(None, end_h_ind)
+                        indexes[shift + index_of_padding] = slice(None, end_h_ind)
                         # print('end', indexes, X.lb.shape)
                         X.lb = X.lb[indexes]
                         # print(X.lb.shape)
                         X.ub = X.ub[indexes]
-                        X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding][:end_h_ind]
+                        X.splits[shift + index_of_padding] = X.splits[shift + index_of_padding][:end_h_ind]
 
                 X.shape[2 + index_of_padding] += padding[i]
 
     elif any(padding > 0):
         # prepend the input if there exists padding > 0
-        for i in range(len(padding)):
-            if padding[i] > 0:
-                begin = i % 2 == 0
-                index_of_padding = i // 2
-                to_pend_shape = list(X.lb.shape)
-                to_pend_shape[2 + index_of_padding] = 1
-                if mode == 'value':
-                    to_pend_min = torch.full(to_pend_shape, value).to(X.lb.device)
-                    to_pend_max = to_pend_min
-                elif mode == 'minmax':
-                    to_pend_min = torch.amin(X.lb, dim=2 + index_of_padding, keepdim=True)
-                    to_pend_max = torch.amax(X.ub, dim=2 + index_of_padding, keepdim=True)
-                if begin:
-                    X.lb = torch.cat([to_pend_min, X.lb], dim=2 + index_of_padding)
-                    X.ub = torch.cat([to_pend_max, X.ub], dim=2 + index_of_padding)
-                    X.splits[2 + index_of_padding] = [0] + [item + padding[i] for item in
-                                                            X.splits[2 + index_of_padding]]
-                    X.shape[2 + index_of_padding] += padding[i]
-                else:
-                    X.lb = torch.cat([X.lb, to_pend_min], dim=2 + index_of_padding)
-                    X.ub = torch.cat([X.ub, to_pend_max], dim=2 + index_of_padding)
-                    X.splits[2 + index_of_padding] = X.splits[2 + index_of_padding] + [
-                        X.shape[2 + index_of_padding]]
-                    X.shape[2 + index_of_padding] += padding[i]
-
+        if mode != 'reflect':
+            for i in range(len(padding)):
+                if padding[i] > 0:
+                    begin = i % 2 == 0
+                    index_of_padding = i // 2
+                    if mode in ['value', 'minmax']:
+                        to_pend_shape = list(X.lb.shape)
+                        to_pend_shape[shift + index_of_padding] = 1
+                        if mode == 'value':
+                            to_pend_min = torch.full(to_pend_shape, value).to(X.lb.device)
+                            if value_ub is None:
+                                to_pend_max = to_pend_min
+                            else:
+                                to_pend_max = torch.full(to_pend_shape, value_ub).to(X.ub.device)
+                        elif mode == 'minmax':
+                            to_pend_min = torch.amin(X.lb, dim=shift + index_of_padding, keepdim=True)
+                            to_pend_max = torch.amax(X.ub, dim=shift + index_of_padding, keepdim=True)
+                        if begin:
+                            X.lb = torch.cat([to_pend_min, X.lb], dim=shift + index_of_padding)
+                            X.ub = torch.cat([to_pend_max, X.ub], dim=shift + index_of_padding)
+                            X.splits[shift + index_of_padding] = [0] + [item + padding[i] for item in
+                                                                    X.splits[shift + index_of_padding]]
+                            X.shape[shift + index_of_padding] += padding[i]
+                        else:
+                            X.lb = torch.cat([X.lb, to_pend_min], dim=shift + index_of_padding)
+                            X.ub = torch.cat([X.ub, to_pend_max], dim=shift + index_of_padding)
+                            X.splits[shift + index_of_padding] = X.splits[shift + index_of_padding] + [
+                                X.shape[shift + index_of_padding]]
+                            X.shape[shift + index_of_padding] += padding[i]
+                    elif mode == 'edge':
+                        X.shape[shift + index_of_padding] += padding[i]
+                        if begin:
+                            X.splits[shift + index_of_padding] = [X.splits[shift + index_of_padding][0]] + \
+                                                                 [item + padding[i] for item in X.splits[shift + index_of_padding][1:]]
+        else:
+            for i in range(len(padding) // 2):
+                begin = padding[2 * i]
+                end = padding[2 * i + 1]
+                if begin > 0 or end > 0:
+                    ref_splits = X.splits.copy()
+                    ref_splits[shift + i] = set(range(min(begin + 1, X.shape[shift + i]))).union(set(range(max(X.shape[shift + i]-1-end,0), X.shape[shift + i])))
+                    ref_splits[shift + i] = sorted(list(ref_splits[shift + i]))
+                    X.split_by(ref_splits, inplace=True)
+                    lst_lb, lst_ub = list(), list()
+                    if begin > 0:
+                        lb_prepend = torch.index_select(X.lb, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long, device=X.lb.device))
+                        ub_prepend = torch.index_select(X.ub, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long, device=X.ub.device))
+                        lst_lb.append(lb_prepend)
+                        lst_ub.append(ub_prepend)
+                    lst_lb.append(X.lb)
+                    lst_ub.append(X.ub)
+                    if end > 0:
+                        lb_append = torch.index_select(X.lb, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(X.shape[shift + i]-2, X.shape[shift + i]-end-2, -1)], dtype=torch.long, device=X.lb.device))
+                        ub_append = torch.index_select(X.ub, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(X.shape[shift + i]-2, X.shape[shift + i]-end-2, -1)], dtype=torch.long, device=X.lb.device))
+                        lst_lb.append(lb_append)
+                        lst_ub.append(ub_append)
+                    X.lb = torch.cat(lst_lb, dim=shift + i)
+                    X.ub = torch.cat(lst_ub, dim=shift + i)
+                    X.splits[shift + i] = list(range(begin)) + [item + begin for item in X.splits[shift + i]] + list(range(X.shape[shift + i] + begin, X.shape[shift + i] + begin + end))
+                    X.shape[shift + i] += begin + end
 
 def fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations, strides):
     lpses = []  # the list of [lpxs, lpys] when dim_for_conv == 2

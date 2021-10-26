@@ -293,6 +293,7 @@ class InterpModule():
         queue = list(self.start_points).copy()
         cur_deg_in = self.deg_in.copy()
         l = 0
+        # try:
         while l < len(queue):
             cur_var = queue[l]
             for vj, ind_i, ind_j, node_optype, node_name, node in self.edges[cur_var]:
@@ -338,13 +339,15 @@ class InterpModule():
                                 for i, cur_cur_abst in enumerate(cur_abst):
                                     self.abstracts[node.output[i]] = cur_cur_abst
             l += 1
+        # except:
+        #     print('error countered')
 
         # place to inspect abstraction for debug
-        # self.abstracts['dropout_5/sub/x:0'].print()
-        # self.abstracts['strided_slice:0'].print()
-        # self.abstracts['q_out:0'].print()
-        # self.abstracts['MatMul:0'].print()
-        # self.abstracts['output:0'].print()
+        # self.abstracts['Shape__680:0'].print()
+        # self.abstracts['Shape__681:0'].print()
+        # self.abstracts['Sub__683:0'].print()
+        # self.abstracts['ConstantOfShape__684:0'].print()
+        # self.abstracts['Concat__685:0'].print()
 
         return self.possible_numerical_errors
 

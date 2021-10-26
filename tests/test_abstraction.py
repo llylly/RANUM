@@ -1789,6 +1789,153 @@ class TestAbstraction(unittest.TestCase):
 
         # print('chkp10')
 
+    def test_Pad(self):
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+
+        data = np.array(
+            [
+                [1.0, 1.2],
+                [2.3, 3.4],
+                [4.5, 5.7],
+            ])
+        pads = np.array([0, 2, 0, 0])
+        constant_value = np.array(0.0)
+
+        y = np.array(
+            [
+                [0.0, 0.0, 1.0, 1.2],
+                [0.0, 0.0, 2.3, 3.4],
+                [0.0, 0.0, 4.5, 5.7],
+            ]
+        )
+
+        node = helper.make_node(
+            "Pad", ['data', 'pads', 'constant_value'], ['res'],
+            mode='constant'
+        )
+
+        a_data = Abstraction().load(conf2, 'data', data.shape, 'FLOAT', data)
+        a_pads = Abstraction().load(conf1, 'pads', pads.shape, 'FLOAT', pads)
+        a_constant_value = Abstraction().load(conf1, 'constant_value', constant_value.shape, 'FLOAT', constant_value)
+        a_res, _ = interp.interp_Pad([a_data, a_pads, a_constant_value], node, 'Pad', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, y))
+
+        a_data = Abstraction().load(conf1, 'data', data.shape, 'FLOAT', data)
+        a_pads = Abstraction().load(conf1, 'pads', pads.shape, 'FLOAT', pads)
+        a_res, _ = interp.interp_Pad([a_data, a_pads, a_constant_value], node, 'Pad', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, y, tight=True))
+
+        # =======
+
+        y = np.array(
+            [
+                [1.0, 1.2, 1.0, 1.2],
+                [2.3, 3.4, 2.3, 3.4],
+                [4.5, 5.7, 4.5, 5.7],
+            ]
+        )
+
+        node = helper.make_node(
+            "Pad", ['data', 'pads', 'constant_value'], ['res'],
+            mode='reflect'
+        )
+
+        a_data = Abstraction().load(conf2, 'data', data.shape, 'FLOAT', data)
+        a_pads = Abstraction().load(conf1, 'pads', pads.shape, 'FLOAT', pads)
+        a_constant_value = Abstraction().load(conf1, 'constant_value', constant_value.shape, 'FLOAT', constant_value)
+        a_res, _ = interp.interp_Pad([a_data, a_pads, a_constant_value], node, 'Pad', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, y))
+
+        a_data = Abstraction().load(conf1, 'data', data.shape, 'FLOAT', data)
+        a_res, _ = interp.interp_Pad([a_data, a_pads, a_constant_value], node, 'Pad', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, y, tight=True))
+
+        # =======
+
+        y = np.array(
+            [
+                [1.0, 1.0, 1.0, 1.2],
+                [2.3, 2.3, 2.3, 3.4],
+                [4.5, 4.5, 4.5, 5.7],
+            ]
+        )
+
+        node = helper.make_node(
+            "Pad", ['data', 'pads', 'constant_value'], ['res'],
+            mode='edge'
+        )
+
+        a_data = Abstraction().load(conf2, 'data', data.shape, 'FLOAT', data)
+        a_pads = Abstraction().load(conf1, 'pads', pads.shape, 'FLOAT', pads)
+        a_constant_value = Abstraction().load(conf1, 'constant_value', constant_value.shape, 'FLOAT', constant_value)
+        a_res, _ = interp.interp_Pad([a_data, a_pads, a_constant_value], node, 'Pad', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, y))
+
+        a_data = Abstraction().load(conf1, 'data', data.shape, 'FLOAT', data)
+        a_res, _ = interp.interp_Pad([a_data, a_pads, a_constant_value], node, 'Pad', 'res')
+        # a_res.print()
+        self.assertTrue(correct_abstraction(a_res, y, tight=True))
+
+        # =======
+
+        node = helper.make_node(
+            'Pad',
+            inputs=['x', 'pads', 'value'],
+            outputs=['y'],
+            mode='constant'
+        )
+        x = np.random.randn(1, 3, 4, 5).astype(np.float32)
+        pads = np.array([0, 0, 1, 3, 0, 0, 2, 4]).astype(np.int64)  # pad order [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
+        value = np.float32(1.2)
+
+        y = pad_impl(
+            x,
+            pads,
+            'constant',
+            1.2
+        )
+        a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+        a_pads = Abstraction().load(conf1, 'pads', pads.shape, 'FLOAT', pads)
+        a_value = Abstraction().load(conf1, 'value', value.shape, 'FLOAT', value)
+        a_y, _ = interp.interp_Pad([a_x, a_pads, a_value], node, 'Pad', 'res')
+        # a_y.print()
+        self.assertTrue(correct_abstraction(a_y, y))
+
+        # =======
+
+        for mode in ['edge', 'reflect']:
+            # print(mode)
+            node = helper.make_node(
+                'Pad',
+                inputs=['x', 'pads'],
+                outputs=['y'],
+                mode=mode
+            )
+            x = np.random.randn(1, 3, 4, 5).astype(np.int32)
+            pads = np.array([0, 0, 1, 1, 0, 0, 1, 1]).astype(np.int64)  # pad order [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
+            y = pad_impl(
+                x,
+                pads,
+                mode
+            )
+            # print(y)
+
+            a_x = Abstraction().load(conf2, 'x', x.shape, 'FLOAT', x)
+            a_pads = Abstraction().load(conf1, 'pads', pads.shape, 'FLOAT', pads)
+            a_y, _ = interp.interp_Pad([a_x, a_pads], node, 'Pad', 'res')
+            # a_y.print()
+            self.assertTrue(correct_abstraction(a_y, y))
+
+
+
     def test_MaxPool(self):
         interp = Interpreter()
         conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 2])
@@ -3329,6 +3476,34 @@ def argmin_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) 
         result = np.expand_dims(result, axis)
     return result.astype(np.int64)
 
+def pad_impl(data, raw_pads, mode, constant_values=0.0):  # type: ignore
+
+    input_rank = data.ndim
+    if input_rank * 2 != raw_pads.size:
+        raise Exception('The number of elements in raw_pads should be 2 * data_rank')
+
+    # re-order to np.pad accepted order ((x1_begin, x1_end), (x2_begin, x2_end), ...)
+    pad_width = ()
+    for i in range(int(raw_pads.size / 2)):
+        pad_width += ((raw_pads[i], raw_pads[i + input_rank])),  # type: ignore
+
+    if mode == 'constant':
+        y = np.pad(
+            data,
+            pad_width=pad_width,
+            mode=mode,
+            constant_values=constant_values,
+        )
+        return y
+
+    y = np.pad(
+        data,
+        pad_width=pad_width,
+        mode=mode,
+    )
+
+    return y
+
 if __name__ == '__main__':
     unittest.main()
-    # TestAbstraction().test_SplitOp()
+    # TestAbstraction().test_Pad()
