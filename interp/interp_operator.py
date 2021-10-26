@@ -1934,8 +1934,8 @@ class Interpreter(object):
             index_map[i] = p
         index_map = torch.tensor(index_map, dtype=torch.long, device=indices.lb.device)
 
-        ind_lb = indices.lb.long()
-        ind_ub = indices.ub.long()
+        ind_lb = torch.clip(indices.lb.long(), min=0, max=data.shape[axis]-1)
+        ind_ub = torch.clip(indices.ub.long(), min=0, max=data.shape[axis]-1)
         ind_new_lb = index_map[ind_lb]
         ind_new_ub = index_map[ind_ub]
 

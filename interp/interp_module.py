@@ -357,7 +357,8 @@ class InterpModule():
         :return:
         """
         # keep_prob's range should be (0, 1]
-        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1)}
+        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1),
+            'dropout:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.0, ub=0.9)}
 
         for name, values in self.initializer_dict.items():
             dtype, data = values
