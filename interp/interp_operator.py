@@ -1945,7 +1945,7 @@ class Interpreter(object):
         if new_indices.is_exact():
             # print('!!!!! exact')
             new_indices.split_by(updates.splits, inplace=True)
-            ref_splits = updates.splits.copy()
+            ref_splits = new_indices.splits.copy()
             ref_splits[axis] = data.splits[axis]
             data = data.split_by(ref_splits, inplace=False)
             ref_splits = data.splits.copy()
@@ -2139,8 +2139,8 @@ class Interpreter(object):
             #     ans.ub = torch.zeros((0), dtype=torch.float64, device=device)
             else:
                 ans.splits = [[0] if ans.shape[i] > 0 else [] for i in range(len(ans.shape))]
-                ans.lb = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), device=device)
-                ans.ub = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), device=device)
+                ans.lb = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), dtype=torch.float64, device=device)
+                ans.ub = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), dtype=torch.float64, device=device)
             ans.var_name = var_name
             return ans, list()
         else:  # unknown shape
