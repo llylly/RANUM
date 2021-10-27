@@ -1273,6 +1273,16 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_Softplus(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.nn.functional.softplus(abst.lb)
+        ans.ub = torch.nn.functional.softplus(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
     def interp_Sigmoid(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
