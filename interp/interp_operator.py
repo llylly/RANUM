@@ -2174,6 +2174,24 @@ class Interpreter(object):
         ans.var_name = var_name
         return ans, list()
 
+    def interp_RandomNormal(self, abstracts, node, optype, var_name, device=None):
+        """use [mu - 5 * sigma, mu + 5 * sigma] as the interval"""
+        attr = parse_attribute(node)
+        mean = attr.get('mean', 0.0)
+        scale = attr.get('scale', 1.0)
+        shape = attr['shape']
+
+        ans = Abstraction()
+        ans.shape = shape.copy()
+        ans.splits = [[] if item == 0 else [0] for item in ans.shape]
+        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+        ans.lb = torch.full(abs_shape, mean - 5. * scale)
+        ans.ub = torch.full(abs_shape, mean + 5. * scale)
+        if device is not None:
+            ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
+        ans.var_name = var_name
+        return ans, list()
+
     def interp_Range(self, abstracts, node, optype, var_name):
         start, limit, delta = abstracts[0], abstracts[1], abstracts[2]
         if start.is_exact() and limit.is_exact() and delta.is_exact():

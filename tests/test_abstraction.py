@@ -862,6 +862,31 @@ class TestAbstraction(unittest.TestCase):
         self.assertEqual(list(x.shape), abst_z.shape)
         self.assertTrue(correct_format(abst_z))
 
+    def test_RandomNormal(self):
+        interp = Interpreter()
+        node = helper.make_node(
+            'RandomNormal', [], ['res'], 'RandomNormal',
+            mean = 10.,
+            scale = 3.,
+            shape = [10, 4, 6]
+        )
+        abst_res, _ = interp.interp_RandomNormal([], node, 'RandomNormal', 'res')
+        # abst_res.print()
+        self.assertTrue(correct_abstraction(abst_res, np.full((10, 4, 6), 10.)))
+        succeed = sum([int(correct_abstraction(abst_res, np.random.normal(10., 3., (10, 4, 6)))) for _ in range(1000)])
+        self.assertTrue(succeed > 900)
+
+
+        node = helper.make_node(
+            'RandomNormal', [], ['res'], 'RandomNormal',
+            mean = 10.,
+            scale = 3.,
+            shape = [10, 0, 6]
+        )
+        abst_res, _ = interp.interp_RandomNormal([], node, 'RandomNormal', 'res')
+        # abst_res.print()
+        self.assertTrue(abst_res.lb.numel() == 0)
+
     def test_BoolOps(self):
         for stride in [1, 2]:
             interp = Interpreter()
@@ -3650,5 +3675,5 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
     return (x - x_max) - np.log(s)
 
 if __name__ == '__main__':
-    # unittest.main()
-    TestAbstraction().test_LogSoftmax()
+    unittest.main()
+    # TestAbstraction().test_RandomNormal()
