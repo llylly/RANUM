@@ -4,7 +4,8 @@
 import os
 import pickle
 
-benchmarks = ['grist', 'debar']
+# should be grist and/or debar
+benchmarks = ['grist']
 
 if __name__ == '__main__':
     for bench in benchmarks:

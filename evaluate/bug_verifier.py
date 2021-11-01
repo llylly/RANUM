@@ -9,7 +9,8 @@ import pickle
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
 
-run_benchmarks = ['debar']
+# should be grist and/or debar
+run_benchmarks = ['grist']
 
 if __name__ == '__main__':
     global_unsupported_ops = dict()

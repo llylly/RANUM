@@ -364,7 +364,11 @@ class InterpModule():
             dtype, data = values
             if dtype not in discrete_types:
                 # print(name, np.min(data), np.max(data), data.shape)
-                if data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
+                if (name.count('dropout') > 0 or name.count('Dropout') > 0) and data.size == 1:
+                    # looks like the div in dropout
+                    print(f'Parameter {name} looks like a dropout div, abstract by [0.1, 1]')
+                    result[name] = AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1)
+                elif data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
                     print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
                     result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-10., ub=10.)
