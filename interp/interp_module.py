@@ -343,7 +343,7 @@ class InterpModule():
         #     print('error countered')
 
         # place to inspect abstraction for debug
-        # self.abstracts['RandomNormal__8:0'].print()
+        # self.abstracts['8'].print()
         # self.abstracts['Shape__681:0'].print()
         # self.abstracts['Sub__683:0'].print()
         # self.abstracts['ConstantOfShape__684:0'].print()
