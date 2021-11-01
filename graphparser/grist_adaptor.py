@@ -256,7 +256,7 @@ package_info = {
     "ID_63": "torch"
 }
 
-run_ids = ['51']
+run_ids = ['63']
 
 # only for tensorflow models
 inputs_outputs = {
@@ -319,6 +319,12 @@ inputs_outputs = {
     "ID_49b": (['x', 'y', 'eps'], ['cost', 'obj_function']),
     "ID_49c": (['x', 'y', 'eps'], ['cost', 'obj_function']),
     "ID_50": (['x', 'y_'], ['cross_entropy', 'obj_function']),
+    "ID_52": (['x', 'y_'], ['cross_entropy', 'obj_function']),
+    "ID_55": (['x', 'y', 'keep_prob'], ['cross_entropy', 'obj_function']),
+    "ID_58": (['x', 'y_', 'keep_prob'], ['cross_entropy', 'obj_function']),
+    "ID_59": (['x', 'y'], ['cross_entropy', 'obj_function']),
+    "ID_60": (['x', 'y_'], ['cross_entropy', 'obj_function']),
+    "ID_61": (['x', 'y_', 'keep_prob'], ['cross_entropy', 'obj_function'])
 }
 
 import sys
