@@ -2381,6 +2381,24 @@ class Interpreter(object):
 
         return ans, list()
 
+    def interp_Clip(self, abstracts, node, optype, var_name):
+        have_min = False
+        have_max = False
+        input = abstracts[0]
+        if len(abstracts) > 1:
+            have_min = True
+            clip_min = abstracts[1].lb.detach().cpu().item()
+        if len(abstracts) > 2:
+            have_max = True
+            clip_max = abstracts[2].ub.detach().cpu().item()
+        ans = Abstraction()
+        ans.lb = torch.clip(input.lb, min=clip_min if have_min else None, max=clip_max if have_max else None)
+        ans.ub = torch.clip(input.ub, min=clip_min if have_min else None, max=clip_max if have_max else None)
+        ans.shape = input.shape.copy()
+        ans.splits = input.splits.copy()
+        ans.var_name = var_name
+        return ans, list()
+
     def interp_Sum(self, abstracts, node, optype, var_name):
         ans = Abstraction()
         ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()

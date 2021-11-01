@@ -942,6 +942,76 @@ class TestAbstraction(unittest.TestCase):
                 abst_z, _ = op_interp(abst_xs, node, op_name, 'z')
                 self.assertTrue(correct_abstraction(abst_z, z))
 
+    def test_Clip(self):
+        interp = Interpreter()
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        node = helper.make_node(
+            'Clip',
+            inputs=['x', 'min', 'max'],
+            outputs=['y'],
+        )
+
+        x = np.array([-2, 0, 2]).astype(np.float32)
+        min_val = np.float32(-1)
+        max_val = np.float32(1)
+        y = np.clip(x, min_val, max_val)  # expected output [-1., 0., 1.]
+
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_min_val = Abstraction().load(conf1, 'min', min_val.shape, 'FLOAT', min_val)
+        a_max_val = Abstraction().load(conf1, 'max', max_val.shape, 'FLOAT', max_val)
+        # expect(node, inputs=[x, min_val, max_val], outputs=[y],
+        #        name='test_clip_example')
+        a_y, _ = interp.interp_Clip([a_x, a_min_val, a_max_val], node, 'Clip', 'y')
+        self.assertTrue(correct_abstraction(a_y, y))
+
+        x = np.random.randn(3, 4, 5).astype(np.float32)
+        y = np.clip(x, min_val, max_val)
+        # expect(node, inputs=[x, min_val, max_val], outputs=[y],
+        #        name='test_clip')
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_y, _ = interp.interp_Clip([a_x, a_min_val, a_max_val], node, 'Clip', 'y')
+        self.assertTrue(correct_abstraction(a_y, y))
+
+        node = helper.make_node(
+            'Clip',
+            inputs=['x', 'min', 'max'],
+            outputs=['y'],
+        )
+
+        min_val = np.float32(-5)
+        max_val = np.float32(5)
+
+        x = np.array([-1, 0, 1]).astype(np.float32)
+        y = np.array([-1, 0, 1]).astype(np.float32)
+        # expect(node, inputs=[x, min_val, max_val], outputs=[y],
+        #        name='test_clip_inbounds')
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_min_val = Abstraction().load(conf1, 'min', min_val.shape, 'FLOAT', min_val)
+        a_max_val = Abstraction().load(conf1, 'max', max_val.shape, 'FLOAT', max_val)
+        a_y, _ = interp.interp_Clip([a_x, a_min_val, a_max_val], node, 'Clip', 'y')
+        self.assertTrue(correct_abstraction(a_y, y))
+
+        x = np.array([-6, 0, 6]).astype(np.float32)
+        y = np.array([-5, 0, 5]).astype(np.float32)
+        # expect(node, inputs=[x, min_val, max_val], outputs=[y],
+        #        name='test_clip_outbounds')
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_min_val = Abstraction().load(conf1, 'min', min_val.shape, 'FLOAT', min_val)
+        a_max_val = Abstraction().load(conf1, 'max', max_val.shape, 'FLOAT', max_val)
+        a_y, _ = interp.interp_Clip([a_x, a_min_val, a_max_val], node, 'Clip', 'y')
+        self.assertTrue(correct_abstraction(a_y, y))
+
+        x = np.array([-1, 0, 6]).astype(np.float32)
+        y = np.array([-1, 0, 5]).astype(np.float32)
+        # expect(node, inputs=[x, min_val, max_val], outputs=[y],
+        #        name='test_clip_splitbounds')
+        a_x = Abstraction().load(conf1, 'x', x.shape, 'FLOAT', x)
+        a_min_val = Abstraction().load(conf1, 'min', min_val.shape, 'FLOAT', min_val)
+        a_max_val = Abstraction().load(conf1, 'max', max_val.shape, 'FLOAT', max_val)
+        a_y, _ = interp.interp_Clip([a_x, a_min_val, a_max_val], node, 'Clip', 'y')
+        self.assertTrue(correct_abstraction(a_y, y))
+
     def test_ReduceMinMaxSum(self):
         for axes in [[0, -1], [1]]:
             for keepdims in [0, 1]:
@@ -3676,4 +3746,4 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
 
 if __name__ == '__main__':
     unittest.main()
-    # TestAbstraction().test_RandomNormal()
+    # TestAbstraction().test_Clip()

@@ -2,3 +2,4 @@ model_zoo/
 result/
 .idea/
 *.pyc
+results/
