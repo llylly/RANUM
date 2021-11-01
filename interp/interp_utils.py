@@ -112,12 +112,12 @@ fine_grain_parameters = {
     'Pad': [1, 2],
     # for NLL loss, this item may be removed
     'NegativeLogLikelihoodLoss': [1],
-    'Clip': [1, 2]
+    'Clip': [1, 2],
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
 # Thus, we don't need to backflow the fine grain requirement through those op_types
-forbid_fine_grain_flow = ['Shape']
+forbid_fine_grain_flow = ['Shape', 'RandomNormalLike', 'RandomUniformLike']
 
 # PyTorch exports some values like -INT_MAX or INT_MAX to represent -inf and +inf
 # These values may become out of scope when converted to float than int64, and thus cause unprecedented errors

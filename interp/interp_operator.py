@@ -2189,6 +2189,20 @@ class Interpreter(object):
         else:  # unknown shape
             return None, list()
 
+    def interp_RandomNormalLike(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        mean = attr.get('mean', 0.0)
+        scale = attr.get('scale', 1.0)
+        device = abstracts[0].lb.device
+        ans = Abstraction()
+        ans.shape = abstracts[0].shape.copy()
+        ans.splits = [[0] if item > 0 else [] for item in ans.shape]
+        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+        ans.lb = torch.full(abs_shape, mean - 5. * scale, device=device)
+        ans.ub = torch.full(abs_shape, mean + 5. * scale, device=device)
+        ans.var_name = var_name
+        return ans, list()
+
     def interp_RandomUniformLike(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
         low = attr.get('low', 0)
@@ -2196,9 +2210,10 @@ class Interpreter(object):
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
-        ans.splits = [[0] for _ in range(len(ans.shape))]
-        ans.lb = torch.full([1] * len(ans.shape), low, device=device)
-        ans.ub = torch.full([1] * len(ans.shape), high, device=device)
+        ans.splits = [[0] if item > 0 else [] for item in ans.shape]
+        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+        ans.lb = torch.full(abs_shape, low, device=device)
+        ans.ub = torch.full(abs_shape, high, device=device)
         ans.var_name = var_name
         return ans, list()
 
@@ -2215,6 +2230,23 @@ class Interpreter(object):
         abs_shape = [0 if item == 0 else 1 for item in ans.shape]
         ans.lb = torch.full(abs_shape, mean - 5. * scale)
         ans.ub = torch.full(abs_shape, mean + 5. * scale)
+        if device is not None:
+            ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_RandomUniform(self, abstracts, node, optype, var_name, device=None):
+        attr = parse_attribute(node)
+        high = attr.get('high', 1.0)
+        low = attr.get('low', 0.0)
+        shape = attr['shape']
+
+        ans = Abstraction()
+        ans.shape = shape.copy()
+        ans.splits = [[] if item == 0 else [0] for item in ans.shape]
+        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+        ans.lb = torch.full(abs_shape, high)
+        ans.ub = torch.full(abs_shape, low)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
         ans.var_name = var_name
@@ -2541,7 +2573,6 @@ class Interpreter(object):
         return self.interp_ArgMax(abstracts, node, optype, var_name, mode='min')
 
     def interp_Tile(self, abstracts, node, optype, var_name):
-        print(var_name)
         in_abst = abstracts[0]
         repeats = abstracts[1]
         if not repeats.is_exact():
