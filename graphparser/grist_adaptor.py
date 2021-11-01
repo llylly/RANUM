@@ -2,12 +2,12 @@
     The adaptor for GRIST benchmark
     GRIST: https://github.com/Jacob-yen/GRIST
 
-    TODO:
+    workflow:
         - update the case_dict to reflect the real directory
         - global change the data path for the benchmark
         - dynamically detect whether it is tf or pytorch model
-        - if it is tf model, get the statement after initialize_all_variables and conduct conversion
-        - if it is pytorch model, warning the existence and then I try to transform it manually...
+        - if it is tf model, manually name input/output variables, get the statement after initialize_all_variables, and conduct conversion
+        - if it is pytorch model, wrap the model computaiton by nn.Module, then transform to ONNX with pytorch.jit.transform
 """
 
 

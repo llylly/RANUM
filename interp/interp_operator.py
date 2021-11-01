@@ -96,6 +96,12 @@ class Abstraction(object):
                         torch.tensor(lb, dtype=torch.float64, requires_grad=diff), \
                         torch.tensor(ub, dtype=torch.float64, requires_grad=diff)
                 self.splits = list()
+            elif reduce(lambda x, y: x * y, tensor_shape, 1) == 0:
+                # empty tensor array
+                self.lb, self.ub = \
+                    torch.full([1 if item > 0 else 0 for item in tensor_shape], lb, dtype=torch.float64, requires_grad=diff), \
+                    torch.full([1 if item > 0 else 0 for item in tensor_shape], ub, dtype=torch.float64, requires_grad=diff)
+                self.splits = [[0] if item > 0 else [] for item in tensor_shape]
             else:
                 self.splits = list()
                 abst_shape = list()
@@ -2517,8 +2523,12 @@ class Interpreter(object):
         return self.interp_ArgMax(abstracts, node, optype, var_name, mode='min')
 
     def interp_Tile(self, abstracts, node, optype, var_name):
+        print(var_name)
         in_abst = abstracts[0]
         repeats = abstracts[1]
+        if not repeats.is_exact():
+            # in this case, highly likely that "repeats" is an input parameter, thus we just view "Tile" as doing nothing
+            return in_abst, list()
         assert repeats.is_exact()
         repeats = repeats.lb.detach().cpu().type(torch.int).tolist()
         if len(abstracts) > 2:

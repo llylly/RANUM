@@ -178,6 +178,7 @@ class InterpModule():
         """construct node dictionary"""
         self.node_dict = dict([(x.name, x) for x in self.onnx_model.graph.node])
         self.node_types = set([x.op_type for x in self.node_dict.values()])
+        self.unimplemented_types = [x for x in self.node_types if 'interp_' + x not in Interpreter.__dir__(Interpreter())]
 
         """summary"""
         print('==== Model Summary ====')
@@ -189,8 +190,7 @@ class InterpModule():
         print('Number of op types:', len(self.node_types))
         # if len(self.node_types) <= 5:
         print('  They are', self.node_types)
-        unimplemented_types = [x for x in self.node_types if 'interp_' + x not in Interpreter.__dir__(Interpreter())]
-        print(f'  {len(unimplemented_types)} not implemented:', unimplemented_types)
+        print(f'  {len(self.unimplemented_types)} not implemented:', self.unimplemented_types)
         print('=======================')
 
         """Space for analysis"""
@@ -364,7 +364,7 @@ class InterpModule():
             dtype, data = values
             if dtype not in discrete_types:
                 # print(name, np.min(data), np.max(data), data.shape)
-                if data.ndim >= 1 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
+                if data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
                     print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
                     result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-10., ub=10.)
