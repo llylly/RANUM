@@ -47,13 +47,14 @@ class PossibleNumericalError(Exception):
     UNDERFLOW_LIMIT = 1e-37
     OVERFLOW_D = 38
     UNDERFLOW_D = -37
+    ERROR_UNKNOWN = -1
     ERROR_CONTAINS_ZERO = 0
     ERROR_OVERFLOW = 1
     ERROR_UNDERFLOW = 2
     code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
-                ERROR_UNDERFLOW: "Operator underflows."}
+                ERROR_UNDERFLOW: "Operator underflows.", ERROR_UNKNOWN: 'Unknown error.'}
 
-    def __init__(self, optype, var_name, cur_range, err_cond):
+    def __init__(self, optype='', var_name='', cur_range='', err_cond=-1):
         self.optype = optype
         self.var_name = var_name
         self.cur_range = cur_range
