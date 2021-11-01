@@ -1289,6 +1289,28 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_LeakyRelu(self, abstracts, node, optype, var_name):
+        attr = parse_attribute(node)
+        alpha = attr.get('alpha', 0.01)
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.nn.functional.leaky_relu(abst.lb, alpha)
+        ans.ub = torch.nn.functional.leaky_relu(abst.ub, alpha)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Softsign(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.nn.functional.softsign(abst.lb)
+        ans.ub = torch.nn.functional.softsign(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
     def interp_Sigmoid(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
