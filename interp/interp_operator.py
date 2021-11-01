@@ -1404,6 +1404,16 @@ class Interpreter(object):
             ans.ub = abst.ub
         return ans, list()
 
+    def interp_Sign(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        ans.shape = abst.shape
+        ans.splits = abst.splits
+        ans.lb = torch.sign(abst.lb)
+        ans.ub = torch.sign(abst.ub)
+        return ans, list()
+
     def interp_Reshape(self, abstracts, node, optype, var_name, smash=-1):
         """
             Currently, we don't support allowzero != 0
