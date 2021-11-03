@@ -1,5 +1,6 @@
 import argparse
 import time
+import os
 
 import onnxruntime
 
@@ -24,7 +25,8 @@ if __name__ == '__main__':
                                 customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
     prompt('model initialized')
 
-    res = model.analyze(model.gen_abstraction_heuristics(), {'average_pool_mode': 'coarse'})
+    res = model.analyze(model.gen_abstraction_heuristics(os.path.split(args.modelpath)[-1].split('.')[0]),
+                        {'average_pool_mode': 'coarse'})
     prompt('analysis done')
     if len(res) == 0:
         print('No numerical bug')

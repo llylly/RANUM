@@ -490,7 +490,7 @@ banned_list = ['compression_entropy_coder', 'deep_speech', 'delf', 'domain_adapt
                'video_prediction']
 
 # debug
-# permit_list = ['adversarial_crypto']
+permit_list = []
 
 
 def convert_protobuf_file(file_path):
@@ -514,9 +514,12 @@ def convert_protobuf_folder(dir_path='model_zoo/tf_protobufs'):
     succeed = list()
     failed = list()
     skipped = list()
+    if not os.path.exists('model_zoo/tf_protobufs_onnx'):
+        os.mkdir('model_zoo/tf_protobufs_onnx')
     for file in files:
         try:
-            if len([item for item in banned_list if file.count(item) > 0]) == 0:
+            if len([item for item in banned_list if file.count(item) > 0]) == 0 \
+                    and (len(permit_list) == 0 or len([item for item in permit_list if file.count(item) > 0]) > 0):
                 convert_protobuf_file(os.path.join(dir_path, file))
                 succeed.append(file)
             else:

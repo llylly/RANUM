@@ -6,7 +6,10 @@ import onnx.shape_inference
 import onnx.numpy_helper
 
 from interp.interp_operator import *
-from interp.interp_utils import AbstractionInitConfig, fine_grain_parameters, forbid_fine_grain_flow, discrete_types
+from interp.interp_utils import AbstractionInitConfig, fine_grain_parameters, forbid_fine_grain_flow, discrete_types, \
+    PossibleNumericalError
+from interp.specified_ranges import SpecifiedRanges
+
 
 class InterpModule():
 
@@ -326,6 +329,8 @@ class InterpModule():
                             if len(roots) == 0:
                                 roots = {node.name}
                             self.possible_numerical_errors[vj] = (cur_exceps, roots)
+                        elif node.op_type in PossibleNumericalError.OPs2Check:
+                            print(f'node name = {node_name}, type = {node_optype} is safe.')
                         if cur_abst is None:
                             print(f'! No abstraction generated for {vj}: '
                                   f'node name = {node_name}, type = {node_optype}')
@@ -351,26 +356,39 @@ class InterpModule():
 
         return self.possible_numerical_errors
 
-    def gen_abstraction_heuristics(self):
+    def gen_abstraction_heuristics(self, model_name):
         """
             Generate a dictionary which contains the heuristics for each initial tensor if necessary
         :return:
         """
         # keep_prob's range should be (0, 1]
         result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1),
-            'dropout:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.0, ub=0.9)}
+                  'dropout:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.0, ub=0.9)}
+        # load from DEBAR's specified ranges
+        if model_name in SpecifiedRanges.specified_ranges:
+            for name, values in SpecifiedRanges.specified_ranges[model_name].items():
+                if len(values) == 2 and not isinstance(values[0], tuple):
+                    values = [values]
+                for i, value in enumerate(values):
+                    result[name + ":%d" % i] = AbstractionInitConfig(diff=False, from_init=True,
+                                                                     lb=value[0] if value[0] is not None else
+                                                                     -PossibleNumericalError.OVERFLOW_LIMIT,
+                                                                     ub=value[1] if value[1] is not None else
+                                                                     PossibleNumericalError.OVERFLOW_LIMIT)
 
         for name, values in self.initializer_dict.items():
             dtype, data = values
-            if dtype not in discrete_types:
+            if dtype not in discrete_types and name not in result:
                 # print(name, np.min(data), np.max(data), data.shape)
                 if (name.count('dropout') > 0 or name.count('Dropout') > 0) and data.size == 1:
                     # looks like the div in dropout
                     print(f'Parameter {name} looks like a dropout div, abstract by [0.1, 1]')
                     result[name] = AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1)
-                elif data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
+                elif data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
+                        np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
-                    print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
+                    print(
+                        f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
                     result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-10., ub=10.)
 
         return result

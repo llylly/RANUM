@@ -51,6 +51,7 @@ class PossibleNumericalError(Exception):
     ERROR_CONTAINS_ZERO = 0
     ERROR_OVERFLOW = 1
     ERROR_UNDERFLOW = 2
+    OPs2Check = {"Exp", "Log", "Div", "Sqrt", "Pow", "Reciprocal", "Range", "NegativeLogLikelihoodLoss"}
     code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
                 ERROR_UNDERFLOW: "Operator underflows.", ERROR_UNKNOWN: 'Unknown error.'}
 
