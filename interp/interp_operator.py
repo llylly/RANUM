@@ -99,8 +99,10 @@ class Abstraction(object):
             elif reduce(lambda x, y: x * y, tensor_shape, 1) == 0:
                 # empty tensor array
                 self.lb, self.ub = \
-                    torch.full([1 if item > 0 else 0 for item in tensor_shape], lb, dtype=torch.float64, requires_grad=diff), \
-                    torch.full([1 if item > 0 else 0 for item in tensor_shape], ub, dtype=torch.float64, requires_grad=diff)
+                    torch.full([1 if item > 0 else 0 for item in tensor_shape], lb, dtype=torch.float64,
+                               requires_grad=diff), \
+                    torch.full([1 if item > 0 else 0 for item in tensor_shape], ub, dtype=torch.float64,
+                               requires_grad=diff)
                 self.splits = [[0] if item > 0 else [] for item in tensor_shape]
             else:
                 self.splits = list()
@@ -651,7 +653,6 @@ class Interpreter(object):
             newB.var_name = B.var_name + '_transpose'
             B = newB
 
-
         target_splits = A.splits.copy()
         target_splits[1] = B.splits[0]
         A = A.split_by(target_splits, inplace=False)
@@ -782,7 +783,8 @@ class Interpreter(object):
             ans.var_name = node.output[0]
             indices_abst = Abstraction()
             indices_abst.lb = torch.zeros((1,) * ans.get_dim(), device=ans.lb.device)
-            indices_abst.ub = torch.zeros((1,) * ans.get_dim(), device=ans.lb.device) + max(reduce(lambda x, y: x * y, ans.shape) - 1, 0)
+            indices_abst.ub = torch.zeros((1,) * ans.get_dim(), device=ans.lb.device) + max(
+                reduce(lambda x, y: x * y, ans.shape) - 1, 0)
             indices_abst.shape = ans.shape.copy()
             indices_abst.splits = [[0] for _ in ans.shape]
             indices_abst.var_name = node.output[1]
@@ -827,7 +829,8 @@ class Interpreter(object):
                 add_padding_to_X(X, padding, float('NAN'))
 
             """compute mapping to abst indices after conv"""
-            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
+            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape,
+                                                                     dilations,
                                                                      strides)
 
             """exclude NAN paddings and interpret them as padding"""
@@ -905,7 +908,8 @@ class Interpreter(object):
                 add_padding_to_X(X, padding, float('NAN'), mode='minmax')
 
             """compute mapping to abst indices after conv"""
-            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape, dilations,
+            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_pool, out_shape, kernel_shape,
+                                                                     dilations,
                                                                      strides)
 
             """core pool operation"""
@@ -925,7 +929,6 @@ class Interpreter(object):
 
         else:
             raise NotImplementedError(f'Unknown average pooling abstraction mode: {self.average_pool_mode}')
-
 
         """infer splits and shape"""
         splits = [list() for _ in range(dim_for_pool)]
@@ -1121,7 +1124,8 @@ class Interpreter(object):
         # X.print()
 
         """compute mapping to abst indices after conv"""
-        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices_trans(X, dim_for_transconv, kernel_shape, dilations, strides)
+        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices_trans(X, dim_for_transconv, kernel_shape, dilations,
+                                                                       strides)
         # print(new_X_lb.shape, len(lpses[0]), len(rpses[0]))
         # print(lpses[0])
         # print(rpses[0])
@@ -1174,7 +1178,9 @@ class Interpreter(object):
         ans = Abstraction()
         ans.lb = Cmin
         ans.ub = Cmax
-        ans.shape = [X.shape[0], W.shape[1] * group] + [1 + (X.shape[2 + i] - 1) * strides[i] + (kernel_shape[i] - 1) * dilations[i]  for i in range(dim_for_transconv)]
+        ans.shape = [X.shape[0], W.shape[1] * group] + [
+            1 + (X.shape[2 + i] - 1) * strides[i] + (kernel_shape[i] - 1) * dilations[i] for i in
+            range(dim_for_transconv)]
         ans.splits = [X.splits[0], [item + j * W.shape[1] for j in range(group) for item in W.splits[1]]] + splits
         ans.var_name = var_name
         # ans.print()
@@ -1863,10 +1869,11 @@ class Interpreter(object):
         map_ind = list()
         for k in range(a_indices.shape[-1]):
             nowdim = b + k
-            ind_mapping = torch.tensor([bisect.bisect_right(a_data.splits[nowdim], ind) - 1 for ind in range(a_data.shape[nowdim])],
-                                       dtype=torch.long, device=ind_lb.device)
-            lbind = ind_mapping[ind_lb.select(-1, k).clamp(min=0, max=a_data.shape[nowdim]-1)].unsqueeze(-1)
-            ubind = ind_mapping[ind_ub.select(-1, k).clamp(min=0, max=a_data.shape[nowdim]-1)].unsqueeze(-1)
+            ind_mapping = torch.tensor(
+                [bisect.bisect_right(a_data.splits[nowdim], ind) - 1 for ind in range(a_data.shape[nowdim])],
+                dtype=torch.long, device=ind_lb.device)
+            lbind = ind_mapping[ind_lb.select(-1, k).clamp(min=0, max=a_data.shape[nowdim] - 1)].unsqueeze(-1)
+            ubind = ind_mapping[ind_ub.select(-1, k).clamp(min=0, max=a_data.shape[nowdim] - 1)].unsqueeze(-1)
             if (lbind == ubind).all():
                 map_ind.append(lbind)
             else:
@@ -1880,13 +1887,13 @@ class Interpreter(object):
         # figure out the index in 1-dimensional array
         K = a_indices.shape[-1]
         multipler = torch.ones(K, dtype=torch.long)
-        for i in range(1, r-b):
-            multipler[:i] *= a_data.lb.shape[b+i]
+        for i in range(1, r - b):
+            multipler[:i] *= a_data.lb.shape[b + i]
         multipler = multipler.to(map_ind.device)
         # print('multipler', multipler)
         onedim_ind = torch.matmul(map_ind, multipler).unsqueeze(-1)
         remainder = 1
-        for i in range(b+K, r):
+        for i in range(b + K, r):
             remainder *= a_data.lb.shape[i]
         onedim_ind = onedim_ind.tile((1,) * (onedim_ind.dim() - 1) + (remainder,))
         onedim_ind += torch.tensor(list(range(remainder)), dtype=torch.long, device=onedim_ind.device)
@@ -1896,7 +1903,8 @@ class Interpreter(object):
         for i in range(1, r):
             multipler[:i] *= a_data.lb.shape[i]
         for i in range(b):
-            now_multipler = torch.tensor(list(range(a_data.lb.shape[i])), dtype=torch.long, device=onedim_ind.device) * multipler[i]
+            now_multipler = torch.tensor(list(range(a_data.lb.shape[i])), dtype=torch.long, device=onedim_ind.device) * \
+                            multipler[i]
             for j in range(onedim_ind.dim()):
                 if j < i:
                     now_multipler.unsqueeze_(dim=0)
@@ -1906,7 +1914,7 @@ class Interpreter(object):
             onedim_ind += now_multipler
 
         # main work
-        shape_desiree = a_data.lb.shape[:b] + map_ind.shape[b: -1] + a_data.lb.shape[b+K:]
+        shape_desiree = a_data.lb.shape[:b] + map_ind.shape[b: -1] + a_data.lb.shape[b + K:]
         ans_lb = a_data.lb.reshape(-1).take(onedim_ind.reshape(-1))
         ans_ub = a_data.ub.reshape(-1).take(onedim_ind.reshape(-1))
         ans_lb = ans_lb.reshape(shape_desiree)
@@ -1915,8 +1923,8 @@ class Interpreter(object):
         ans = Abstraction()
         ans.lb = ans_lb
         ans.ub = ans_ub
-        ans.splits = a_data.splits[:b] + a_indices.splits[b: -1] + a_data.splits[b+K:]
-        ans.shape = a_data.shape[:b] + a_indices.shape[b: -1] + a_data.shape[b+K:]
+        ans.splits = a_data.splits[:b] + a_indices.splits[b: -1] + a_data.splits[b + K:]
+        ans.shape = a_data.shape[:b] + a_indices.shape[b: -1] + a_data.shape[b + K:]
         ans.var_name = var_name
 
         return ans, list()
@@ -1991,8 +1999,8 @@ class Interpreter(object):
             index_map[i] = p
         index_map = torch.tensor(index_map, dtype=torch.long, device=indices.lb.device)
 
-        ind_lb = torch.clip(indices.lb.long(), min=0, max=data.shape[axis]-1)
-        ind_ub = torch.clip(indices.ub.long(), min=0, max=data.shape[axis]-1)
+        ind_lb = torch.clip(indices.lb.long(), min=0, max=data.shape[axis] - 1)
+        ind_ub = torch.clip(indices.ub.long(), min=0, max=data.shape[axis] - 1)
         ind_new_lb = index_map[ind_lb]
         ind_new_ub = index_map[ind_ub]
 
@@ -2201,8 +2209,10 @@ class Interpreter(object):
             #     ans.ub = torch.zeros((0), dtype=torch.float64, device=device)
             else:
                 ans.splits = [[0] if ans.shape[i] > 0 else [] for i in range(len(ans.shape))]
-                ans.lb = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), dtype=torch.float64, device=device)
-                ans.ub = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), dtype=torch.float64, device=device)
+                ans.lb = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), dtype=torch.float64,
+                                    device=device)
+                ans.ub = torch.full([1 if item > 0 else 0 for item in ans.shape], float(value), dtype=torch.float64,
+                                    device=device)
             ans.var_name = var_name
             return ans, list()
         else:  # unknown shape
@@ -2274,7 +2284,8 @@ class Interpreter(object):
     def interp_Range(self, abstracts, node, optype, var_name):
         start, limit, delta = abstracts[0], abstracts[1], abstracts[2]
         if start.is_exact() and limit.is_exact() and delta.is_exact():
-            lb = torch.arange(start=start.lb.cpu().item(), end=limit.lb.cpu().item(), step=delta.lb.cpu().item(), device=start.lb.device)
+            lb = torch.arange(start=start.lb.cpu().item(), end=limit.lb.cpu().item(), step=delta.lb.cpu().item(),
+                              device=start.lb.device)
             ub = lb.clone()
             ans = Abstraction()
             ans.lb, ans.ub = lb, ub
@@ -2569,7 +2580,8 @@ class Interpreter(object):
 
         if len(data.splits[axis]) < data.shape[axis]:
             lb_mapping = torch.tensor(data.splits[axis], device=ans_lb.device, dtype=torch.float64)
-            ub_mapping = torch.tensor(data.splits[axis][1:] + [data.shape[axis]], device=ans_lb.device, dtype=torch.float64) - 1
+            ub_mapping = torch.tensor(data.splits[axis][1:] + [data.shape[axis]], device=ans_lb.device,
+                                      dtype=torch.float64) - 1
             ans_lb = lb_mapping[ans_lb]
             ans_ub = ub_mapping[ans_ub]
 
@@ -2642,7 +2654,9 @@ class Interpreter(object):
         exact_target = target.is_exact()
 
         # align input, target, and weight
-        input = input.split_by([target.splits[0], input.splits[1] if weight is None else weight.splits[0]] + target.splits[1:], inplace=False)
+        input = input.split_by(
+            [target.splits[0], input.splits[1] if weight is None else weight.splits[0]] + target.splits[1:],
+            inplace=False)
         target = target.split_by([input.splits[0]] + input.splits[2:], inplace=False)
         if weight is not None:
             weight = weight.split_by([input.splits[1]], inplace=False)
@@ -2698,7 +2712,8 @@ class Interpreter(object):
                 lb = torch.cat([lb, torch.zeros([lb.shape[0], 1] + list(lb.shape[2:]))], dim=1)
                 ub = torch.cat([ub, torch.zeros([ub.shape[0], 1] + list(ub.shape[2:]))], dim=1)
                 target_value = torch.where(target_value == ignore_index,
-                                           torch.ones_like(target_value).to(target_value.device).long() * len(input.splits[1]),
+                                           torch.ones_like(target_value).to(target_value.device).long() * len(
+                                               input.splits[1]),
                                            target_value)
                 index_map.append(lb.shape[1])
 
@@ -2717,8 +2732,10 @@ class Interpreter(object):
             if ignore_index is None:
                 possible_ignore_numels, certain_ignore_numels = 0, 0
             else:
-                possible_ignore_numels = torch.sum((target.lb <= ignore_index) * (ignore_index <= target.ub) * multiplies)
-                certain_ignore_numels = torch.sum((target.lb == ignore_index) * (ignore_index == target.ub) * multiplies)
+                possible_ignore_numels = torch.sum(
+                    (target.lb <= ignore_index) * (ignore_index <= target.ub) * multiplies)
+                certain_ignore_numels = torch.sum(
+                    (target.lb == ignore_index) * (ignore_index == target.ub) * multiplies)
 
             if weight is None:
                 if ignore_index is None:
@@ -2747,7 +2764,8 @@ class Interpreter(object):
                         wL = torch.cat([wL, torch.zeros([wL.shape[0], 1] + list(wL.shape[2:]))], dim=1)
                         wU = torch.cat([wU, torch.zeros([wU.shape[0], 1] + list(wU.shape[2:]))], dim=1)
                         target_value = torch.where(target_value == ignore_index,
-                                                   torch.ones_like(target_value).to(target_value.device).long() * len(input.splits[1]),
+                                                   torch.ones_like(target_value).to(target_value.device).long() * len(
+                                                       input.splits[1]),
                                                    target_value)
                         index_map.append(lb.shape[1])
 
@@ -3220,7 +3238,8 @@ def compute_outshape_padding_trans(pad_mode, prev_pads, output_shape, output_pad
         out_shape = output_shape.copy()
         padding = list()
         for i in range(dim_for_conv):
-            total_padding = strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - out_shape[i]
+            total_padding = strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - out_shape[
+                i]
             if pad_mode == 'SAME_UPPER':
                 padding.extend([total_padding // 2, total_padding - total_padding // 2])
             else:
@@ -3235,7 +3254,8 @@ def compute_outshape_padding_trans(pad_mode, prev_pads, output_shape, output_pad
                 high -= output_padding[i]
             prev_pads_order_by_dim.extend([low, high])
             padding_size = low + high
-            out_shape.append(strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - padding_size)
+            out_shape.append(
+                strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - padding_size)
         return out_shape, prev_pads_order_by_dim
     else:
         out_shape = list()
@@ -3250,7 +3270,8 @@ def compute_outshape_padding_trans(pad_mode, prev_pads, output_shape, output_pad
         elif pad_mode in ['SAME_UPPER', 'SAME_LOWER']:
             for i in range(dim_for_conv):
                 out_shape.append(strides[i] * x_conv_shape[i])
-                total_padding = strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - out_shape[-1]
+                total_padding = strides[i] * (x_conv_shape[i] - 1) + ((kernel_shape[i] - 1) * dilations[i] + 1) - \
+                                out_shape[-1]
                 if pad_mode == 'SAME_UPPER':
                     padding_deltas.extend([total_padding // 2, total_padding - total_padding // 2])
                 else:
@@ -3281,7 +3302,7 @@ def add_padding_to_X(X, padding, value, mode='value', shift=2, value_ub=None):
                         # print(X.lb.shape)
                         X.ub = X.ub[indexes]
                         X.splits[shift + index_of_padding] = [max(item + padding[i], 0) for item in
-                                                          X.splits[shift + index_of_padding][start_h_ind:]]
+                                                              X.splits[shift + index_of_padding][start_h_ind:]]
                 else:
                     end_h_ind = bisect.bisect_right(X.splits[shift + index_of_padding],
                                                     X.shape[shift + index_of_padding] + padding[i] - 1)
@@ -3319,7 +3340,7 @@ def add_padding_to_X(X, padding, value, mode='value', shift=2, value_ub=None):
                             X.lb = torch.cat([to_pend_min, X.lb], dim=shift + index_of_padding)
                             X.ub = torch.cat([to_pend_max, X.ub], dim=shift + index_of_padding)
                             X.splits[shift + index_of_padding] = [0] + [item + padding[i] for item in
-                                                                    X.splits[shift + index_of_padding]]
+                                                                        X.splits[shift + index_of_padding]]
                             X.shape[shift + index_of_padding] += padding[i]
                         else:
                             X.lb = torch.cat([X.lb, to_pend_min], dim=shift + index_of_padding)
@@ -3331,33 +3352,51 @@ def add_padding_to_X(X, padding, value, mode='value', shift=2, value_ub=None):
                         X.shape[shift + index_of_padding] += padding[i]
                         if begin:
                             X.splits[shift + index_of_padding] = [X.splits[shift + index_of_padding][0]] + \
-                                                                 [item + padding[i] for item in X.splits[shift + index_of_padding][1:]]
+                                                                 [item + padding[i] for item in
+                                                                  X.splits[shift + index_of_padding][1:]]
         else:
             for i in range(len(padding) // 2):
                 begin = padding[2 * i]
                 end = padding[2 * i + 1]
                 if begin > 0 or end > 0:
                     ref_splits = X.splits.copy()
-                    ref_splits[shift + i] = set(range(min(begin + 1, X.shape[shift + i]))).union(set(range(max(X.shape[shift + i]-1-end,0), X.shape[shift + i])))
+                    ref_splits[shift + i] = set(range(min(begin + 1, X.shape[shift + i]))).union(
+                        set(range(max(X.shape[shift + i] - 1 - end, 0), X.shape[shift + i])))
                     ref_splits[shift + i] = sorted(list(ref_splits[shift + i]))
                     X.split_by(ref_splits, inplace=True)
                     lst_lb, lst_ub = list(), list()
                     if begin > 0:
-                        lb_prepend = torch.index_select(X.lb, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long, device=X.lb.device))
-                        ub_prepend = torch.index_select(X.ub, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long, device=X.ub.device))
+                        lb_prepend = torch.index_select(X.lb, shift + i, torch.tensor(
+                            [j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long,
+                            device=X.lb.device))
+                        ub_prepend = torch.index_select(X.ub, shift + i, torch.tensor(
+                            [j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long,
+                            device=X.ub.device))
                         lst_lb.append(lb_prepend)
                         lst_ub.append(ub_prepend)
                     lst_lb.append(X.lb)
                     lst_ub.append(X.ub)
                     if end > 0:
-                        lb_append = torch.index_select(X.lb, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(X.shape[shift + i]-2, X.shape[shift + i]-end-2, -1)], dtype=torch.long, device=X.lb.device))
-                        ub_append = torch.index_select(X.ub, shift + i, torch.tensor([j % X.shape[shift + i] for j in range(X.shape[shift + i]-2, X.shape[shift + i]-end-2, -1)], dtype=torch.long, device=X.lb.device))
+                        lb_append = torch.index_select(X.lb, shift + i, torch.tensor([j % X.shape[shift + i] for j in
+                                                                                      range(X.shape[shift + i] - 2,
+                                                                                            X.shape[
+                                                                                                shift + i] - end - 2,
+                                                                                            -1)], dtype=torch.long,
+                                                                                     device=X.lb.device))
+                        ub_append = torch.index_select(X.ub, shift + i, torch.tensor([j % X.shape[shift + i] for j in
+                                                                                      range(X.shape[shift + i] - 2,
+                                                                                            X.shape[
+                                                                                                shift + i] - end - 2,
+                                                                                            -1)], dtype=torch.long,
+                                                                                     device=X.lb.device))
                         lst_lb.append(lb_append)
                         lst_ub.append(ub_append)
                     X.lb = torch.cat(lst_lb, dim=shift + i)
                     X.ub = torch.cat(lst_ub, dim=shift + i)
-                    X.splits[shift + i] = list(range(begin)) + [item + begin for item in X.splits[shift + i]] + list(range(X.shape[shift + i] + begin, X.shape[shift + i] + begin + end))
+                    X.splits[shift + i] = list(range(begin)) + [item + begin for item in X.splits[shift + i]] + list(
+                        range(X.shape[shift + i] + begin, X.shape[shift + i] + begin + end))
                     X.shape[shift + i] += begin + end
+
 
 def fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations, strides):
     lpses = []  # the list of [lpxs, lpys] when dim_for_conv == 2
@@ -3447,8 +3486,10 @@ def fold_repeated_indices_trans(X, dim_for_convtrans, kernel_shape, dilations, s
         repses.append(xreps)
 
     """fold repeated indices"""
-    origindexes = [[j for j, times in enumerate(np.array(X.splits[2 + i][1:] + [X.shape[2 + i]]) - np.array(X.splits[2 + i])) for _ in range(times)]
-               for i in range(dim_for_convtrans)]
+    origindexes = [
+        [j for j, times in enumerate(np.array(X.splits[2 + i][1:] + [X.shape[2 + i]]) - np.array(X.splits[2 + i])) for _
+         in range(times)]
+        for i in range(dim_for_convtrans)]
     indexes = [[origindexes[index][item] for item in lpses[index]] for index
                in range(dim_for_convtrans)]
 

@@ -1,4 +1,3 @@
-
 import torch
 from torch.nn import Module
 import onnx
@@ -17,7 +16,8 @@ class InterpModule():
         self.onnx_model = onnx_model
 
         """init type mappers"""
-        self.tensor_type_mapper = dict([(id, x.name) for id, x in enumerate(onnx.TensorProto.DataType._enum_type.values)])
+        self.tensor_type_mapper = dict(
+            [(id, x.name) for id, x in enumerate(onnx.TensorProto.DataType._enum_type.values)])
         self.attri_type_mapper = dict([(id, name) for id, name in enumerate(onnx.AttributeProto.AttributeType.keys())])
 
         if len(self.onnx_model.graph.value_info) == 0:
@@ -31,10 +31,10 @@ class InterpModule():
         if debug: print('retrieve signatures from value_info', flush=True)
         # key: name, value: (type in str, shape in list)
         self.signature_dict = dict([(node.name,
-                                        (self.tensor_type_mapper[node.type.tensor_type.elem_type],
-                                         self._shape_invertor(
-                                             node.type.tensor_type.shape
-                                         ))) for node in self.onnx_model.graph.value_info])
+                                     (self.tensor_type_mapper[node.type.tensor_type.elem_type],
+                                      self._shape_invertor(
+                                          node.type.tensor_type.shape
+                                      ))) for node in self.onnx_model.graph.value_info])
 
         """collect initialized vars and init vars"""
         if debug: print('retrieve initializers', flush=True)
@@ -42,7 +42,7 @@ class InterpModule():
         # key: name, value: (type in str, raw_data in numpy)
         self.initializer_dict = dict([(node.name,
                                        (self.tensor_type_mapper[node.data_type], onnx.numpy_helper.to_array(node))
-                                            ) for node in self.onnx_model.graph.initializer])
+                                       ) for node in self.onnx_model.graph.initializer])
 
         """collect constant oprators as initializers"""
         if debug: print('retrieve constant operators', flush=True)
@@ -57,7 +57,8 @@ class InterpModule():
                     self.initializer_vars.add(node.output[0])
                     self.initializer_dict[node.output[0]] = (dtype, data)
                 else:
-                    raise Exception(f'I encountered an unsupported value field: {list(attr.keys())}, need implementation')
+                    raise Exception(
+                        f'I encountered an unsupported value field: {list(attr.keys())}, need implementation')
 
         """collect initializers' signatures"""
         if debug: print('retrieve signatures of initializers', flush=True)
@@ -65,7 +66,6 @@ class InterpModule():
             # extract the type signatures from graph initializer
             if k not in self.signature_dict:
                 self.signature_dict[k] = (v[0], list(v[1].shape))
-
 
         """collect input vars"""
         if debug: print('retrieve input vars', flush=True)
@@ -94,12 +94,14 @@ class InterpModule():
             for s in values[1]:
                 if isinstance(s, str):
                     self.shape_identifiers.add(s)
-        print(f'  shape identifiers are {self.shape_identifiers}, all are set to 1 (batch size=1 case) except specified')
+        print(
+            f'  shape identifiers are {self.shape_identifiers}, all are set to 1 (batch size=1 case) except specified')
 
         for values in self.signature_dict.values():
             for id, item in enumerate(values[1]):
                 if isinstance(item, str):
-                    values[1][id] = 1 if customize_shape is None or item not in customize_shape else customize_shape[item]
+                    values[1][id] = 1 if customize_shape is None or item not in customize_shape else customize_shape[
+                        item]
 
         """construct the computational graph, and check whether there are unknown variables"""
         if debug: print('construct graph')
@@ -181,7 +183,8 @@ class InterpModule():
         """construct node dictionary"""
         self.node_dict = dict([(x.name, x) for x in self.onnx_model.graph.node])
         self.node_types = set([x.op_type for x in self.node_dict.values()])
-        self.unimplemented_types = [x for x in self.node_types if 'interp_' + x not in Interpreter.__dir__(Interpreter())]
+        self.unimplemented_types = [x for x in self.node_types if
+                                    'interp_' + x not in Interpreter.__dir__(Interpreter())]
 
         """summary"""
         print('==== Model Summary ====')
@@ -201,7 +204,6 @@ class InterpModule():
         self.abstracts = None
         # key: var_name, value: tuple of (list of numerical error exceptions, set of caused tensors)
         self.possible_numerical_errors = dict()
-
 
     def _shape_invertor(self, shape):
         """
@@ -236,7 +238,7 @@ class InterpModule():
                 if vj not in rev_edges: rev_edges[vj] = list()
                 rev_edges[vj].append((k,) + item[1:])
         cur_deg_in = self.deg_out.copy()
-        queue = [k for k,v in cur_deg_in.items() if v == 0]
+        queue = [k for k, v in cur_deg_in.items() if v == 0]
         require_fine_grain_vars = set()
         l = 0
         while l < len(queue):
@@ -319,7 +321,9 @@ class InterpModule():
                             # specially handle the loop dependencies
                             cur_abst, cur_exceps = interpreter.interp_Loop(
                                 [self.abstracts[x] for x in node.input], node, node_optype, vj,
-                                loop_dependencies=dict([(x, self.abstracts[x]) for x in self.loop_dependencies[node.name] if x in self.abstracts])
+                                loop_dependencies=dict(
+                                    [(x, self.abstracts[x]) for x in self.loop_dependencies[node.name] if
+                                     x in self.abstracts])
                             )
                         if len(cur_exceps) > 0:
                             roots = list()
@@ -402,4 +406,3 @@ class InterpModule():
 def load_onnx_from_file(path, customize_shape=None):
     onnx_model = onnx.load_model(path)
     return InterpModule(onnx_model, customize_shape=customize_shape)
-

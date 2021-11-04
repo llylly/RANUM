@@ -1,5 +1,6 @@
 import os
 import sys
+
 sys.path.append('.')
 sys.path.append('..')
 
@@ -189,7 +190,6 @@ def freeze_and_initialize_graph(graphdef):
     #             graphdef.node.remove(node)
     #             graphdef.node.extend(new_nodes)
 
-
     """STEP5: split ShapeN node to several Shape node since shabby onnx converter does not support ShapeN"""
     find = True
     while find:
@@ -340,7 +340,8 @@ def freeze_and_initialize_graph(graphdef):
     while find:
         find = False
         for node in graphdef.node:
-            if node.op == 'PlaceholderWithDefault' and [snode for snode in graphdef.node if snode.name == node.input[0]][0].op == 'Const':
+            if node.op == 'PlaceholderWithDefault' and \
+                    [snode for snode in graphdef.node if snode.name == node.input[0]][0].op == 'Const':
                 find = True
                 # assert that it is a normal placeholderwithdefault
                 assert len(node.input) == 1
@@ -368,7 +369,9 @@ def freeze_and_initialize_graph(graphdef):
                                         op='Const',
                                         attr={
                                             'dtype': node.attr['T'],
-                                            'value': tf.AttrValue(tensor=tf.make_tensor_proto(values=1., dtype=dtypes.float32, shape=[1,]))
+                                            'value': tf.AttrValue(
+                                                tensor=tf.make_tensor_proto(values=1., dtype=dtypes.float32,
+                                                                            shape=[1, ]))
                                         })
             add_node = tf.NodeDef(name=node_name + '/Add',
                                   op='Add',
@@ -406,9 +409,10 @@ def analyze_inputs_outputs(graphdef):
     op_names = set([node.name for node in graphdef.node])
 
     for node in graphdef.node:
-        if len(node.input) == 0 and (node.op != 'Const' or node.name.count('placeholder') + node.name.count('Placeholder')
-                                     + node.name.count('input') + node.name.count('Input') > 0) \
-                and node.op != 'NoOp' and node.op != 'Save' and node.op != 'SaveV2' and node.op != 'SaveSlices'\
+        if len(node.input) == 0 and (
+                node.op != 'Const' or node.name.count('placeholder') + node.name.count('Placeholder')
+                + node.name.count('input') + node.name.count('Input') > 0) \
+                and node.op != 'NoOp' and node.op != 'Save' and node.op != 'SaveV2' and node.op != 'SaveSlices' \
                 and node.op != 'Assert' and node.op != 'QueueEnqueueManyV2' and node.op != 'QueueCloseV2':
             inputs.append(node.name)
         else:
@@ -423,7 +427,6 @@ def analyze_inputs_outputs(graphdef):
 
 
 def parseProtoBuf(protobuf_path):
-
     print('TF version =', tf.__version__)
 
     # import protobuf
@@ -447,11 +450,14 @@ def parseProtoBuf(protobuf_path):
     outputs_nodes = [x + ':0' if x.count(':') == 0 else x for x in outputs_nodes]
 
     onnx_graph, external_tensor_storage = tf2onnx.convert.from_graph_def(graph_def,
-                                          name=None, input_names=input_nodes, output_names=outputs_nodes, opset=13,
-                                          custom_ops=None, custom_op_handlers=None, custom_rewriter=None,
-                                          inputs_as_nchw=None, extra_opset=None,
-                                          shape_override=None, target=None, large_model=False,
-                                          output_path=None)
+                                                                         name=None, input_names=input_nodes,
+                                                                         output_names=outputs_nodes, opset=13,
+                                                                         custom_ops=None, custom_op_handlers=None,
+                                                                         custom_rewriter=None,
+                                                                         inputs_as_nchw=None, extra_opset=None,
+                                                                         shape_override=None, target=None,
+                                                                         large_model=False,
+                                                                         output_path=None)
 
     # it should not use external tensor storage
     assert external_tensor_storage is None
@@ -468,7 +474,6 @@ def parseProtoBuf(protobuf_path):
                 find = True
                 break
 
-
     try:
         checker.check_model(onnx_graph)
     except checker.ValidationError as e:
@@ -477,7 +482,9 @@ def parseProtoBuf(protobuf_path):
         pass
         # print('The model is valid!')
 
-    return onnx_graph, {'variable nodes': variable_node_list, 'narrow inputs': possible_input_node_list, 'broad inputs': input_nodes}
+    return onnx_graph, {'variable nodes': variable_node_list, 'narrow inputs': possible_input_node_list,
+                        'broad inputs': input_nodes}
+
 
 # ====== the following dumps the support pbtxt to onnx format ======
 
@@ -532,6 +539,7 @@ def convert_protobuf_folder(dir_path='model_zoo/tf_protobufs'):
 
     assert len(failed) == 0
     print(f'Success on {len(succeed)}; failed (anticipated) on {len(skipped)}')
+
 
 if __name__ == '__main__':
     convert_protobuf_folder()
