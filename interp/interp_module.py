@@ -261,6 +261,7 @@ class InterpModule():
         fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
         for s in self.start_points:
             if s not in init_config:
+                print(f"Parameter {s} is not in init_config.")
                 if s in require_fine_grain_vars:
                     init_config[s] = fine_grain_config
                     init_config[s].diff = self.signature_dict[s][0] not in discrete_types
@@ -367,14 +368,18 @@ class InterpModule():
         # load from DEBAR's specified ranges
         if model_name in SpecifiedRanges.specified_ranges:
             for name, values in SpecifiedRanges.specified_ranges[model_name].items():
-                if len(values) == 2 and not isinstance(values[0], tuple):
+                if len(values) == 2 and not isinstance(values[0], list):
                     values = [values]
                 for i, value in enumerate(values):
-                    result[name + ":%d" % i] = AbstractionInitConfig(diff=False, from_init=True,
-                                                                     lb=value[0] if value[0] is not None else
-                                                                     -PossibleNumericalError.OVERFLOW_LIMIT,
-                                                                     ub=value[1] if value[1] is not None else
-                                                                     PossibleNumericalError.OVERFLOW_LIMIT)
+                    if len(values) > 1:
+                        new_name = name + "_%d:0" % i
+                    else:
+                        new_name = name + ":0"
+                    result[new_name] = AbstractionInitConfig(diff=False, from_init=True,
+                                                             lb=value[0] if value[0] is not None else
+                                                             -PossibleNumericalError.OVERFLOW_LIMIT,
+                                                             ub=value[1] if value[1] is not None else
+                                                             PossibleNumericalError.OVERFLOW_LIMIT)
 
         for name, values in self.initializer_dict.items():
             dtype, data = values

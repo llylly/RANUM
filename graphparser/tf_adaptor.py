@@ -122,7 +122,7 @@ def freeze_and_initialize_graph(graphdef):
                         name_mapping[node.name] = new_node.name
                     else:
                         name_mapping[node.name + f':{no}'] = new_node.name
-                    possible_input_node_list.append(new_node.name)
+                    # possible_input_node_list.append(new_node.name)
 
                 find = True
                 graphdef.node.remove(node)
@@ -258,21 +258,23 @@ def freeze_and_initialize_graph(graphdef):
 
         try:
             arr_shape = [item.size for item in value_field['shape'].shape.dim]
-            if value_field['dtype'].type in [dtypes.int16, dtypes.int32, dtypes.int64, dtypes.int8, dtypes.uint16, dtypes.uint32, dtypes.uint64, dtypes.uint8]:
-                initial_value = 0
-            elif value_field['dtype'].type in [dtypes.string]:
-                initial_value = ''
-            elif value_field['dtype'].type in [dtypes.bool]:
-                initial_value = False
-            else:
-                initial_value = 0.
-            tfvalue = tf.AttrValue(tensor=tf.make_tensor_proto(values=initial_value, dtype=value_field['dtype'].type, shape=arr_shape))
-            new_node_attrs['value'] = tfvalue
+            # if value_field['dtype'].type in [dtypes.int16, dtypes.int32, dtypes.int64, dtypes.int8, dtypes.uint16,
+            #                                  dtypes.uint32, dtypes.uint64, dtypes.uint8]:
+            #     initial_value = 0
+            # elif value_field['dtype'].type in [dtypes.string]:
+            #     initial_value = ''
+            # elif value_field['dtype'].type in [dtypes.bool]:
+            #     initial_value = False
+            # else:
+            #     initial_value = 0.
+            # # tfvalue = tf.AttrValue(
+            #     tensor=tf.make_tensor_proto(values=initial_value, dtype=value_field['dtype'].type, shape=arr_shape))
+            new_node_attrs["shape"] = tf.AttrValue(shape=tf.TensorShape(arr_shape).as_proto())
         except:
             raise Exception('unable to make tfvalue: maybe dtype or shape fields are missing or illegal')
 
-        new_node = tf.NodeDef(name=item.name, op='Const', input=[], attr=new_node_attrs)
-
+        new_node = tf.NodeDef(name=item.name, op='Placeholder', input=[], attr=new_node_attrs)
+        possible_input_node_list.append(new_node.name)
         to_extend.append(new_node)
 
     for item in to_remove:
@@ -317,7 +319,7 @@ def freeze_and_initialize_graph(graphdef):
                 or node.op == 'ScalarSummary' or node.op == 'ImageSummary' or node.op == 'HistogramSummary' or node.op == 'Print' \
                 or node.op == 'IteratorToStringHandle' \
                 or node.op == 'SaveV2' or node.op == 'ShardedFilename' or node.op == 'StringJoin' \
-                or node.op == 'RestoreV2' or node.op == 'RestoreSlice'\
+                or node.op == 'RestoreV2' or node.op == 'RestoreSlice' \
                 or node.op == 'IsVariableInitialized' \
                 or node.op == 'GeneratorDataset' or node.op == 'TensorSliceDataset' \
                 or node.op == 'PaddingFIFOQueueV2' or node.op == 'RandomShuffleQueueV2' \
