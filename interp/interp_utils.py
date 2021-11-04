@@ -1,4 +1,5 @@
 import onnx
+import torch
 from onnx.helper import get_attribute_value
 
 EPS = 1e-5
@@ -54,6 +55,7 @@ class PossibleNumericalError(Exception):
     OPs2Check = {"Exp", "Log", "Div", "Sqrt", "Pow", "Reciprocal", "Range", "NegativeLogLikelihoodLoss"}
     code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
                 ERROR_UNDERFLOW: "Operator underflows.", ERROR_UNKNOWN: 'Unknown error.'}
+    continue_prop = False
 
     def __init__(self, optype='', var_name='', cur_range='', err_cond=-1):
         self.optype = optype
@@ -68,6 +70,30 @@ class PossibleNumericalError(Exception):
     @staticmethod
     def is_invalid(x):
         return x.isnan().any() or x.isinf().any()
+
+    @staticmethod
+    def clip_to_valid_range(x, lb=None, ub=None):
+        if not PossibleNumericalError.continue_prop:
+            return None
+        if lb is None:
+            lb = -PossibleNumericalError.OVERFLOW_LIMIT
+        if ub is None:
+            ub = PossibleNumericalError.OVERFLOW_LIMIT
+        old_lb = x.lb
+        old_ub = x.ub
+        valid_lb = torch.full(old_lb.shape, lb, device=old_lb.device, dtype=old_lb.dtype)
+        valid_ub = torch.full(old_ub.shape, ub, device=old_ub.device, dtype=old_ub.dtype)
+        x.lb = torch.where(old_lb.isnan() | old_ub.isnan(),
+                           valid_lb,
+                           torch.maximum(valid_lb, old_lb))
+        x.ub = torch.where(old_lb.isnan() | old_ub.isnan(),
+                           valid_ub,
+                           torch.minimum(valid_ub, old_ub))
+        del old_lb
+        del old_ub
+        if PossibleNumericalError.is_invalid(x.lb) or PossibleNumericalError.is_invalid(x.ub):
+            return None
+        return x
 
 
 def get_numel(shape_list):

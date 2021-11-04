@@ -496,15 +496,20 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ans.var_name = var_name
+        choices = torch.stack(
+            [abst0.lb.pow(abst1.lb), abst0.lb.pow(abst1.ub), abst0.ub.pow(abst1.lb), abst0.ub.pow(abst1.ub)],
+            dim=0)
+        ans.lb = torch.amin(choices, dim=0)
+        ans.ub = torch.amax(choices, dim=0)
         # x^y, if x can be 0 and y < 0
         if ((abst0.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) &
             (abst0.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT) &
             (abst1.lb < -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
-            return None, [PossibleNumericalError(optype, var_name, [abst0.lb, abst0.ub],
-                                                 PossibleNumericalError.ERROR_CONTAINS_ZERO)]
-        choices = torch.stack(
-            [abst0.lb.pow(abst1.lb), abst0.lb.pow(abst1.ub), abst0.ub.pow(abst1.lb), abst0.ub.pow(abst1.ub)],
-            dim=0)
+            return PossibleNumericalError.clip_to_valid_range(ans), \
+                   [PossibleNumericalError(optype, var_name, [abst0.lb, abst0.ub],
+                                           PossibleNumericalError.ERROR_CONTAINS_ZERO)]
+
         # use float32 to see if the pow operator triggers a numerical error
         # TODO: adapt to the operator's original type,
         # TODO: E.g., if pow(x, y)'s argument x and y are both float64, then we shouldn't generate an exception
@@ -515,22 +520,15 @@ class Interpreter(object):
              abst0.ub.to(torch.float32).pow(abst1.ub.to(torch.float32))],
             dim=0)
         if any(PossibleNumericalError.is_invalid(x) for x in choices_float32):
-            return None, [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
-                                                 PossibleNumericalError.ERROR_OVERFLOW)]
-        ans.lb = torch.amin(choices, dim=0)
-        ans.ub = torch.amax(choices, dim=0)
-        ans.var_name = var_name
+            return PossibleNumericalError.clip_to_valid_range(ans), \
+                   [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+                                           PossibleNumericalError.ERROR_OVERFLOW)]
 
         return ans, list()
 
     def interp_Div(self, abstracts, node, optype, var_name):
         abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
         abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
-        if ((abst1.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (
-                abst1.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
-            return None, [
-                PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
-                                       PossibleNumericalError.ERROR_CONTAINS_ZERO)]
 
         abst0.split_by(abst1.splits, inplace=True)
         abst1.split_by(abst0.splits, inplace=True)
@@ -541,10 +539,15 @@ class Interpreter(object):
                               dim=0)
         ans.lb = torch.amin(choices, dim=0)
         ans.ub = torch.amax(choices, dim=0)
+        ans.var_name = var_name
+        if ((abst1.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (
+                abst1.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
+            return PossibleNumericalError.clip_to_valid_range(ans), \
+                   [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+                                           PossibleNumericalError.ERROR_CONTAINS_ZERO)]
         # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
         #     return None, PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
         #                                         PossibleNumericalError.ERROR_CONTAINS_ZERO)
-        ans.var_name = var_name
 
         return ans, list()
 
@@ -1223,41 +1226,33 @@ class Interpreter(object):
     def interp_Reciprocal(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
-        if ((abst.lb <= 0) & (abst.ub >= 0)).any():
-            return None, [
-                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub],
-                                       PossibleNumericalError.ERROR_CONTAINS_ZERO)]
-
-        e1, e2 = 1 / abst.lb, 1 / abst.ub
-        ans.lb = torch.minimum(e1, e2)
-        ans.ub = torch.maximum(e1, e2)
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
+        e1, e2 = 1 / abst.lb, 1 / abst.ub
+        ans.lb = torch.minimum(e1, e2)
+        ans.ub = torch.maximum(e1, e2)
+        if ((abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (
+                abst.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
+            return PossibleNumericalError.clip_to_valid_range(ans), \
+                   [PossibleNumericalError(optype, var_name, [abst.lb, abst.ub],
+                                           PossibleNumericalError.ERROR_CONTAINS_ZERO)]
+
         return ans, list()
 
     def interp_Sqrt(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
-
-        print(abst.lb)
-
-        ret = None
-        if ((abst.lb < 0)).any():
-            ret = None
-        else:
-            ret = Abstraction()
-            ret.lb = abst.lb.sqrt()
-            ret.ub = abst.ub.sqrt()
-            ret.var_name = var_name
-            ret.shape = abst.shape.copy()
-            ret.splits = abst.splits.copy()
-
+        ret = Abstraction()
+        ret.lb = abst.lb.sqrt()
+        ret.ub = abst.ub.sqrt()
+        ret.var_name = var_name
+        ret.shape = abst.shape.copy()
+        ret.splits = abst.splits.copy()
         if (abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT).any():
-            return ret, [
-                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)
-            ]
-        else:
-            return ret, list()
+            return PossibleNumericalError.clip_to_valid_range(ret, lb=0), [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
+
+        return ret, list()
 
     def interp_Tanh(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
@@ -1334,33 +1329,35 @@ class Interpreter(object):
     def interp_Exp(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
-        if (abst.ub >= PossibleNumericalError.OVERFLOW_D * np.log(10)).any():
-            return None, [
-                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
-        ans.lb = torch.exp(abst.lb)
-        ans.ub = torch.exp(abst.ub)
-        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
-        #     return None, [
-        #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
+        ans.lb = torch.exp(abst.lb)
+        ans.ub = torch.exp(abst.ub)
+        if (abst.ub >= PossibleNumericalError.OVERFLOW_D * np.log(10)).any():
+            return PossibleNumericalError.clip_to_valid_range(ans, lb=0), [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
+        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+        #     return None, [
+        #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
+
         return ans, list()
 
     def interp_Log(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
-        if (abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT).any():
-            return None, [
-                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
-        ans.lb = torch.log(abst.lb)
-        ans.ub = torch.log(abst.ub)
-        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
-        #     return None, [
-        #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
+        ans.lb = torch.log(abst.lb)
+        ans.ub = torch.log(abst.ub)
+        if (abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT).any():
+            return PossibleNumericalError.clip_to_valid_range(ans), [
+                PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
+        # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
+        #     return None, [
+        #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_UNDERFLOW)]
+
         return ans, list()
 
     def interp_Softmax(self, abstracts, node, optype, var_name):
@@ -2286,6 +2283,7 @@ class Interpreter(object):
         else:
             max_range = torch.maximum(torch.abs(start.lb - limit.ub), torch.abs(start.ub - limit.lb))
             if delta.lb < 0. < delta.ub:
+                # TODO: No idea how to continue propagating here
                 return None, [
                     PossibleNumericalError(optype, var_name, [delta.lb, delta.ub],
                                            PossibleNumericalError.ERROR_CONTAINS_ZERO)]
@@ -2773,6 +2771,7 @@ class Interpreter(object):
 
         if reduction == 'mean':
             if deno_min <= PossibleNumericalError.UNDERFLOW_LIMIT and deno_max >= -PossibleNumericalError.UNDERFLOW_LIMIT:
+                # TODO: No idea how to continue propagating error
                 return None, [
                     PossibleNumericalError(optype, var_name, [torch.tensor(deno_min), torch.tensor(deno_max)],
                                            PossibleNumericalError.ERROR_CONTAINS_ZERO)]

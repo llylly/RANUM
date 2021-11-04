@@ -8,15 +8,18 @@ import graphparser.tf_adaptor as tf_adaptor
 import graphparser.torch_adaptor as torch_adaptor
 
 from interp.interp_module import load_onnx_from_file
-from interp.interp_utils import AbstractionInitConfig
-
+from interp.interp_utils import AbstractionInitConfig, PossibleNumericalError
 
 stime = time.time()
+
+
 def prompt(msg):
     print(f'[{time.time() - stime:.3f}s] ' + msg)
 
+
 parser = argparse.ArgumentParser()
 parser.add_argument('modelpath', type=str, help='model architecture file path')
+parser.add_argument("--continue-prop", action='store_true', help='continue propagating after numerical error')
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -24,6 +27,8 @@ if __name__ == '__main__':
     model = load_onnx_from_file(args.modelpath,
                                 customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
     prompt('model initialized')
+    prompt(f'--continue-prop: {args.continue_prop}')
+    PossibleNumericalError.continue_prop = args.continue_prop
 
     res = model.analyze(model.gen_abstraction_heuristics(os.path.split(args.modelpath)[-1].split('.')[0]),
                         {'average_pool_mode': 'coarse'})
@@ -36,4 +41,3 @@ if __name__ == '__main__':
             print(f'- On tensor {k} triggered by operator {v[1]}:')
             for item in v[0]:
                 print(str(item))
-
