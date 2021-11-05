@@ -263,8 +263,15 @@ class InterpModule():
         fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
         for s in self.start_points:
             if s not in init_config:
-                print(f"Parameter {s} is not in init_config.")
-                if s in require_fine_grain_vars:
+                if s.lower().count('moving_variance') > 0:
+                    # looks like a variance
+                    print(
+                        f'Parameter {s} looks like a variance, abstract by {AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT}')
+                    init_config[s] = AbstractionInitConfig(diff=False, from_init=True,
+                                                           lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
+                                                           ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
+                    init_config[s].diff = self.signature_dict[s][0] not in discrete_types
+                elif s in require_fine_grain_vars:
                     init_config[s] = fine_grain_config
                     init_config[s].diff = self.signature_dict[s][0] not in discrete_types
                 else:
@@ -279,6 +286,7 @@ class InterpModule():
                         now_config.diff = not self.signature_dict[s][0] in discrete_types
                         init_config[s] = now_config
             else:
+                print(f"Parameter {s} is in init_config.")
                 assert isinstance(init_config[s], AbstractionInitConfig)
                 if s in require_fine_grain_vars:
                     init_config[s].stride = 1
@@ -342,11 +350,22 @@ class InterpModule():
                         else:
                             queue.append(vj)
                             if isinstance(cur_abst, Abstraction):
+                                if PossibleNumericalError.is_invalid(cur_abst.lb) or PossibleNumericalError.is_invalid(
+                                        cur_abst.ub):
+                                    print(f'! The abstraction generated for {vj} is invalid: '
+                                          f'node name = {node_name}, type = {node_optype}\nAborting...')
+                                    exit(0)
                                 # single output node
                                 self.abstracts[vj] = cur_abst
                             else:
                                 # multiple output node: execute once, update all output nodes
                                 for i, cur_cur_abst in enumerate(cur_abst):
+                                    if PossibleNumericalError.is_invalid(
+                                            cur_cur_abst.lb) or PossibleNumericalError.is_invalid(
+                                        cur_cur_abst.ub):
+                                        print(f'! The {i}-th abstraction generated for {vj} is invalid: '
+                                              f'node name = {node_name}, type = {node_optype}\nAborting...')
+                                        exit(0)
                                     self.abstracts[node.output[i]] = cur_cur_abst
             l += 1
         # except:
@@ -366,9 +385,7 @@ class InterpModule():
             Generate a dictionary which contains the heuristics for each initial tensor if necessary
         :return:
         """
-        # keep_prob's range should be (0, 1]
-        result = {'keep_prob:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1),
-                  'dropout:0': AbstractionInitConfig(diff=False, from_init=True, lb=0.0, ub=0.9)}
+        result = {}
         # load from DEBAR's specified ranges
         if model_name in SpecifiedRanges.specified_ranges:
             for name, values in SpecifiedRanges.specified_ranges[model_name].items():
@@ -389,16 +406,35 @@ class InterpModule():
             dtype, data = values
             if dtype not in discrete_types and name not in result:
                 # print(name, np.min(data), np.max(data), data.shape)
-                if (name.count('dropout') > 0 or name.count('Dropout') > 0) and data.size == 1:
+                if (name.lower().count('dropout') > 0) and data.size == 1:
                     # looks like the div in dropout
-                    print(f'Parameter {name} looks like a dropout div, abstract by [0.1, 1]')
-                    result[name] = AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1)
+                    print(
+                        f'Parameter {name} looks like a dropout div, abstract by {AbstractionInitConfig.DROPOUT_CONFIG_DEFAULT}')
+                    result[name] = AbstractionInitConfig(diff=False, from_init=True,
+                                                         lb=AbstractionInitConfig.DROPOUT_CONFIG_DEFAULT[0],
+                                                         ub=AbstractionInitConfig.DROPOUT_CONFIG_DEFAULT[1])
+                elif (name.lower().count('keep_prob') > 0) and data.size == 1:
+                    # looks like the keep_prob
+                    print(
+                        f'Parameter {name} looks like a keep_prob, abstract by {AbstractionInitConfig.KEEP_PROB_CONFIG_DEFAULT}')
+                    result[name] = AbstractionInitConfig(diff=False, from_init=True,
+                                                         lb=AbstractionInitConfig.KEEP_PROB_CONFIG_DEFAULT[0],
+                                                         ub=AbstractionInitConfig.KEEP_PROB_CONFIG_DEFAULT[1])
+                elif name.lower().count('moving_variance') > 0:
+                    # looks like a variance
+                    print(
+                        f'Parameter {name} looks like a variance, abstract by {AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT}')
+                    result[name] = AbstractionInitConfig(diff=False, from_init=True,
+                                                         lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
+                                                         ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
                 elif data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
                         np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
                     print(
-                        f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
-                    result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-10., ub=10.)
+                        f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by {AbstractionInitConfig.WEIGHT_CONFIG_DEFAULT}')
+                    result[name] = AbstractionInitConfig(diff=True, from_init=False,
+                                                         lb=AbstractionInitConfig.WEIGHT_CONFIG_DEFAULT[0],
+                                                         ub=AbstractionInitConfig.WEIGHT_CONFIG_DEFAULT[1])
 
         return result
 

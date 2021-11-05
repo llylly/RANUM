@@ -296,6 +296,35 @@ class Abstraction(object):
         targ.var_name = targ.var_name + '_extend_dim'
         return targ
 
+    def extend_x_dim_at_end(self, x: int, inplace=True):
+        """
+            Add several singleton dims to the end of the abstraction tensors
+            Inplace or not
+        :param x:
+        :param inplace:
+        :return:
+        """
+
+        if inplace:
+            targ = self
+        else:
+            targ = Abstraction()
+            targ.lb = self.lb
+            targ.ub = self.ub
+            targ.splits = self.splits
+            targ.shape = self.shape
+            targ.var_name = self.var_name
+
+        # print(targ.get_dim(), targ_dim)
+
+        for _ in range(x):
+            targ.lb = targ.lb.unsqueeze(dim=-1)
+            targ.ub = targ.ub.unsqueeze(dim=-1)
+            targ.shape = targ.shape + [1]
+            targ.splits = targ.splits + [[0]]
+        targ.var_name = targ.var_name + '_extend_dim_at_end'
+        return targ
+
     def force_resplit(self, new_splits, inplace=True):
         """
             Forced resplitting of current Abstraction tensor with new_splits
@@ -408,7 +437,7 @@ class Interpreter(object):
 
     def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
                  loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1),
-                 average_pool_mode='precise'):
+                 average_pool_mode='precise', onehot_mode='coarse'):
         # default smash threshold
         self.smash = smash_thres
 
@@ -419,10 +448,12 @@ class Interpreter(object):
         assert ceil in ['precise', 'identical', 'coarse']
         assert floor in ['precise', 'identical', 'coarse']
         assert average_pool_mode in ['precise', 'coarse']
+        assert onehot_mode in ['precise', 'coarse']
         self.ceil = ceil
         self.floor = floor
         self.loop_constant_abst_cfg = loop_constant_abst_cfg
         self.average_pool_mode = average_pool_mode
+        self.onehot_mode = onehot_mode
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -790,6 +821,16 @@ class Interpreter(object):
             indices_abst.var_name = node.output[1]
 
         return ans if not need_index else [ans, indices_abst], list()
+
+    def interp_GlobalMaxPool(self, abstracts, node, optype, var_name):
+        dim_for_pool = abstracts[0].get_dim() - 2
+        ans = Abstraction()
+        ans.lb = torch.amax(abstracts[0].lb, dim=[i + 2 for i in range(dim_for_pool)], keepdim=True)
+        ans.ub = torch.amax(abstracts[0].ub, dim=[i + 2 for i in range(dim_for_pool)], keepdim=True)
+        ans.shape = abstracts[0].shape[:2] + [1] * dim_for_pool
+        ans.splits = abstracts[0].splits[:2] + [[0]] * dim_for_pool
+        ans.var_name = var_name
+        return ans, list()
 
     def interp_AveragePool(self, abstracts, node, optype, var_name):
         """
@@ -2913,6 +2954,77 @@ class Interpreter(object):
         ret.shape.insert(index, T.shape)
         ret.var_name = var_name
         return ret, list()
+
+    def interp_BatchNormalization(self, abstracts, node, optype, var_name):
+        attrs = parse_attribute(node)
+        epsilon = attrs.get('epsilon', 1e-05)
+        momentum = attrs.get('momentum', 0.9)
+        training_mode = attrs.get('training_mode', 0)
+        if training_mode == 1:
+            # TODO training mode not implemented.
+            return None, list()
+
+        x = abstracts[0]
+        scale, B, input_mean, input_var = [
+            abst.extend_x_dim_at_end(x.get_dim() - 2, inplace=False).extend_dim(x.get_dim(), inplace=True)
+            for abst in abstracts[1:]]
+        # get a final split for scale
+        scale.split_by(B.splits, inplace=True)
+        scale.split_by(input_mean.splits, inplace=True)
+        scale.split_by(input_var.splits, inplace=True)
+
+        # split others
+        x.split_by(scale.splits, inplace=True)
+        B.split_by(scale.splits, inplace=True)
+        input_mean.split_by(scale.splits, inplace=True)
+        input_var.split_by(scale.splits, inplace=True)
+
+        # Y = (X - input_mean) / sqrt(input_var + epsilon) * scale + B
+        ret = Abstraction()
+        ret.var_name = var_name
+        ret.shape, ret.splits = get_shape_split_with_broadcasting(x, scale)
+        choices = torch.stack([(x.lb - input_mean.ub) / torch.sqrt(input_var.lb + epsilon) * scale.ub,
+                               (x.lb - input_mean.ub) / torch.sqrt(input_var.ub + epsilon) * scale.lb,
+                               (x.ub - input_mean.lb) / torch.sqrt(input_var.lb + epsilon) * scale.ub,
+                               (x.ub - input_mean.lb) / torch.sqrt(input_var.ub + epsilon) * scale.lb], dim=0)
+        ret.lb = torch.amin(choices, dim=0) + B.lb
+        ret.ub = torch.amax(choices, dim=0) + B.ub
+        return ret, list()
+
+    def interp_OneHot(self, abstracts, node, optype, var_name):
+        attrs = parse_attribute(node)
+        axis = attrs.get('axis', -1)
+        indices, depth, values = abstracts
+        if axis < 0:
+            axis += indices.get_dim() + 1
+        depth = int(depth.lb.item())
+        ret = Abstraction()
+        ret.var_name = var_name
+        ret.shape = indices.shape.copy()
+        ret.shape.insert(axis, depth)
+        ret.splits = indices.splits.copy()
+        ret.splits.insert(axis, [0])
+        if len(values.splits[0]) != 2:  # the off_value and on_value are abstracted!
+            ret.lb = torch.full(indices.lb.shape, values.lb[0].item(), device=values.lb.device,
+                                dtype=values.lb.dtype).unsqueeze(axis)
+            ret.ub = torch.full(indices.ub.shape, values.ub[0].item(), device=values.ub.device,
+                                dtype=values.ub.dtype).unsqueeze(axis)
+        else:
+            off_value = values.lb[0].item()
+            on_value = values.lb[1].item()
+            if self.onehot_mode == "coarse":
+                ret.lb = torch.full(indices.lb.shape, min(off_value, on_value), device=values.lb.device,
+                                    dtype=values.lb.dtype).unsqueeze(axis)
+                ret.ub = torch.full(indices.ub.shape, max(off_value, on_value), device=values.ub.device,
+                                    dtype=values.ub.dtype).unsqueeze(axis)
+            elif self.onehot_mode == "precise":
+                raise NotImplementedError("Precise onehot mode not implemented!")
+            else:
+                raise NotImplementedError()
+        return ret, list()
+
+    def interp_NonZero(self, abstracts, node, optype, var_name):
+        return None, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim

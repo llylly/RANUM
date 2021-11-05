@@ -31,7 +31,8 @@ if __name__ == '__main__':
     PossibleNumericalError.continue_prop = args.continue_prop
 
     res = model.analyze(model.gen_abstraction_heuristics(os.path.split(args.modelpath)[-1].split('.')[0]),
-                        {'average_pool_mode': 'coarse'})
+                        {'average_pool_mode': 'coarse',
+                         'onehot_mode': 'coarse'})
     prompt('analysis done')
     if len(res) == 0:
         print('No numerical bug')

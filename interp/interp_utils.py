@@ -6,8 +6,17 @@ EPS = 1e-5
 
 
 class AbstractionInitConfig(object):
+    INPUT_CONFIG_DEFAULT = [-1., 1.]
+    WEIGHT_CONFIG_DEFAULT = [-1., 1.]
+    DROPOUT_CONFIG_DEFAULT = [0.1, 1.0]
+    KEEP_PROB_CONFIG_DEFAULT = [0., 0.9]
+    VARIANCE_CONFIG_DEFAULT = [0, 1]
 
-    def __init__(self, diff: bool, lb=-50., ub=50., from_init=False, from_init_margin=0., stride=-1):
+    def __init__(self, diff: bool, lb=None, ub=None, from_init=False, from_init_margin=0., stride=-1):
+        if lb is None:
+            lb = AbstractionInitConfig.INPUT_CONFIG_DEFAULT[0]
+        if ub is None:
+            ub = AbstractionInitConfig.INPUT_CONFIG_DEFAULT[1]
         super(AbstractionInitConfig, self).__init__()
         # diff: whether requires_grad differentiable
         self.diff = diff

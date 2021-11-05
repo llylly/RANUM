@@ -331,7 +331,7 @@ def freeze_and_initialize_graph(graphdef):
                 or node.op == 'L2Loss' or node.op == 'PyFunc' \
                 or node.op == 'Rank' \
                 or node.op == 'WholeFileReaderV2' or node.op == 'TextLineReaderV2' \
-                or node.name.count('gradient') > 0:
+                or node.name.lower().count('gradient') > 0:
             node_to_trim.append(node.name)
     graphdef = trim_nodes(graphdef, node_to_trim)
 

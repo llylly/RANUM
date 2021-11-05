@@ -3,6 +3,8 @@ import torch
 import numpy as np
 from onnx import helper, TensorProto
 from onnx.backend.test.case.node.pool_op_common import get_output_shape, pool, get_pad_shape
+from onnx.backend.test.case.node.batchnorm import _batchnorm_test_mode
+from onnx.backend.test.case.node.onehot import one_hot
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
@@ -123,8 +125,8 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue((abst1.lb.detach().numpy() == np.array([[-1., -1.], [-1., -1.]])).all())
         self.assertTrue((abst1.ub.detach().numpy() == np.array([[1., 1.], [1., 1.]])).all())
 
-        self.assertTrue(tf_equal(abst2.lb, [[-9.9, 5-9.9], [50-9.9, 55-9.9]]))
-        self.assertTrue(tf_equal(abst2.ub, [[44+9.9, 49+9.9], [94+9.9, 99+9.9]]))
+        self.assertTrue(tf_equal(abst2.lb, [[-9.9, 5 - 9.9], [50 - 9.9, 55 - 9.9]]))
+        self.assertTrue(tf_equal(abst2.ub, [[44 + 9.9, 49 + 9.9], [94 + 9.9, 99 + 9.9]]))
 
         # assert np.linalg.norm((abst2.lb.detach().numpy() - np.array([[-0.1,4.9],[49.9,54.9]])).reshape(-1)) < 1e-5
         # assert np.linalg.norm((abst2.ub.detach().numpy() - np.array([[44.1,49.1],[94.1,99.1]])).reshape(-1)) < 1e-5
@@ -598,7 +600,8 @@ class TestAbstraction(unittest.TestCase):
             axis=0
         )
 
-        expected_outputs = [np.array([1., 2.]).astype(np.float32), np.array([3., 4.]).astype(np.float32), np.array([5., 6.]).astype(np.float32)]
+        expected_outputs = [np.array([1., 2.]).astype(np.float32), np.array([3., 4.]).astype(np.float32),
+                            np.array([5., 6.]).astype(np.float32)]
 
         a_input = Abstraction().load(conf_s3, 'input', input.shape, 'FLOAT', input)
         a_out, _ = interp.interp_Split([a_input], node, 'Split', 'output')
@@ -613,7 +616,6 @@ class TestAbstraction(unittest.TestCase):
         expected_outputs = [np.array([1., 2.]).astype(np.float32), np.array([3., 4., 5., 6.]).astype(np.float32)]
         self.assertTrue(correct_abstraction(a_out[0], expected_outputs[0]))
         self.assertTrue(correct_abstraction(a_out[1], expected_outputs[1]))
-
 
         input = np.array([[1., 2., 3., 4., 5., 6.],
                           [7., 8., 9., 10., 11., 12.]]).astype(np.float32)
@@ -676,8 +678,6 @@ class TestAbstraction(unittest.TestCase):
                 self.assertListEqual(a_out[i].splits, [[], [0, 3]])
             else:
                 self.assertListEqual(a_out[i].splits, [[0], [0, 3]])
-
-
 
     def test_Reciprocal(self):
         interp = Interpreter()
@@ -866,9 +866,9 @@ class TestAbstraction(unittest.TestCase):
         interp = Interpreter()
         node = helper.make_node(
             'RandomNormal', [], ['res'], 'RandomNormal',
-            mean = 10.,
-            scale = 3.,
-            shape = [10, 4, 6]
+            mean=10.,
+            scale=3.,
+            shape=[10, 4, 6]
         )
         abst_res, _ = interp.interp_RandomNormal([], node, 'RandomNormal', 'res')
         # abst_res.print()
@@ -876,12 +876,11 @@ class TestAbstraction(unittest.TestCase):
         succeed = sum([int(correct_abstraction(abst_res, np.random.normal(10., 3., (10, 4, 6)))) for _ in range(1000)])
         self.assertTrue(succeed > 900)
 
-
         node = helper.make_node(
             'RandomNormal', [], ['res'], 'RandomNormal',
-            mean = 10.,
-            scale = 3.,
-            shape = [10, 0, 6]
+            mean=10.,
+            scale=3.,
+            shape=[10, 0, 6]
         )
         abst_res, _ = interp.interp_RandomNormal([], node, 'RandomNormal', 'res')
         # abst_res.print()
@@ -896,7 +895,8 @@ class TestAbstraction(unittest.TestCase):
             y = np.random.randn(1, 10, 1).astype(np.float64)
             conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=stride)
             abst_y = Abstraction().load(conf2, 'y', [1, 10, 1], 'FLOAT', y)
-            ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y, lambda x, y: x == y]
+            ops = [lambda x, y: x < y, lambda x, y: x <= y, lambda x, y: x > y, lambda x, y: x >= y,
+                   lambda x, y: x == y]
             op_names = ["Less", "LessOrEqual", "Greater", "GreaterOrEqual", "Equal"]
             op_interps = [interp.interp_Less, interp.interp_LessOrEqual, interp.interp_Greater,
                           interp.interp_GreaterOrEqual, interp.interp_Equal]
@@ -1584,7 +1584,7 @@ class TestAbstraction(unittest.TestCase):
         )
 
         res = torch.nn.functional.conv_transpose2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2),
-                                         padding=(2, 10), dilation=1, groups=2)
+                                                   padding=(2, 10), dilation=1, groups=2)
         aRes, _ = interp.interp_ConvTranspose([aX, aW, aB], conv_node1, 'Conv', 'res')
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, res))
@@ -1597,8 +1597,9 @@ class TestAbstraction(unittest.TestCase):
             auto_pad='VALID', dilations=[3, 3], strides=[2, 2], group=2
         )
         aRes, _ = interp.interp_ConvTranspose([aX, aW, aB], conv_node2, 'ConvTranspose', 'res')
-        res = torch.nn.functional.conv_transpose2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2), padding=0,
-                                         dilation=3, groups=2)
+        res = torch.nn.functional.conv_transpose2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2),
+                                                   padding=0,
+                                                   dilation=3, groups=2)
         self.assertTrue(correct_abstraction(aRes, res))
         # print('chkp2')
 
@@ -1609,8 +1610,9 @@ class TestAbstraction(unittest.TestCase):
             auto_pad='VALID', dilations=[3, 5], strides=[2, 5], group=2
         )
         aRes, _ = interp.interp_ConvTranspose([aX, aW, aB], conv_node3, 'ConvTranspose', 'res')
-        res = torch.nn.functional.conv_transpose2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 5), padding=0,
-                                         dilation=(3, 5), groups=2)
+        res = torch.nn.functional.conv_transpose2d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 5),
+                                                   padding=0,
+                                                   dilation=(3, 5), groups=2)
         self.assertTrue(correct_abstraction(aRes, res))
         # print('chkp3')
 
@@ -1646,7 +1648,6 @@ class TestAbstraction(unittest.TestCase):
                         [9., 20., 33., 24., 13.],
                         [6., 13., 21., 15., 8.]]]]).astype(np.float32)
         self.assertTrue(correct_abstraction(aRes, y, tight=True))
-
 
         aX = Abstraction().load(conf_s2, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s2, 'W', W.shape, 'FLOAT', W)
@@ -1715,74 +1716,74 @@ class TestAbstraction(unittest.TestCase):
                          [1., 1., 1.]]]]]).astype(np.float32)
 
         y = np.array([[[[[0., 1., 3., 6., 9., 7., 4.],  # (1, 2, 5, 6, 7)
-                 [5., 12., 21., 27., 33., 24., 13.],
-                 [15., 33., 54., 63., 72., 51., 27.],
-                 [30., 63., 99., 108., 117., 81., 42.],
-                 [25., 52., 81., 87., 93., 64., 33.],
-                 [15., 31., 48., 51., 54., 37., 19.]],
+                         [5., 12., 21., 27., 33., 24., 13.],
+                         [15., 33., 54., 63., 72., 51., 27.],
+                         [30., 63., 99., 108., 117., 81., 42.],
+                         [25., 52., 81., 87., 93., 64., 33.],
+                         [15., 31., 48., 51., 54., 37., 19.]],
 
-                [[20., 42., 66., 72., 78., 54., 28.],
-                 [50., 104., 162., 174., 186., 128., 66.],
-                 [90., 186., 288., 306., 324., 222., 114.],
-                 [120., 246., 378., 396., 414., 282., 144.],
-                 [90., 184., 282., 294., 306., 208., 106.],
-                 [50., 102., 156., 162., 168., 114., 58.]],
+                        [[20., 42., 66., 72., 78., 54., 28.],
+                         [50., 104., 162., 174., 186., 128., 66.],
+                         [90., 186., 288., 306., 324., 222., 114.],
+                         [120., 246., 378., 396., 414., 282., 144.],
+                         [90., 184., 282., 294., 306., 208., 106.],
+                         [50., 102., 156., 162., 168., 114., 58.]],
 
-                [[60., 123., 189., 198., 207., 141., 72.],
-                 [135., 276., 423., 441., 459., 312., 159.],
-                 [225., 459., 702., 729., 756., 513., 261.],
-                 [270., 549., 837., 864., 891., 603., 306.],
-                 [195., 396., 603., 621., 639., 432., 219.],
-                 [105., 213., 324., 333., 342., 231., 117.]],
+                        [[60., 123., 189., 198., 207., 141., 72.],
+                         [135., 276., 423., 441., 459., 312., 159.],
+                         [225., 459., 702., 729., 756., 513., 261.],
+                         [270., 549., 837., 864., 891., 603., 306.],
+                         [195., 396., 603., 621., 639., 432., 219.],
+                         [105., 213., 324., 333., 342., 231., 117.]],
 
-                [[60., 122., 186., 192., 198., 134., 68.],
-                 [130., 264., 402., 414., 426., 288., 146.],
-                 [210., 426., 648., 666., 684., 462., 234.],
-                 [240., 486., 738., 756., 774., 522., 264.],
-                 [170., 344., 522., 534., 546., 368., 186.],
-                 [90., 182., 276., 282., 288., 194., 98.]],
+                        [[60., 122., 186., 192., 198., 134., 68.],
+                         [130., 264., 402., 414., 426., 288., 146.],
+                         [210., 426., 648., 666., 684., 462., 234.],
+                         [240., 486., 738., 756., 774., 522., 264.],
+                         [170., 344., 522., 534., 546., 368., 186.],
+                         [90., 182., 276., 282., 288., 194., 98.]],
 
-                [[40., 81., 123., 126., 129., 87., 44.],
-                 [85., 172., 261., 267., 273., 184., 93.],
-                 [135., 273., 414., 423., 432., 291., 147.],
-                 [150., 303., 459., 468., 477., 321., 162.],
-                 [105., 212., 321., 327., 333., 224., 113.],
-                 [55., 111., 168., 171., 174., 117., 59.]]],
+                        [[40., 81., 123., 126., 129., 87., 44.],
+                         [85., 172., 261., 267., 273., 184., 93.],
+                         [135., 273., 414., 423., 432., 291., 147.],
+                         [150., 303., 459., 468., 477., 321., 162.],
+                         [105., 212., 321., 327., 333., 224., 113.],
+                         [55., 111., 168., 171., 174., 117., 59.]]],
 
-               [[[0., 1., 3., 6., 9., 7., 4.],
-                 [5., 12., 21., 27., 33., 24., 13.],
-                 [15., 33., 54., 63., 72., 51., 27.],
-                 [30., 63., 99., 108., 117., 81., 42.],
-                 [25., 52., 81., 87., 93., 64., 33.],
-                 [15., 31., 48., 51., 54., 37., 19.]],
+                       [[[0., 1., 3., 6., 9., 7., 4.],
+                         [5., 12., 21., 27., 33., 24., 13.],
+                         [15., 33., 54., 63., 72., 51., 27.],
+                         [30., 63., 99., 108., 117., 81., 42.],
+                         [25., 52., 81., 87., 93., 64., 33.],
+                         [15., 31., 48., 51., 54., 37., 19.]],
 
-                [[20., 42., 66., 72., 78., 54., 28.],
-                 [50., 104., 162., 174., 186., 128., 66.],
-                 [90., 186., 288., 306., 324., 222., 114.],
-                 [120., 246., 378., 396., 414., 282., 144.],
-                 [90., 184., 282., 294., 306., 208., 106.],
-                 [50., 102., 156., 162., 168., 114., 58.]],
+                        [[20., 42., 66., 72., 78., 54., 28.],
+                         [50., 104., 162., 174., 186., 128., 66.],
+                         [90., 186., 288., 306., 324., 222., 114.],
+                         [120., 246., 378., 396., 414., 282., 144.],
+                         [90., 184., 282., 294., 306., 208., 106.],
+                         [50., 102., 156., 162., 168., 114., 58.]],
 
-                [[60., 123., 189., 198., 207., 141., 72.],
-                 [135., 276., 423., 441., 459., 312., 159.],
-                 [225., 459., 702., 729., 756., 513., 261.],
-                 [270., 549., 837., 864., 891., 603., 306.],
-                 [195., 396., 603., 621., 639., 432., 219.],
-                 [105., 213., 324., 333., 342., 231., 117.]],
+                        [[60., 123., 189., 198., 207., 141., 72.],
+                         [135., 276., 423., 441., 459., 312., 159.],
+                         [225., 459., 702., 729., 756., 513., 261.],
+                         [270., 549., 837., 864., 891., 603., 306.],
+                         [195., 396., 603., 621., 639., 432., 219.],
+                         [105., 213., 324., 333., 342., 231., 117.]],
 
-                [[60., 122., 186., 192., 198., 134., 68.],
-                 [130., 264., 402., 414., 426., 288., 146.],
-                 [210., 426., 648., 666., 684., 462., 234.],
-                 [240., 486., 738., 756., 774., 522., 264.],
-                 [170., 344., 522., 534., 546., 368., 186.],
-                 [90., 182., 276., 282., 288., 194., 98.]],
+                        [[60., 122., 186., 192., 198., 134., 68.],
+                         [130., 264., 402., 414., 426., 288., 146.],
+                         [210., 426., 648., 666., 684., 462., 234.],
+                         [240., 486., 738., 756., 774., 522., 264.],
+                         [170., 344., 522., 534., 546., 368., 186.],
+                         [90., 182., 276., 282., 288., 194., 98.]],
 
-                [[40., 81., 123., 126., 129., 87., 44.],
-                 [85., 172., 261., 267., 273., 184., 93.],
-                 [135., 273., 414., 423., 432., 291., 147.],
-                 [150., 303., 459., 468., 477., 321., 162.],
-                 [105., 212., 321., 327., 333., 224., 113.],
-                 [55., 111., 168., 171., 174., 117., 59.]]]]]).astype(np.float32)
+                        [[40., 81., 123., 126., 129., 87., 44.],
+                         [85., 172., 261., 267., 273., 184., 93.],
+                         [135., 273., 414., 423., 432., 291., 147.],
+                         [150., 303., 459., 468., 477., 321., 162.],
+                         [105., 212., 321., 327., 333., 224., 113.],
+                         [55., 111., 168., 171., 174., 117., 59.]]]]]).astype(np.float32)
 
         node = helper.make_node("ConvTranspose", ["X", "W"], ["Y"])
 
@@ -1841,17 +1842,15 @@ class TestAbstraction(unittest.TestCase):
                         [6., 6., 13., 7., 15., 8., 8., 0.],
                         [0., 0., 0., 0., 0., 0., 0., 0.]]]]).astype(np.float32)
 
-
         node = helper.make_node("ConvTranspose", ["X", "W"], ["Y"],
-                             strides=[3, 2],
-                             output_shape=[10, 8])
+                                strides=[3, 2],
+                                output_shape=[10, 8])
 
         aX = Abstraction().load(conf_s1, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s1, 'W', W.shape, 'FLOAT', W)
         aRes, _ = interp.interp_ConvTranspose([aX, aW], node, 'ConvTranspose', 'res')
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, y, tight=True))
-
 
         aX = Abstraction().load(conf_s3, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s3, 'W', W.shape, 'FLOAT', W)
@@ -1859,17 +1858,15 @@ class TestAbstraction(unittest.TestCase):
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, y, tight=False))
 
-
         node = helper.make_node("ConvTranspose", ["X", "W"], ["Y"],
-                                     strides=[3, 2],
-                                     output_padding=[1, 1])
+                                strides=[3, 2],
+                                output_padding=[1, 1])
 
         aX = Abstraction().load(conf_s1, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s1, 'W', W.shape, 'FLOAT', W)
         aRes, _ = interp.interp_ConvTranspose([aX, aW], node, 'ConvTranspose', 'res')
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, y, tight=True))
-
 
         aX = Abstraction().load(conf_s3, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s3, 'W', W.shape, 'FLOAT', W)
@@ -1935,7 +1932,6 @@ class TestAbstraction(unittest.TestCase):
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, y, tight=True))
 
-
         aX = Abstraction().load(conf_s3, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s3, 'W', W.shape, 'FLOAT', W)
         aRes, _ = interp.interp_ConvTranspose([aX, aW], node, 'ConvTranspose', 'res')
@@ -1966,7 +1962,6 @@ class TestAbstraction(unittest.TestCase):
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, y, tight=True))
 
-
         aX = Abstraction().load(conf_s3, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s3, 'W', W.shape, 'FLOAT', W)
         aRes, _ = interp.interp_ConvTranspose([aX, aW], node, 'ConvTranspose', 'res')
@@ -1989,8 +1984,8 @@ class TestAbstraction(unittest.TestCase):
                         [1., 1., 1.]]]]).astype(np.float32)
 
         node = helper.make_node("ConvTranspose", ["X", "W"], ["Y"],
-                                     strides=[3, 2],
-                                     pads=[1, 2, 1, 2])
+                                strides=[3, 2],
+                                pads=[1, 2, 1, 2])
 
         y = np.array([[[[1., 1., 3.],  # (1, 2, 7, 3)
                         [1., 1., 3.],
@@ -2013,7 +2008,6 @@ class TestAbstraction(unittest.TestCase):
         aRes, _ = interp.interp_ConvTranspose([aX, aW], node, 'ConvTranspose', 'res')
         # aRes.print()
         self.assertTrue(correct_abstraction(aRes, y, tight=True))
-
 
         aX = Abstraction().load(conf_s3, 'x', x.shape, 'FLOAT', x)
         aW = Abstraction().load(conf_s3, 'W', W.shape, 'FLOAT', W)
@@ -2127,7 +2121,8 @@ class TestAbstraction(unittest.TestCase):
             mode='constant'
         )
         x = np.random.randn(1, 3, 4, 5).astype(np.float32)
-        pads = np.array([0, 0, 1, 3, 0, 0, 2, 4]).astype(np.int64)  # pad order [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
+        pads = np.array([0, 0, 1, 3, 0, 0, 2, 4]).astype(
+            np.int64)  # pad order [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
         value = np.float32(1.2)
 
         y = pad_impl(
@@ -2154,7 +2149,8 @@ class TestAbstraction(unittest.TestCase):
                 mode=mode
             )
             x = np.random.randn(1, 3, 4, 5).astype(np.int32)
-            pads = np.array([0, 0, 1, 1, 0, 0, 1, 1]).astype(np.int64)  # pad order [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
+            pads = np.array([0, 0, 1, 1, 0, 0, 1, 1]).astype(
+                np.int64)  # pad order [x1_begin, x2_begin, ..., x1_end, x2_end, ...]
             y = pad_impl(
                 x,
                 pads,
@@ -2167,8 +2163,6 @@ class TestAbstraction(unittest.TestCase):
             a_y, _ = interp.interp_Pad([a_x, a_pads], node, 'Pad', 'res')
             # a_y.print()
             self.assertTrue(correct_abstraction(a_y, y))
-
-
 
     def test_MaxPool(self):
         interp = Interpreter()
@@ -2426,7 +2420,6 @@ class TestAbstraction(unittest.TestCase):
         y = pool(padded, x_shape, kernel_shape, strides, out_shape, [0, 0, 0], 'MAX')
 
         check(conf3, pool_node12, x, y)
-
 
         # maxpool_3d_check_indices
         pool_node12 = helper.make_node(
@@ -2885,7 +2878,6 @@ class TestAbstraction(unittest.TestCase):
         abst1 = Abstraction()
         abst1.load(conf1, 'v1', [5, 5, 5, 5, 2], 'FLOAT', a)
 
-
         node = helper.make_node(
             'Flatten',
             inputs=['x'],
@@ -3020,7 +3012,6 @@ class TestAbstraction(unittest.TestCase):
 
         self.assertTrue(correct_abstraction(abst_y, y))
 
-
         # default_single_elem_vector_bias
 
         node = helper.make_node(
@@ -3084,10 +3075,10 @@ class TestAbstraction(unittest.TestCase):
 
         interp = Interpreter()
         conf_exact_1d = AbstractionInitConfig(diff=True, from_init=True, stride=[1])
-        conf_exact_2d = AbstractionInitConfig(diff=True, from_init=True, stride=[1,1])
-        conf_exact_3d = AbstractionInitConfig(diff=True, from_init=True, stride=[1,1,1])
-        conf_strd_2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2,2,2])
-        conf_strd_2_2d = AbstractionInitConfig(diff=True, from_init=True, stride=[2,2])
+        conf_exact_2d = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 1])
+        conf_exact_3d = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 1, 1])
+        conf_strd_2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2, 2, 2])
+        conf_strd_2_2d = AbstractionInitConfig(diff=True, from_init=True, stride=[2, 2])
         conf_strd_2_1d = AbstractionInitConfig(diff=True, from_init=True, stride=[2])
 
         # negative log likelihood loss, "none" reduction
@@ -3145,7 +3136,7 @@ class TestAbstraction(unittest.TestCase):
 
         abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
         abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
-        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight', np.array(weight).shape, 'FLOAT', np.array(weight))
         node = helper.make_node(
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
@@ -3176,7 +3167,7 @@ class TestAbstraction(unittest.TestCase):
 
         abs_input = Abstraction().load(conf_exact_3d, 'input', np.array(input).shape, 'FLOAT', np.array(input))
         abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
-        abs_weight = Abstraction().load(conf_exact_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        abs_weight = Abstraction().load(conf_exact_1d, 'weight', np.array(weight).shape, 'FLOAT', np.array(weight))
         node = helper.make_node(
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
@@ -3207,7 +3198,7 @@ class TestAbstraction(unittest.TestCase):
 
         abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
         abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
-        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight', np.array(weight).shape, 'FLOAT', np.array(weight))
         node = helper.make_node(
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
@@ -3239,7 +3230,7 @@ class TestAbstraction(unittest.TestCase):
 
         abs_input = Abstraction().load(conf_exact_3d, 'input', np.array(input).shape, 'FLOAT', np.array(input))
         abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
-        abs_weight = Abstraction().load(conf_exact_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        abs_weight = Abstraction().load(conf_exact_1d, 'weight', np.array(weight).shape, 'FLOAT', np.array(weight))
         node = helper.make_node(
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
@@ -3299,7 +3290,7 @@ class TestAbstraction(unittest.TestCase):
 
         abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
         abs_target = Abstraction().load(conf_strd_2_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
-        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight', np.array(weight).shape, 'FLOAT', np.array(weight))
         node = helper.make_node(
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
@@ -3312,7 +3303,6 @@ class TestAbstraction(unittest.TestCase):
         # abst_loss.print()
         # print(loss)
         self.assertTrue(correct_abstraction(abst_loss, loss))
-
 
         # =======
 
@@ -3334,7 +3324,7 @@ class TestAbstraction(unittest.TestCase):
 
         abs_input = Abstraction().load(conf_strd_2, 'input', np.array(input).shape, 'FLOAT', np.array(input))
         abs_target = Abstraction().load(conf_exact_2d, 'target', np.array(target).shape, 'FLOAT', np.array(target))
-        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight',  np.array(weight).shape, 'FLOAT', np.array(weight))
+        abs_weight = Abstraction().load(conf_strd_2_1d, 'weight', np.array(weight).shape, 'FLOAT', np.array(weight))
         node = helper.make_node(
             'NegativeLogLikelihoodLoss',
             inputs=['input', 'target', 'weight'],
@@ -3351,9 +3341,9 @@ class TestAbstraction(unittest.TestCase):
     def test_ScatterElements(self):
 
         interp = Interpreter()
-        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=[1,1])
-        conf_strd_2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2,2])
-        conf_strd_3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3,3])
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 1])
+        conf_strd_2 = AbstractionInitConfig(diff=True, from_init=True, stride=[2, 2])
+        conf_strd_3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3, 3])
 
         data = [
             [0.0, 0.0, 0.0],
@@ -3393,7 +3383,6 @@ class TestAbstraction(unittest.TestCase):
         # a_res.print()
         self.assertTrue(correct_abstraction(a_res, output))
 
-
         a_data = Abstraction().load(conf_strd_3, 'data', data.shape, 'FLOAT', data)
         a_indices = Abstraction().load(conf_strd_2, 'indices', indices.shape, 'FLOAT', indices)
         a_updates = Abstraction().load(conf_strd_2, 'updates', updates.shape, 'FLOAT', updates)
@@ -3428,7 +3417,6 @@ class TestAbstraction(unittest.TestCase):
         # a_res.print()
         self.assertTrue(correct_abstraction(a_res, output))
 
-
         a_data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
         a_indices = Abstraction().load(conf_exact, 'indices', indices.shape, 'FLOAT', indices)
         a_updates = Abstraction().load(conf_exact, 'updates', updates.shape, 'FLOAT', updates)
@@ -3441,8 +3429,8 @@ class TestAbstraction(unittest.TestCase):
         conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=[1])
 
         conf_strd_5 = AbstractionInitConfig(diff=True, from_init=True, stride=5)
-        a = np.random.randn(8,9,1)
-        b = np.array([5,1,1,6])
+        a = np.random.randn(8, 9, 1)
+        b = np.array([5, 1, 1, 6])
 
         a_a = Abstraction().load(conf_strd_5, 'a', a.shape, 'FLOAT', a)
         a_b = Abstraction().load(conf_exact, 'b', b.shape, 'FLOAT', b)
@@ -3450,8 +3438,8 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(correct_format(a_res))
         self.assertListEqual(a_res.shape, [5, 8, 9, 6])
 
-        a = np.random.randn(3,1)
-        b = np.array([2,1,6])
+        a = np.random.randn(3, 1)
+        b = np.array([2, 1, 6])
 
         a_a = Abstraction().load(conf_strd_5, 'a', a.shape, 'FLOAT', a)
         a_b = Abstraction().load(conf_exact, 'b', b.shape, 'FLOAT', b)
@@ -3459,9 +3447,8 @@ class TestAbstraction(unittest.TestCase):
         self.assertTrue(correct_format(a_res))
         self.assertListEqual(a_res.shape, [2, 3, 6])
 
-
-        a = np.random.randn(3,1)
-        b = np.array([3,4])
+        a = np.random.randn(3, 1)
+        b = np.array([3, 4])
 
         a_a = Abstraction().load(conf_strd_5, 'a', a.shape, 'FLOAT', a)
         a_b = Abstraction().load(conf_exact, 'b', b.shape, 'FLOAT', b)
@@ -3474,7 +3461,6 @@ class TestAbstraction(unittest.TestCase):
         conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
         conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
 
-
         data = np.array([[[0, 1], [10, 12]], [[20, 21], [6, 7]]], dtype=np.float32)
         indices = np.array([[[0, 1]], [[1, 0]]], dtype=np.int64)
         expected_output = np.array([[[10, 12]], [[20, 21]]], dtype=np.float32)
@@ -3484,8 +3470,8 @@ class TestAbstraction(unittest.TestCase):
         expected_output = np.expand_dims(np.expand_dims(expected_output, 0), 0)
         data = np.tile(data, reps=(2, 2, 1, 1, 1))
         expected_output = np.tile(expected_output, reps=(2, 2, 1, 1, 1))
-        data += np.array([1,2,3,4]).reshape((2, 2, 1, 1, 1))
-        expected_output += np.array([1,2,3,4]).reshape((2, 2, 1, 1, 1))
+        data += np.array([1, 2, 3, 4]).reshape((2, 2, 1, 1, 1))
+        expected_output += np.array([1, 2, 3, 4]).reshape((2, 2, 1, 1, 1))
         indices = np.tile(indices, reps=(2, 2, 1, 1, 1))
 
         node = helper.make_node(
@@ -3547,7 +3533,6 @@ class TestAbstraction(unittest.TestCase):
         # a_output.print()
         self.assertTrue(correct_abstraction(a_output, np.array([3., 6.]), tight=True))
 
-
         start = 10
         limit = 4
         delta = -2
@@ -3562,7 +3547,6 @@ class TestAbstraction(unittest.TestCase):
         a_output, _ = interp.interp_Range([a_start, a_limit, a_delta], None, 'Range', 'output')
         # a_output.print()
         self.assertTrue(correct_abstraction(a_output, np.array([10, 8, 6]), tight=True))
-
 
         start = 10
         limit = 4
@@ -3595,7 +3579,6 @@ class TestAbstraction(unittest.TestCase):
                 else:
                     interp_func = Interpreter.interp_ArgMax
                     check_func = argmax_use_numpy
-
 
                 data = np.array([[2, 1], [3, 10]], dtype=np.float32)
                 node = helper.make_node(
@@ -3646,6 +3629,189 @@ class TestAbstraction(unittest.TestCase):
                 # a_result.print()
                 self.assertTrue(correct_abstraction(a_result, result))
 
+    def test_BatchNormalization(self):
+        # input size: (2, 3, 4, 5)
+        interp = Interpreter()
+        x = np.random.randn(2, 3, 4, 5).astype(np.float32)
+        s = np.random.randn(3).astype(np.float32)
+        bias = np.random.randn(3).astype(np.float32)
+        mean = np.random.randn(3).astype(np.float32)
+        var = np.random.rand(3).astype(np.float32)
+        y = _batchnorm_test_mode(x, s, bias, mean, var).astype(np.float32)
+        epsilon = 1e-2
+        y1 = _batchnorm_test_mode(x, s, bias, mean, var, epsilon).astype(np.float32)
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        x = Abstraction().load(conf_s2, 'x', x.shape, 'FLOAT', x)
+        s = Abstraction().load(conf_exact, 's', s.shape, 'FLOAT', s)
+        bias = Abstraction().load(conf_s3, 'bias', bias.shape, 'FLOAT', bias)
+        mean = Abstraction().load(conf_exact, 'mean', mean.shape, 'FLOAT', mean)
+        var = Abstraction().load(conf_s2, 'var', var.shape, 'FLOAT', var)
+
+        node = helper.make_node(
+            'BatchNormalization',
+            inputs=['x', 's', 'bias', 'mean', 'var'],
+            outputs=['y'],
+        )
+
+        # output size: (2, 3, 4, 5)
+        y_abst, _ = interp.interp_BatchNormalization([x, s, bias, mean, var], node, 'BatchNormalization', 'output')
+        self.assertTrue(correct_abstraction(y_abst, y))
+
+        node = helper.make_node(
+            'BatchNormalization',
+            inputs=['x', 's', 'bias', 'mean', 'var'],
+            outputs=['y'],
+            epsilon=epsilon,
+        )
+
+        # output size: (2, 3, 4, 5)
+        y_abst, _ = interp.interp_BatchNormalization([x, s, bias, mean, var], node, 'BatchNormalization', 'output')
+        self.assertTrue(correct_abstraction(y_abst, y1))
+
+    def test_OneHot(self):
+        interp = Interpreter()
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+
+        def expect(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_OneHot(inputs, node, 'OneHot', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        def with_axis():
+            axisValue = 1
+            on_value = 3
+            off_value = 1
+            output_type = np.float32
+            node = helper.make_node(
+                'OneHot',
+                inputs=['indices', 'depth', 'values'],
+                outputs=['y'],
+                axis=axisValue
+            )
+            indices = np.array([[1, 9],
+                                [2, 4]], dtype=np.float32)
+            depth = np.float32(10)
+            values = np.array([off_value, on_value], dtype=output_type)
+            y = one_hot(indices, depth, axis=axisValue, dtype=output_type)
+            y = y * (on_value - off_value) + off_value
+            indices = Abstraction().load(conf_s2, 'indices', indices.shape, 'FLOAT', indices)
+            depth = Abstraction().load(conf_exact, 'depth', depth.shape, 'FLOAT', depth)
+            values = Abstraction().load(conf_s2, 'values', values.shape, 'FLOAT', values)
+            expect(node, inputs=[indices, depth, values], outputs=[y], name='test_onehot_with_axis')
+
+        def with_negative_axis():
+            axisValue = -2
+            on_value = 3
+            off_value = 1
+            output_type = np.float32
+            node = helper.make_node(
+                'OneHot',
+                inputs=['indices', 'depth', 'values'],
+                outputs=['y'],
+                axis=axisValue
+            )
+            indices = np.array([[1, 9],
+                                [2, 4]], dtype=np.float32)
+            depth = np.float32(10)
+            values = np.array([off_value, on_value], dtype=output_type)
+            y = one_hot(indices, depth, axis=axisValue, dtype=output_type)
+            y = y * (on_value - off_value) + off_value
+            indices = Abstraction().load(conf_s2, 'indices', indices.shape, 'FLOAT', indices)
+            depth = Abstraction().load(conf_exact, 'depth', depth.shape, 'FLOAT', depth)
+            values = Abstraction().load(conf_exact, 'values', values.shape, 'FLOAT', values)
+            expect(node, inputs=[indices, depth, values], outputs=[y], name='test_onehot_with_negative_axis')
+
+        def without_axis():
+            on_value = 5
+            off_value = 2
+            output_type = np.int32
+            node = helper.make_node(
+                'OneHot',
+                inputs=['indices', 'depth', 'values'],
+                outputs=['y']
+            )
+            indices = np.array([0, 7, 8], dtype=np.int64)
+            depth = np.float32(12)
+            values = np.array([off_value, on_value], dtype=output_type)
+            y = one_hot(indices, depth, dtype=output_type)
+            y = y * (on_value - off_value) + off_value
+            indices = Abstraction().load(conf_exact, 'indices', indices.shape, 'FLOAT', indices)
+            depth = Abstraction().load(conf_exact, 'depth', depth.shape, 'FLOAT', depth)
+            values = Abstraction().load(conf_exact, 'values', values.shape, 'FLOAT', values)
+            expect(node, inputs=[indices, depth, values], outputs=[y], name='test_onehot_without_axis')
+
+        def with_negative_indices():
+            axisValue = 1
+            on_value = 3
+            off_value = 1
+            output_type = np.float32
+            node = helper.make_node(
+                'OneHot',
+                inputs=['indices', 'depth', 'values'],
+                outputs=['y'],
+                axis=axisValue
+            )
+            indices = np.array([0, -7, -8], dtype=np.int64)
+
+            # print(y)
+            # [[3. 1. 1. 1. 1. 1. 1. 1. 1. 1.]
+            #  [1. 1. 1. 3. 1. 1. 1. 1. 1. 1.]
+            #  [1. 1. 3. 1. 1. 1. 1. 1. 1. 1.]]
+
+            depth = np.float32(10)
+            values = np.array([off_value, on_value], dtype=output_type)
+            y = one_hot(indices, depth, axis=axisValue, dtype=output_type)
+            y = y * (on_value - off_value) + off_value
+            indices = Abstraction().load(conf_exact, 'indices', indices.shape, 'FLOAT', indices)
+            depth = Abstraction().load(conf_exact, 'depth', depth.shape, 'FLOAT', depth)
+            values = Abstraction().load(conf_s2, 'values', values.shape, 'FLOAT', values)
+            expect(node, inputs=[indices, depth, values], outputs=[y], name='test_onehot_negative_indices')
+
+        with_axis()
+        with_negative_axis()
+        with_negative_indices()
+        without_axis()
+
+    def test_GlobalMaxPool(self):
+        interp = Interpreter()
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+
+        def expect(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_GlobalMaxPool(inputs, node, 'GlobalMaxPool', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        def globalmaxpool():
+            node = helper.make_node(
+                'GlobalMaxPool',
+                inputs=['x'],
+                outputs=['y'],
+            )
+            x = np.random.randn(1, 3, 5, 5).astype(np.float32)
+            y = np.max(x, axis=tuple(range(2, np.ndim(x))), keepdims=True)
+            x = Abstraction().load(conf_s2, 'x', x.shape, 'FLOAT', x)
+            expect(node, inputs=[x], outputs=[y], name='test_globalmaxpool')
+
+        def globalmaxpool_precomputed():
+            node = helper.make_node(
+                'GlobalMaxPool',
+                inputs=['x'],
+                outputs=['y'],
+            )
+            x = np.array([[[
+                [1, 2, 3],
+                [4, 5, 6],
+                [7, 8, 9],
+            ]]]).astype(np.float32)
+            y = np.array([[[[9]]]]).astype(np.float32)
+            x = Abstraction().load(conf_s2, 'x', x.shape, 'FLOAT', x)
+            expect(node, inputs=[x], outputs=[y], name='test_globalmaxpool_precomputed')
+
+        globalmaxpool()
+        globalmaxpool_precomputed()
+
+
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
                                   transB=0):  # type: (np.ndarray, np.ndarray, Optional[np.ndarray], float, float, int, int) -> np.ndarray
     A = A if transA == 0 else A.T
@@ -3665,10 +3831,10 @@ def gather_nd_impl(data, indices, batch_dims):
     # Check input tensors' shape/rank condition
     assert indices.shape[-1] <= data_rank
 
-    #The list of data/indice shape of batch_dims
+    # The list of data/indice shape of batch_dims
     batch_dims_shape = []
 
-    #The number of elements in the batch_dims for data/indice array
+    # The number of elements in the batch_dims for data/indice array
     batch_dims_size = 1
 
     # Check the shape of indice and data are identicial for batch dims.
@@ -3679,7 +3845,8 @@ def gather_nd_impl(data, indices, batch_dims):
     # Compute output of the op as below
 
     # Compute shape of output array
-    output_shape = batch_dims_shape + list(indices.shape)[batch_dims:-1] if (indices.shape[-1] == data_rank - batch_dims) \
+    output_shape = batch_dims_shape + list(indices.shape)[batch_dims:-1] if (
+            indices.shape[-1] == data_rank - batch_dims) \
         else batch_dims_shape + list(indices.shape)[batch_dims:-1] + list(data.shape)[batch_dims + indices.shape[-1]:]
 
     # Placeholder for output data
@@ -3689,7 +3856,7 @@ def gather_nd_impl(data, indices, batch_dims):
     reshaped_indices = indices.reshape(batch_dims_size, -1, indices.shape[-1])
 
     # Flatten 'data' to array of shape (batch_dim_size, data.shape[batch_dimes:])
-    reshaped_data = data.reshape((batch_dims_size, ) + data.shape[batch_dims:])
+    reshaped_data = data.reshape((batch_dims_size,) + data.shape[batch_dims:])
 
     # gather each scalar value from 'data'
     for batch_dim in range(reshaped_indices.shape[0]):
@@ -3698,17 +3865,20 @@ def gather_nd_impl(data, indices, batch_dims):
             output_data_buffer.append(reshaped_data[(batch_dim,) + gather_index])
     return np.asarray(output_data_buffer, dtype=data.dtype).reshape(output_shape)
 
+
 def argmax_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) -> (np.ndarray)
     result = np.argmax(data, axis=axis)
     if (keepdims == 1):
         result = np.expand_dims(result, axis)
     return result.astype(np.int64)
 
+
 def argmin_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) -> (np.ndarray)
     result = np.argmin(data, axis=axis)
     if (keepdims == 1):
         result = np.expand_dims(result, axis)
     return result.astype(np.int64)
+
 
 def pad_impl(data, raw_pads, mode, constant_values=0.0):  # type: ignore
 
@@ -3738,12 +3908,14 @@ def pad_impl(data, raw_pads, mode, constant_values=0.0):  # type: ignore
 
     return y
 
+
 def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
     x_max = np.max(x, axis=axis, keepdims=True)
     tmp = np.exp(x - x_max)
     s = np.sum(tmp, axis=axis, keepdims=True)
     return (x - x_max) - np.log(s)
 
+
 if __name__ == '__main__':
-    unittest.main()
-    # TestAbstraction().test_Clip()
+    # unittest.main()
+    TestAbstraction().test_GlobalMaxPool()
