@@ -196,8 +196,12 @@ class InterpModule():
         """Space for analysis"""
         self.initial_abstracts = None
         self.abstracts = None
+        self.require_fine_grain_vars = None
         # key: var_name, value: tuple of (list of numerical error exceptions, set of caused tensors)
         self.possible_numerical_errors = dict()
+
+        """Space for reusable queue"""
+        self.queue = None
 
 
     def _shape_invertor(self, shape):
@@ -253,6 +257,7 @@ class InterpModule():
             l += 1
         print('  ', len(require_fine_grain_vars), 'fine grain variables found')
         print(f'    They are {require_fine_grain_vars}')
+        self.require_fine_grain_vars = require_fine_grain_vars
 
         print('initialize abstractions...', flush=True)
         fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
@@ -291,6 +296,16 @@ class InterpModule():
 
         print('topology sort based interpretation...', flush=True)
         queue = list(self.start_points).copy()
+        """self.queue is a list of tuple (node_name, node context)"""
+        """ where node context is 
+        (previous node name, 
+        node_name, 
+        index of previous node name in inputs, 
+        index of current node_name in outputs, 
+        node optype, 
+        node name, 
+        node object) """
+        self.queue = [(item, None) for item in queue]
         cur_deg_in = self.deg_in.copy()
         l = 0
         # try:
@@ -304,6 +319,7 @@ class InterpModule():
                         # only happens for nodes with multiple outputs,
                         # so now we can skip
                         queue.append(vj)
+                        self.queue.append((vj, (cur_var, vj, ind_i, ind_j, node_optype, node_name, node)))
                         pass
 
                     else:
@@ -325,12 +341,18 @@ class InterpModule():
                             roots = set(roots)
                             if len(roots) == 0:
                                 roots = {node.name}
-                            self.possible_numerical_errors[vj] = (cur_exceps, roots)
+                                catastro = False
+                            else:
+                                catastro = True
+                            self.possible_numerical_errors[vj] = (cur_exceps, roots, catastro)
                         if cur_abst is None:
+                            # still enqueue to detect the error with rerunning
+                            self.queue.append((vj, (cur_var, vj, ind_i, ind_j, node_optype, node_name, node)))
                             print(f'! No abstraction generated for {vj}: '
                                   f'node name = {node_name}, type = {node_optype}')
                         else:
                             queue.append(vj)
+                            self.queue.append((vj, (cur_var, vj, ind_i, ind_j, node_optype, node_name, node)))
                             if isinstance(cur_abst, Abstraction):
                                 # single output node
                                 self.abstracts[vj] = cur_abst
@@ -351,6 +373,65 @@ class InterpModule():
 
         return self.possible_numerical_errors
 
+    def forward(self, initial_abstracts, interp_config=dict()):
+        """
+            After the initial call of analyze(), this method tries to quickly relaunch the forward propagation based on initialized abstraction of start points
+        :param initial_abstracts:
+        :return:
+        """
+        interpreter = Interpreter(**interp_config)
+        abstracts = initial_abstracts
+        possible_numerical_errors = dict()
+        for i, (node_name, ctx) in enumerate(self.queue):
+            if ctx is None:
+                if node_name not in abstracts:
+                    print(f'! Initial node {node_name} lacks initialized abstracts')
+            else:
+                if node_name in abstracts:
+                    # already obtained from previous op propagation, skip
+                    pass
+                else:
+                    parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
+
+                    if node.op_type != 'Loop':
+                        cur_abst, cur_exceps = interpreter.handle(
+                            [abstracts[x] for x in node.input], node, node_optype, node_name
+                        )
+                    else:
+                        # specially handle the loop dependencies
+                        cur_abst, cur_exceps = interpreter.interp_Loop(
+                            [abstracts[x] for x in node.input], node, node_optype, node_name,
+                            loop_dependencies=dict([(x, abstracts[x]) for x in self.loop_dependencies[node.name] if x in abstracts])
+                        )
+
+                    if len(cur_exceps) > 0:
+                        roots = list()
+                        for x in node.input:
+                            if x in possible_numerical_errors:
+                                roots.extend(possible_numerical_errors[x][1])
+                        roots = set(roots)
+                        # whether it is a catastrophic error
+                        if len(roots) == 0:
+                            roots = {node.name}
+                            catastro = False
+                        else:
+                            catastro = True
+                        possible_numerical_errors[now_node] = (cur_exceps, roots, catastro)
+                    if cur_abst is None:
+                        pass
+                        # print(f'! No abstraction generated for {now_node}: '
+                        #       f'node name = {node_name}, type = {node_optype}')
+                    else:
+                        if isinstance(cur_abst, Abstraction):
+                            # single output node
+                            abstracts[now_node] = cur_abst
+                        else:
+                            # multiple output node: execute once, update all output nodes
+                            for i, cur_cur_abst in enumerate(cur_abst):
+                                abstracts[node.output[i]] = cur_cur_abst
+
+        return abstracts, possible_numerical_errors
+
     def gen_abstraction_heuristics(self):
         """
             Generate a dictionary which contains the heuristics for each initial tensor if necessary
@@ -370,7 +451,7 @@ class InterpModule():
                     result[name] = AbstractionInitConfig(diff=False, from_init=True, lb=0.1, ub=1)
                 elif data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
-                    print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-1, 1]')
+                    print(f'Parameter {name} (shape: {data.shape}) is zero initialized, but may take over values --- abstract by [-10, 10]')
                     result[name] = AbstractionInitConfig(diff=True, from_init=False, lb=-10., ub=10.)
 
         return result

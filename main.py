@@ -3,9 +3,6 @@ import time
 
 import onnxruntime
 
-import graphparser.tf_adaptor as tf_adaptor
-import graphparser.torch_adaptor as torch_adaptor
-
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
 
