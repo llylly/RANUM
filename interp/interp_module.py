@@ -308,6 +308,9 @@ class InterpModule():
         cur_deg_in = self.deg_in.copy()
         l = 0
         # try:
+        analyze_result_pos = {}
+        analyze_result_neg = {}
+        print('=' * 10, "Details", '=' * 10)
         while l < len(queue):
             cur_var = queue[l]
             for vj, ind_i, ind_j, node_optype, node_name, node in self.edges[cur_var]:
@@ -321,10 +324,21 @@ class InterpModule():
                         pass
 
                     else:
+                        node_input_cnt = len(node.input)
+                        unique_node_input_cnt = len(set([x for x in node.input]))
+                        # detect potential optimizing operators
+                        if unique_node_input_cnt != node_input_cnt and node.op_type not in ["Slice", "Concat", "Mul"]:
+                            print(f"({node.name}, {node.op_type}) can be optimized!\n{node.input}")
                         if node.op_type != 'Loop':
-                            cur_abst, cur_exceps = interpreter.handle(
-                                [self.abstracts[x] for x in node.input], node, node_optype, vj
-                            )
+                            # optimize multiplication with two same inputs as square
+                            if node.op_type == "Mul" and unique_node_input_cnt == 1:
+                                cur_abst, cur_exceps = interpreter.handle(
+                                    [self.abstracts[node.input[0]]], None, "Square", vj
+                                )
+                            else:
+                                cur_abst, cur_exceps = interpreter.handle(
+                                    [self.abstracts[x] for x in node.input], node, node_optype, vj
+                                )
                         else:
                             # specially handle the loop dependencies
                             cur_abst, cur_exceps = interpreter.interp_Loop(
@@ -342,8 +356,11 @@ class InterpModule():
                             if len(roots) == 0:
                                 roots = {node.name}
                             self.possible_numerical_errors[vj] = (cur_exceps, roots)
+                            print(f'node name = {node_name}, type = {node_optype} can cause numerical error!')
+                            analyze_result_pos[node.op_type] = analyze_result_pos.get(node.op_type, 0) + 1
                         elif node.op_type in PossibleNumericalError.OPs2Check:
                             print(f'node name = {node_name}, type = {node_optype} is safe.')
+                            analyze_result_neg[node.op_type] = analyze_result_neg.get(node.op_type, 0) + 1
                         if cur_abst is None:
                             print(f'! No abstraction generated for {vj}: '
                                   f'node name = {node_name}, type = {node_optype}')
@@ -377,7 +394,9 @@ class InterpModule():
         # self.abstracts['Sub__683:0'].print()
         # self.abstracts['ConstantOfShape__684:0'].print()
         # self.abstracts['Concat__685:0'].print()
-
+        print('=' * 10, "Summary", '=' * 10)
+        print(f"Find {sum(item[1] for item in analyze_result_neg.items())} Negatives: {analyze_result_neg}")
+        print(f"Find {sum(item[1] for item in analyze_result_pos.items())} Positives: {analyze_result_pos}")
         return self.possible_numerical_errors
 
     def gen_abstraction_heuristics(self, model_name):

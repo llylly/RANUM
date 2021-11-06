@@ -554,7 +554,7 @@ class Interpreter(object):
             dim=0)
         if any(PossibleNumericalError.is_invalid(x) for x in choices_float32):
             return PossibleNumericalError.clip_to_valid_range(ans), \
-                   [PossibleNumericalError(optype, var_name, [abst1.lb, abst1.ub],
+                   [PossibleNumericalError(optype, var_name, [abst0.lb, abst0.ub, abst1.lb, abst1.ub],
                                            PossibleNumericalError.ERROR_OVERFLOW)]
 
         return ans, list()
@@ -3025,6 +3025,17 @@ class Interpreter(object):
 
     def interp_NonZero(self, abstracts, node, optype, var_name):
         return None, list()
+
+    def interp_Square(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.where((abst.lb < 0) & (abst.ub > 0), torch.zeros_like(abst.lb),
+                             torch.minimum(abst.lb.square(), abst.ub.square()))
+        ans.ub = torch.maximum(abst.lb.square(), abst.ub.square())
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):
         t = start_dim
