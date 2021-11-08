@@ -112,10 +112,14 @@ class InterpModule():
         # where each element of value corresponds to (vj, vi index in node input, vj index in node output, node name, node)
         self.edges = dict()
         self.all_nodes = set()
+        self.nodes_to_check = set()
 
         for node in self.onnx_model.graph.node:
             if node.domain != '':
                 print(f"  found domain def: {node.domain}")
+
+            if node.op_type in PossibleNumericalError.OPs2Check:
+                self.nodes_to_check.update(list(node.output))
 
             for v in list(node.input) + list(node.output):
                 if v not in self.signature_dict:
@@ -259,8 +263,23 @@ class InterpModule():
         print('  ', len(require_fine_grain_vars), 'fine grain variables found')
         print(f'    They are {require_fine_grain_vars}')
 
+        # compute the involved nodes with respected to the op2check
+        queue = list(self.nodes_to_check)
+        l = 0
+        involved_vars = set(queue)
+        while l < len(queue):
+            cur_var = queue[l]
+            if cur_var in rev_edges:
+                for vi, ind_i, ind_j, node_optype, node_name, node in rev_edges[cur_var]:
+                    if vi not in involved_vars:
+                        queue.append(vi)
+                        involved_vars.add(vi)
+            l += 1
+        print(f"number of involved vars: {len(involved_vars)}")
+
         print('initialize abstractions...', flush=True)
         fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
+        specified_inputs = set(init_config.keys())
         for s in self.start_points:
             if s not in init_config:
                 if s.lower().count('moving_variance') > 0:
@@ -271,6 +290,16 @@ class InterpModule():
                                                            lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
                                                            ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
                     init_config[s].diff = self.signature_dict[s][0] not in discrete_types
+                    specified_inputs.add(s)
+                elif s.lower().count('local_step') > 0:
+                    # looks like a step
+                    print(
+                        f'Parameter {s} looks like a step, abstract by [1, inf]')
+                    init_config[s] = AbstractionInitConfig(diff=False, from_init=True,
+                                                           lb=1,
+                                                           ub=PossibleNumericalError.OVERFLOW_LIMIT)
+                    init_config[s].diff = self.signature_dict[s][0] not in discrete_types
+                    specified_inputs.add(s)
                 elif s in require_fine_grain_vars:
                     init_config[s] = fine_grain_config
                     init_config[s].diff = self.signature_dict[s][0] not in discrete_types
@@ -292,7 +321,8 @@ class InterpModule():
                     init_config[s].stride = 1
 
             now_t, now_shape = self.signature_dict[s]
-            now_raw_data = self.initializer_dict[s][1] if s in self.initializer_dict else None
+            now_raw_data = self.initializer_dict[s][
+                1] if s in self.initializer_dict and s not in specified_inputs else None
             self.initial_abstracts[s] = Abstraction()
             self.initial_abstracts[s].load(init_config[s], s, now_shape, now_t, now_raw_data)
 
@@ -313,6 +343,9 @@ class InterpModule():
         print('=' * 10, "Details", '=' * 10)
         while l < len(queue):
             cur_var = queue[l]
+            l += 1
+            if cur_var not in involved_vars:
+                continue
             for vj, ind_i, ind_j, node_optype, node_name, node in self.edges[cur_var]:
                 cur_deg_in[vj] -= 1
                 if cur_deg_in[vj] == 0:
@@ -384,7 +417,6 @@ class InterpModule():
                                               f'node name = {node_name}, type = {node_optype}\nAborting...')
                                         exit(0)
                                     self.abstracts[node.output[i]] = cur_cur_abst
-            l += 1
         # except:
         #     print('error countered')
 

@@ -25,7 +25,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     model = load_onnx_from_file(args.modelpath,
-                                customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
+                                customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572,
+                                                 'unk__7156': 128,  # lfads.pbtxt.onnx
+                                                 })
     prompt('model initialized')
     prompt(f'--continue-prop: {args.continue_prop}')
     PossibleNumericalError.continue_prop = args.continue_prop

@@ -5,6 +5,7 @@ from onnx import helper, TensorProto
 from onnx.backend.test.case.node.pool_op_common import get_output_shape, pool, get_pad_shape
 from onnx.backend.test.case.node.batchnorm import _batchnorm_test_mode
 from onnx.backend.test.case.node.onehot import one_hot
+from onnx.backend.test.case.node.pad import pad_impl
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
@@ -3880,35 +3881,6 @@ def argmin_use_numpy(data, axis=0, keepdims=1):  # type: (np.ndarray, int, int) 
     return result.astype(np.int64)
 
 
-def pad_impl(data, raw_pads, mode, constant_values=0.0):  # type: ignore
-
-    input_rank = data.ndim
-    if input_rank * 2 != raw_pads.size:
-        raise Exception('The number of elements in raw_pads should be 2 * data_rank')
-
-    # re-order to np.pad accepted order ((x1_begin, x1_end), (x2_begin, x2_end), ...)
-    pad_width = ()
-    for i in range(int(raw_pads.size / 2)):
-        pad_width += ((raw_pads[i], raw_pads[i + input_rank])),  # type: ignore
-
-    if mode == 'constant':
-        y = np.pad(
-            data,
-            pad_width=pad_width,
-            mode=mode,
-            constant_values=constant_values,
-        )
-        return y
-
-    y = np.pad(
-        data,
-        pad_width=pad_width,
-        mode=mode,
-    )
-
-    return y
-
-
 def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
     x_max = np.max(x, axis=axis, keepdims=True)
     tmp = np.exp(x - x_max)
@@ -3918,4 +3890,4 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
 
 if __name__ == '__main__':
     # unittest.main()
-    TestAbstraction().test_GlobalMaxPool()
+    TestAbstraction().test_Pad()

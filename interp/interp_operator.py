@@ -3489,6 +3489,11 @@ def add_padding_to_X(X, padding, value, mode='value', shift=2, value_ub=None):
                     X.split_by(ref_splits, inplace=True)
                     lst_lb, lst_ub = list(), list()
                     if begin > 0:
+                        '''
+                        Cautious, here j is the real index, but X.lb has abstracted indices, so there can be inconsistency.
+                        The % operator is used to prevent j is greater or equal to X.shape[shift + i], however, if that
+                            is the case, then X.lb.shape[shift + i] == X.shape[shift + i]
+                        '''
                         lb_prepend = torch.index_select(X.lb, shift + i, torch.tensor(
                             [j % X.shape[shift + i] for j in range(begin, 0, -1)], dtype=torch.long,
                             device=X.lb.device))
@@ -3501,14 +3506,14 @@ def add_padding_to_X(X, padding, value, mode='value', shift=2, value_ub=None):
                     lst_ub.append(X.ub)
                     if end > 0:
                         lb_append = torch.index_select(X.lb, shift + i, torch.tensor([j % X.shape[shift + i] for j in
-                                                                                      range(X.shape[shift + i] - 2,
-                                                                                            X.shape[
+                                                                                      range(X.lb.shape[shift + i] - 2,
+                                                                                            X.lb.shape[
                                                                                                 shift + i] - end - 2,
                                                                                             -1)], dtype=torch.long,
                                                                                      device=X.lb.device))
                         ub_append = torch.index_select(X.ub, shift + i, torch.tensor([j % X.shape[shift + i] for j in
-                                                                                      range(X.shape[shift + i] - 2,
-                                                                                            X.shape[
+                                                                                      range(X.ub.shape[shift + i] - 2,
+                                                                                            X.ub.shape[
                                                                                                 shift + i] - end - 2,
                                                                                             -1)], dtype=torch.long,
                                                                                      device=X.lb.device))
