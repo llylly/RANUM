@@ -6,6 +6,7 @@ from onnx.backend.test.case.node.pool_op_common import get_output_shape, pool, g
 from onnx.backend.test.case.node.batchnorm import _batchnorm_test_mode
 from onnx.backend.test.case.node.onehot import one_hot
 from onnx.backend.test.case.node.pad import pad_impl
+from onnx.backend.test.case.node.resize import interpolate_nd, linear_coeffs
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
@@ -3812,6 +3813,307 @@ class TestAbstraction(unittest.TestCase):
         globalmaxpool()
         globalmaxpool_precomputed()
 
+    def test_Resize(self):
+        interp = Interpreter()
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        def expect(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_Resize(inputs, node, 'Resize', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        def test_resize_downsample_scales_linear_asymmetric():
+            node = helper.make_node(
+                'Resize',
+                inputs=['X', 'roi', 'scales', 'size'],
+                outputs=['Y'],
+                mode='linear',
+                coordinate_transformation_mode='asymmetric'
+            )
+
+            data = np.array([[[
+                [1, 2, 3, 4, 5],
+                [5, 6, 7, 8, 9],
+                [9, 10, 11, 12, 13]
+            ]]], dtype=np.float32)
+
+            scales = np.array([1.0, 1.0, 0.6, 0.6], dtype=np.float32)
+
+            output = interpolate_nd(
+                data, linear_coeffs, scale_factors=scales, coordinate_transformation_mode='asymmetric').astype(
+                np.float32)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            scales = Abstraction().load(conf_exact, 'scales', scales.shape, 'FLOAT', scales)
+            expect(node, inputs=[data, None, scales, None], outputs=[output],
+                   name='test_resize_downsample_scales_linear_asymmetric')
+
+        def test_resize_downsample_scales_linear_asymmetric_size():
+            node = helper.make_node(
+                'Resize',
+                inputs=['X', 'roi', 'scales', 'size'],
+                outputs=['Y'],
+                mode='linear',
+                coordinate_transformation_mode='asymmetric'
+            )
+
+            data = np.array([[[
+                [1, 2, 3, 4, 5],
+                [5, 6, 7, 8, 9],
+                [9, 10, 11, 12, 13]
+            ]]], dtype=np.float32)
+
+            size = np.array([1, 1, 2, 4], dtype=np.int)
+
+            output = interpolate_nd(
+                data, linear_coeffs, output_size=size, coordinate_transformation_mode='asymmetric').astype(
+                np.float32)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            size = Abstraction().load(conf_exact, 'scales', size.shape, 'INT', size)
+            expect(node, inputs=[data, None, None, size], outputs=[output],
+                   name='test_resize_downsample_scales_linear_asymmetric')
+
+        test_resize_downsample_scales_linear_asymmetric()
+        test_resize_downsample_scales_linear_asymmetric_size()
+        # TODO: other arguments
+
+    def test_ReduceProd(self):
+        interp = Interpreter()
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        def expect(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_ReduceProd(inputs, node, 'ReduceProd', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        def default_axes_keepdims():
+            shape = [3, 2, 2]
+            axes = None
+            keepdims = 1
+
+            node = helper.make_node(
+                'ReduceProd',
+                inputs=['data'],
+                outputs=['reduced'],
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.prod(data, axis=axes, keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_default_axes_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(0, 10, shape).astype(np.float32)
+            reduced = np.prod(data, axis=axes, keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_default_axes_keepdims_random')
+
+        def do_not_keepdims():
+            shape = [3, 2, 2]
+            axes = [1]
+            keepdims = 0
+
+            node = helper.make_node(
+                'ReduceProd',
+                inputs=['data'],
+                outputs=['reduced'],
+                axes=axes,
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.prod(data, axis=tuple(axes), keepdims=keepdims == 1)
+            # print(reduced)
+            # [[3., 8.]
+            # [35., 48.]
+            # [99., 120.]]
+            data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_do_not_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(0, 10, shape).astype(np.float32)
+            reduced = np.prod(data, axis=tuple(axes), keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_do_not_keepdims_random')
+
+        def test_keepdims():
+            shape = [3, 2, 2]
+            axes = [1]
+            keepdims = 1
+
+            node = helper.make_node(
+                'ReduceProd',
+                inputs=['data'],
+                outputs=['reduced'],
+                axes=axes,
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.prod(data, axis=tuple(axes), keepdims=keepdims == 1)
+            # print(reduced)
+            # [[[3., 8.]]
+            # [[35., 48.]]
+            # [[99., 120.]]]
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(-10, 10, shape).astype(np.float32)
+            reduced = np.prod(data, axis=tuple(axes), keepdims=keepdims == 1)
+            data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_keepdims_random')
+
+        def negative_axes_keepdims():
+            shape = [3, 2, 2]
+            axes = [-2]
+            keepdims = 1
+
+            node = helper.make_node(
+                'ReduceProd',
+                inputs=['data'],
+                outputs=['reduced'],
+                axes=axes,
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.prod(data, axis=tuple(axes), keepdims=keepdims == 1)
+            # print(reduced)
+            # [[[3., 8.]]
+            # [[35., 48.]]
+            # [[99., 120.]]]
+            data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_negative_axes_keepdims_example')
+
+            np.random.seed(0)
+            data = np.ones(shape).astype(np.float32) * (-np.random.rand())
+            reduced = np.prod(data, axis=tuple(axes), keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_negative_axes_keepdims_random')
+
+        default_axes_keepdims()
+        do_not_keepdims()
+        test_keepdims()
+        negative_axes_keepdims()
+
+    def test_ReduceSumSquare(self):
+        interp = Interpreter()
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        def expect(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_ReduceSumSquare(inputs, node, 'ReduceSumSquare', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        def default_axes_keepdims():
+            shape = [3, 2, 2]
+            axes = None
+            keepdims = 1
+
+            node = helper.make_node(
+                'ReduceSumSquare',
+                inputs=['data'],
+                outputs=['reduced'],
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.sum(np.square(data), axis=axes, keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_default_axes_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(-10, 10, shape).astype(np.float32)
+            reduced = np.sum(np.square(data), axis=axes, keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_default_axes_keepdims_random')
+
+        def do_not_keepdims():
+            shape = [3, 2, 2]
+            axes = [1]
+            keepdims = 0
+
+            node = helper.make_node(
+                'ReduceSumSquare',
+                inputs=['data'],
+                outputs=['reduced'],
+                axes=axes,
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.sum(np.square(data), axis=tuple(axes), keepdims=keepdims == 1)
+            # print(reduced)
+            # [[3., 8.]
+            # [35., 48.]
+            # [99., 120.]]
+            data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_do_not_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(-10, 10, shape).astype(np.float32)
+            reduced = np.sum(np.square(data), axis=tuple(axes), keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_do_not_keepdims_random')
+
+        def test_keepdims():
+            shape = [3, 2, 2]
+            axes = [1]
+            keepdims = 1
+
+            node = helper.make_node(
+                'ReduceSumSquare',
+                inputs=['data'],
+                outputs=['reduced'],
+                axes=axes,
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.sum(np.square(data), axis=tuple(axes), keepdims=keepdims == 1)
+            # print(reduced)
+            # [[[3., 8.]]
+            # [[35., 48.]]
+            # [[99., 120.]]]
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(-10, 10, shape).astype(np.float32)
+            reduced = np.sum(np.square(data), axis=tuple(axes), keepdims=keepdims == 1)
+            data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_keepdims_random')
+
+        def negative_axes_keepdims():
+            shape = [3, 2, 2]
+            axes = [-2]
+            keepdims = 1
+
+            node = helper.make_node(
+                'ReduceSumSquare',
+                inputs=['data'],
+                outputs=['reduced'],
+                axes=axes,
+                keepdims=keepdims)
+
+            data = np.array([[[1, 2], [3, 4]], [[5, 6], [7, 8]], [[9, 10], [11, 12]]], dtype=np.float32)
+            reduced = np.sum(np.square(data), axis=tuple(axes), keepdims=keepdims == 1)
+            # print(reduced)
+            # [[[3., 8.]]
+            # [[35., 48.]]
+            # [[99., 120.]]]
+            data = Abstraction().load(conf_exact, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_negative_axes_keepdims_example')
+
+            np.random.seed(0)
+            data = np.random.uniform(-10, 10, shape).astype(np.float32)
+            reduced = np.sum(np.square(data), axis=tuple(axes), keepdims=keepdims == 1)
+            data = Abstraction().load(conf_s3, 'data', data.shape, 'FLOAT', data)
+            expect(node, inputs=[data], outputs=[reduced], name='test_reduce_prod_negative_axes_keepdims_random')
+
+        default_axes_keepdims()
+        do_not_keepdims()
+        test_keepdims()
+        negative_axes_keepdims()
+
 
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
                                   transB=0):  # type: (np.ndarray, np.ndarray, Optional[np.ndarray], float, float, int, int) -> np.ndarray
@@ -3890,4 +4192,4 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
 
 if __name__ == '__main__':
     # unittest.main()
-    TestAbstraction().test_Pad()
+    TestAbstraction().test_ReduceSumSquare()

@@ -66,7 +66,10 @@ def freeze_and_initialize_graph(graphdef):
     transform_node_list = list()
     possible_input_node_list = list()
 
-    """STEP2: replace OneShotIterator or IteratorV2 by several variables and IteratorGetNext by several Identity"""
+    """
+    STEP2: replace OneShotIterator or IteratorV2 or RandomShuffleQueueV2 by several variables and 
+    replace IteratorGetNext or QueueDequeueManyV2 by several Identity
+    """
     # catch OneShotIterator
     find = True
     while find:
@@ -105,8 +108,37 @@ def freeze_and_initialize_graph(graphdef):
                 graphdef.node.remove(node)
                 graphdef.node.extend(to_extend)
                 to_extend = list()
+            elif node.op == 'RandomShuffleQueueV2':
+                for no in range(len(node.attr['shapes'].list.shape)):
+                    new_shape = node.attr['shapes'].list.shape[no]
+                    new_shape_list = [1] # make the batch_size = 1
+                    for i, item in enumerate(new_shape.dim):
+                        if item.size == -1:
+                            item.size = 8
+                        new_shape_list.append(item.size)
+                    new_shape = tf.TensorShape(new_shape_list).as_proto()
 
-    # catch IteratorGetNext
+                    new_node = tf.NodeDef(name=node.name + f'_{no}',
+                                          op='VariableV2',
+                                          input=[],
+                                          attr={'container': node.attr['container'],
+                                                'dtype': tf.AttrValue(type=node.attr['component_types'].list.type[no]),
+                                                'shape': tf.AttrValue(shape=new_shape),
+                                                'shared_name': node.attr['shared_name']})
+                    to_extend.append(new_node)
+
+                    if no == 0:
+                        name_mapping[node.name] = new_node.name
+                    else:
+                        name_mapping[node.name + f':{no}'] = new_node.name
+                    possible_input_node_list.append(new_node.name)
+
+                find = True
+                graphdef.node.remove(node)
+                graphdef.node.extend(to_extend)
+                to_extend = list()
+
+    # catch IteratorGetNext QueueDequeueManyV2
     find = True
     while find:
         find = False
@@ -129,6 +161,34 @@ def freeze_and_initialize_graph(graphdef):
                 graphdef.node.remove(node)
                 graphdef.node.extend(to_extend)
                 to_extend = list()
+            elif node.op == 'QueueDequeueManyV2':
+                for no in range(len(node.attr['component_types'].list.type)):
+                    new_node = tf.NodeDef(name=node.name + f'_{no}',
+                                          op='Identity',
+                                          input=[node.input[0] + f'_{no}'],
+                                          attr={'T': tf.AttrValue(type=node.attr['component_types'].list.type[no])})
+                    to_extend.append(new_node)
+
+                    if no == 0:
+                        name_mapping[node.name] = new_node.name
+                    else:
+                        name_mapping[node.name + f':{no}'] = new_node.name
+                    # possible_input_node_list.append(new_node.name)
+
+                find = True
+                graphdef.node.remove(node)
+                graphdef.node.extend(to_extend)
+                to_remove.append(node.input[1])
+                to_extend = list()
+
+    to_remove = set(to_remove)
+    to_remove_node = []
+    for node in graphdef.node:
+        if node.name in to_remove:
+            to_remove_node.append(node)
+    for node in to_remove_node:
+        graphdef.node.remove(node)
+    to_remove = list()
 
     # fix renamed operators
     for node in graphdef.node:
@@ -322,8 +382,9 @@ def freeze_and_initialize_graph(graphdef):
                 or node.op == 'RestoreV2' or node.op == 'RestoreSlice' \
                 or node.op == 'IsVariableInitialized' \
                 or node.op == 'GeneratorDataset' or node.op == 'TensorSliceDataset' \
-                or node.op == 'PaddingFIFOQueueV2' or node.op == 'RandomShuffleQueueV2' \
+                or node.op == 'PaddingFIFOQueueV2' or node.op == 'QueueEnqueueV2' or node.op == 'QueueCloseV2' \
                 or node.op == 'QueueSizeV2' or node.op == 'TFRecordReaderV2' or node.op == 'ReaderReadV2' \
+                or node.op == 'FIFOQueueV2' \
                 or node.op == 'ApplyRMSProp' \
                 or node.op == 'Assert' \
                 or node.op == 'Lgamma' \
@@ -499,7 +560,8 @@ banned_list = ['compression_entropy_coder', 'deep_speech', 'delf', 'domain_adapt
                'video_prediction']
 
 # debug
-permit_list = []
+# attention_ocr, deep_contextual_bandits_bb_alpha_nn
+permit_list = ["next_frame_prediction"]
 
 
 def convert_protobuf_file(file_path):

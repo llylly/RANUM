@@ -341,6 +341,8 @@ class InterpModule():
         analyze_result_pos = {}
         analyze_result_neg = {}
         print('=' * 10, "Details", '=' * 10)
+        optimize_op_filter = {"Mul",  # -> Square
+                              "Slice", "Concat", "Resize"}
         while l < len(queue):
             cur_var = queue[l]
             l += 1
@@ -360,7 +362,7 @@ class InterpModule():
                         node_input_cnt = len(node.input)
                         unique_node_input_cnt = len(set([x for x in node.input]))
                         # detect potential optimizing operators
-                        if unique_node_input_cnt != node_input_cnt and node.op_type not in ["Slice", "Concat", "Mul"]:
+                        if unique_node_input_cnt != node_input_cnt and node.op_type not in optimize_op_filter:
                             print(f"({node.name}, {node.op_type}) can be optimized!\n{node.input}")
                         if node.op_type != 'Loop':
                             # optimize multiplication with two same inputs as square

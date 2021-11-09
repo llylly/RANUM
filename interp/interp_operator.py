@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import bisect
 from functools import reduce
+import warnings
 
 import onnx
 from onnx import numpy_helper
@@ -171,7 +172,10 @@ class Abstraction(object):
         lb = torch.amin(self.lb)
         ub = torch.amax(self.ub)
         new_splits = [[0]] * len(self.shape)
-        new_lb, new_ub = torch.ones([1] * len(self.shape)) * lb, torch.ones([1] * len(self.shape)) * ub
+        new_lb, new_ub = torch.full([1] * len(self.shape), lb.item(), dtype=lb.dtype, device=lb.device,
+                                    requires_grad=lb.requires_grad), \
+                         torch.full([1] * len(self.shape), ub.item(), dtype=ub.dtype, device=ub.device,
+                                    requires_grad=ub.requires_grad)
 
         if inplace:
             self.lb, self.ub = new_lb, new_ub
@@ -2536,7 +2540,7 @@ class Interpreter(object):
         ans = Abstraction()
         ans.lb = abstracts[0].lb
         ans.ub = abstracts[0].ub
-        for d in axes[::-1]:  # first keep the dimension
+        for d in axes[::-1]:
             ans.lb = op(ans.lb, dim=d, keepdim=keepdims == 1)[0]
             ans.ub = op(ans.ub, dim=d, keepdim=keepdims == 1)[0]
 
@@ -3035,6 +3039,112 @@ class Interpreter(object):
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_Resize(self, abstracts, node, optype, var_name):
+        attrs = parse_attribute(node)
+        coordinate_transformation_mode = attrs.get('coordinate_transformation_mode', b'half_pixel')
+        coordinate_transformation_mode = coordinate_transformation_mode.decode('ascii')
+        cubic_coeff_a = attrs.get('cubic_coeff_a', -0.75)
+        exclude_outside = attrs.get('exclude_outside', 0) == 1
+        extrapolation_value = attrs.get('extrapolation_value', 0)
+        mode = attrs.get('mode', b'nearest')
+        mode = mode.decode('ascii')
+        nearest_mode = attrs.get('nearest_mode', b'round_prefer_floor')
+        nearest_mode = nearest_mode.decode('ascii')
+        # print(coordinate_transformation_mode, mode, nearest_mode)
+        # TODO: Other types of resize arguments. A more accuracte version.
+        if coordinate_transformation_mode == "asymmetric" and mode == "linear":
+            ans = abstracts[0].smash(inplace=False)
+            ans.var_name = var_name
+            if abstracts[2] is not None and abstracts[2].shape[0] == abstracts[0].get_dim():
+                ans.shape = [int(x * abstracts[2].lb[i].item()) for i, x in enumerate(abstracts[0].shape)]
+            else:
+                ans.shape = [int(x.item()) for x in abstracts[3].lb]
+            ans.splits = ans.splits.copy()
+            return ans, list()
+        else:
+            warnings.warn("Resize other modes are not implemented!", RuntimeWarning)
+        return None, list()
+
+    def interp_ReduceProd(self, abstracts, node, optype, var_name):
+        attrs = parse_attribute(node)
+        keepdims = attrs.get('keepdims', 1) == 1
+        axes = attrs.get('axes', None)
+        if axes is None:
+            axes = list(range(len(abstracts[0].shape)))
+        else:
+            axes = [(x + abstracts[0].shape[i]) % abstracts[0].shape[i] for i, x in enumerate(axes)]
+            axes.sort()
+
+        if abstracts[0].lb.min() >= 0 or abstracts[0].is_exact():
+            # compute multiplies to calculate reduced sum
+            multiplies = self.cal_multiplies_for_sum(abstracts[0], axes)
+            ans = Abstraction()
+            ans.lb = torch.pow(abstracts[0].lb, multiplies)
+            ans.ub = torch.pow(abstracts[0].ub, multiplies)
+            for d in axes[::-1]:
+                ans.lb = torch.prod(ans.lb, dim=d, keepdim=keepdims)
+                ans.ub = torch.prod(ans.ub, dim=d, keepdim=keepdims)
+
+            ans.shape = abstracts[0].shape.copy()
+            ans.splits = abstracts[0].splits.copy()
+            if keepdims == 1:
+                for d in axes:
+                    ans.shape[d] = 1
+                    ans.splits[d] = [0]
+            else:
+                for d in axes:
+                    ans.shape[d] = None
+                    ans.splits[d] = None
+
+                ans.shape = list(filter(lambda x: x is not None, ans.shape))
+                ans.splits = list(filter(lambda x: x is not None, ans.splits))
+
+            ans.var_name = var_name
+            return ans, list()
+        # Ohterwise, Notimplemented
+        return None, list()
+
+    def interp_ReduceSumSquare(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        attrs = parse_attribute(node)
+        keepdims = attrs.get('keepdims', 1) == 1
+        axes = attrs.get('axes', None)
+        if axes is None:
+            axes = list(range(len(abstracts[0].shape)))
+        else:
+            axes = [(x + abstracts[0].shape[i]) % abstracts[0].shape[i] for i, x in enumerate(axes)]
+            axes.sort()
+
+        # compute multiplies to calculate reduced sum
+        multiplies = self.cal_multiplies_for_sum(abst, axes)
+        ans = Abstraction()
+        ans.lb = torch.where((abst.lb < 0) & (abst.ub > 0),
+                             torch.zeros_like(abst.lb),
+                             torch.minimum(abst.lb.square(), abst.ub.square()))
+        ans.ub = torch.maximum(abst.lb.square(), abst.ub.square())
+        ans.lb = ans.lb * multiplies
+        ans.ub = ans.ub * multiplies
+        for d in axes[::-1]:
+            ans.lb = torch.sum(ans.lb, dim=d, keepdim=keepdims)
+            ans.ub = torch.sum(ans.ub, dim=d, keepdim=keepdims)
+
+        ans.shape = abstracts[0].shape.copy()
+        ans.splits = abstracts[0].splits.copy()
+        if keepdims == 1:
+            for d in axes:
+                ans.shape[d] = 1
+                ans.splits[d] = [0]
+        else:
+            for d in axes:
+                ans.shape[d] = None
+                ans.splits[d] = None
+
+            ans.shape = list(filter(lambda x: x is not None, ans.shape))
+            ans.splits = list(filter(lambda x: x is not None, ans.splits))
+
+        ans.var_name = var_name
         return ans, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):

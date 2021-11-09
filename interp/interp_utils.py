@@ -150,7 +150,8 @@ fine_grain_parameters = {
     # for NLL loss, this item may be removed
     'NegativeLogLikelihoodLoss': [1],
     'Clip': [1, 2],
-    'OneHot': [1]
+    'OneHot': [1],
+    'Resize': [1, 2, 3],
 }
 
 # The exact number of following defined op_types can be easily derived from either fine abstraction or coarse abstraction
