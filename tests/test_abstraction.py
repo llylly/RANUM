@@ -552,7 +552,7 @@ class TestAbstraction(unittest.TestCase):
 
         abst_y, _ = interp.interp_Unsqueeze([abst_x, abst_axes], node, 'Unsqueeze', 'y')
 
-        self.assertTrue(correct_abstraction(abst_y, x.reshape((20, 1, 10, 1, 5))))
+        self.assertTrue(correct_abstraction(abst_y, x.reshape((20, 10, 1, 1, 5))))
 
         node = helper.make_node(
             'Unsqueeze', ['v1'], ['s'], 'unsqueeze', axes=axes
@@ -560,7 +560,7 @@ class TestAbstraction(unittest.TestCase):
 
         abst_y_new, _ = interp.interp_Unsqueeze([abst_x, abst_axes], node, 'Unsqueeze', 'y')
 
-        self.assertTrue(correct_abstraction(abst_y_new, x.reshape((20, 1, 10, 1, 5))))
+        self.assertTrue(correct_abstraction(abst_y_new, x.reshape((20, 10, 1, 1, 5))))
 
     def test_Concat(self):
         interp = Interpreter()

@@ -1986,7 +1986,7 @@ class Interpreter(object):
         else:
             axes = [i for i, s in enumerate(abstracts[0].shape) if s == 1][::-1]
         # make sure the axes are deleted from back to front so that the dim indices do not shift
-        axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i for i in axes], reverse=True)
+        axes = sorted([i if i >= 0 else abstracts[0].get_dim() + 1 + i for i in axes], reverse=True)
         now_abst = Abstraction()
         now_abst.shape = abstracts[0].shape.copy()
         now_abst.splits = abstracts[0].splits.copy()
