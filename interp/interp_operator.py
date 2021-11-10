@@ -836,6 +836,43 @@ class Interpreter(object):
         ans.var_name = var_name
         return ans, list()
 
+    def interp_GlobalAveragePool(self, abstracts, node, optype, var_name):
+        dim_for_pool = abstracts[0].get_dim() - 2
+        ans = Abstraction()
+        ans.lb = torch.mean(abstracts[0].lb, dim=[i + 2 for i in range(dim_for_pool)], keepdim=True)
+        ans.ub = torch.mean(abstracts[0].ub, dim=[i + 2 for i in range(dim_for_pool)], keepdim=True)
+        ans.shape = abstracts[0].shape[:2] + [1] * dim_for_pool
+        ans.splits = abstracts[0].splits[:2] + [[0]] * dim_for_pool
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Cos(self, abstracts, node, optype, var_name, offset=0):
+        ans = Abstraction()
+        lb = abstracts[0].lb + offset
+        ub = abstracts[0].ub + offset
+        delta = (lb / 2 / np.pi).long() * 2 * np.pi
+        lb = lb - delta
+        ub = ub - delta
+        # lb is in (-2pi, 2pi)
+        ub = torch.where(lb < 0, ub + 2 * np.pi, ub)
+        lb = torch.where(lb < 0, lb + 2 * np.pi, lb)
+        # lb is in (0, 2pi), if ub - lb < 2pi then ub in (0, 4pi)
+        cos_lb = torch.cos(lb)
+        cos_ub = torch.cos(ub)
+        ans.lb = torch.where((ub - lb >= 2 * np.pi) | ((lb <= np.pi) & (ub >= np.pi)) | (ub >= 3 * np.pi),
+                             -torch.ones_like(lb),
+                             torch.minimum(cos_lb, cos_ub))
+        ans.ub = torch.where((ub - lb >= 2 * np.pi) | (lb == 0) | (ub == 4 * np.pi) | (ub >= 2 * np.pi),
+                             torch.ones_like(lb),
+                             torch.maximum(cos_lb, cos_ub))
+        ans.shape = abstracts[0].shape.copy()
+        ans.splits = abstracts[0].splits.copy()
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Sin(self, abstracts, node, optype, var_name):
+        return self.interp_Cos(abstracts, node, optype, var_name, offset=-np.pi / 2)
+
     def interp_AveragePool(self, abstracts, node, optype, var_name):
         """
             @TODO: for precise mode, need to handle these cases later
@@ -2011,7 +2048,7 @@ class Interpreter(object):
         else:
             axes = [i for i, s in enumerate(abstracts[0].shape) if s == 1][::-1]
         # make sure the axes are deleted from back to front so that the dim indices do not shift
-        axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i for i in axes], reverse=True)
+        axes = sorted([i if i >= 0 else abstracts[0].get_dim() + i + 1 for i in axes], reverse=True)
         now_abst = Abstraction()
         now_abst.shape = abstracts[0].shape.copy()
         now_abst.splits = abstracts[0].splits.copy()
@@ -3059,9 +3096,8 @@ class Interpreter(object):
         mode = mode.decode('ascii')
         nearest_mode = attrs.get('nearest_mode', b'round_prefer_floor')
         nearest_mode = nearest_mode.decode('ascii')
-        # print(coordinate_transformation_mode, mode, nearest_mode)
         # TODO: Other types of resize arguments. A more accuracte version.
-        if coordinate_transformation_mode == "asymmetric" and mode == "linear":
+        if coordinate_transformation_mode == "asymmetric" and mode in ["linear", "nearest"]:
             ans = abstracts[0].smash(inplace=False)
             ans.var_name = var_name
             if abstracts[2] is not None and abstracts[2].shape[0] == abstracts[0].get_dim():
@@ -3071,6 +3107,7 @@ class Interpreter(object):
             ans.splits = ans.splits.copy()
             return ans, list()
         else:
+            print(coordinate_transformation_mode, mode, nearest_mode)
             warnings.warn("Resize other modes are not implemented!", RuntimeWarning)
         return None, list()
 
@@ -3081,7 +3118,7 @@ class Interpreter(object):
         if axes is None:
             axes = list(range(len(abstracts[0].shape)))
         else:
-            axes = [(x + abstracts[0].shape[i]) % abstracts[0].shape[i] for i, x in enumerate(axes)]
+            axes = [(x + len(abstracts[0].shape)) % len(abstracts[0].shape) for i, x in enumerate(axes)]
             axes.sort()
 
         if abstracts[0].lb.min() >= 0 or abstracts[0].is_exact():
@@ -3121,7 +3158,7 @@ class Interpreter(object):
         if axes is None:
             axes = list(range(len(abstracts[0].shape)))
         else:
-            axes = [(x + abstracts[0].shape[i]) % abstracts[0].shape[i] for i, x in enumerate(axes)]
+            axes = [(x + len(abstracts[0].shape)) % len(abstracts[0].shape) for i, x in enumerate(axes)]
             axes.sort()
 
         # compute multiplies to calculate reduced sum

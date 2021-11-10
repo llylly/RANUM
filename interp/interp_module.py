@@ -412,8 +412,8 @@ class InterpModule():
                                 if PossibleNumericalError.is_invalid(cur_abst.lb) or PossibleNumericalError.is_invalid(
                                         cur_abst.ub):
                                     print(f'! The abstraction generated for {vj} is invalid: '
-                                          f'node name = {node_name}, type = {node_optype}\nAborting...')
-                                    exit(0)
+                                          f'node name = {node_name}, type = {node_optype}\nContinuing...')
+                                    # exit(0)
                                 if any(x != len(y) for x, y in zip(cur_abst.lb.shape, cur_abst.splits)):
                                     print(f'! The splits for {vj} does not match the lb(ub).shape: '
                                           f'node name = {node_name}, type = {node_optype}\nAborting...')
@@ -424,15 +424,15 @@ class InterpModule():
                                 # multiple output node: execute once, update all output nodes
                                 for i, cur_cur_abst in enumerate(cur_abst):
                                     if cur_cur_abst is None:
-                                        print(f'! No abstraction generated for the {i}-th output of {vj}: '
-                                              f'node name = {node_name}, type = {node_optype}')
+                                        # print(f'! No abstraction generated for the {i}-th output of {vj}: '
+                                        #       f'node name = {node_name}, type = {node_optype}')
                                         continue
                                     if PossibleNumericalError.is_invalid(
                                             cur_cur_abst.lb) or PossibleNumericalError.is_invalid(
                                         cur_cur_abst.ub):
                                         print(f'! The {i}-th abstraction generated for {vj} is invalid: '
-                                              f'node name = {node_name}, type = {node_optype}\nAborting...')
-                                        exit(0)
+                                              f'node name = {node_name}, type = {node_optype}\nContinuing...')
+                                        # exit(0)
                                     if any(x != len(y) for x, y in zip(cur_cur_abst.lb.shape, cur_cur_abst.splits)):
                                         print(f'! The splits for {vj} does not match the lb(ub).shape: '
                                               f'node name = {node_name}, type = {node_optype}\nAborting...')

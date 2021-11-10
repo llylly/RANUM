@@ -6,7 +6,7 @@ from onnx.backend.test.case.node.pool_op_common import get_output_shape, pool, g
 from onnx.backend.test.case.node.batchnorm import _batchnorm_test_mode
 from onnx.backend.test.case.node.onehot import one_hot
 from onnx.backend.test.case.node.pad import pad_impl
-from onnx.backend.test.case.node.resize import interpolate_nd, linear_coeffs
+from onnx.backend.test.case.node.resize import interpolate_nd, linear_coeffs, nearest_coeffs
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
@@ -546,13 +546,13 @@ class TestAbstraction(unittest.TestCase):
         conf_precise = AbstractionInitConfig(diff=False, from_init=True, stride=1)
 
         x = np.random.randn(20, 10, 5).astype(np.float64)
-        axes = [2, -2]
+        axes = [1, -2]
         node = helper.make_node(
             'Unsqueeze', ['v1'], ['s'], 'unsqueeze'
         )
 
         abst_x = Abstraction().load(conf_def, 'v1', [20, 10, 5], 'FLOAT', x)
-        abst_axes = Abstraction().load(conf_precise, 'vaxes', [2], 'INT', np.array([2, -2]))
+        abst_axes = Abstraction().load(conf_precise, 'vaxes', [2], 'INT', np.array([1, -2]))
 
         abst_y, _ = interp.interp_Unsqueeze([abst_x, abst_axes], node, 'Unsqueeze', 'y')
 
@@ -3872,8 +3872,34 @@ class TestAbstraction(unittest.TestCase):
             expect(node, inputs=[data, None, None, size], outputs=[output],
                    name='test_resize_downsample_scales_linear_asymmetric')
 
+        def test_resize_downsample_scales_nearest_asymmetric():
+            node = helper.make_node(
+                'Resize',
+                inputs=['X', 'roi', 'scales', 'size'],
+                outputs=['Y'],
+                mode='nearest',
+                coordinate_transformation_mode='asymmetric'
+            )
+
+            data = np.array([[[
+                [1, 2, 3, 4, 5],
+                [5, 6, 7, 8, 9],
+                [9, 10, 11, 12, 13]
+            ]]], dtype=np.float32)
+
+            scales = np.array([1.0, 1.0, 0.6, 0.6], dtype=np.float32)
+
+            # [[[[1. 3.]]]]
+            output = interpolate_nd(
+                data, nearest_coeffs, scale_factors=scales).astype(np.float32)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            scales = Abstraction().load(conf_exact, 'scales', scales.shape, 'FLOAT', scales)
+            expect(node, inputs=[data, None, scales, None], outputs=[output],
+                   name='test_resize_downsample_scales_nearest')
+
         test_resize_downsample_scales_linear_asymmetric()
         test_resize_downsample_scales_linear_asymmetric_size()
+        test_resize_downsample_scales_nearest_asymmetric()
         # TODO: other arguments
 
     def test_ReduceProd(self):
@@ -4114,6 +4140,42 @@ class TestAbstraction(unittest.TestCase):
         test_keepdims()
         negative_axes_keepdims()
 
+    def test_SinCos(self):
+        interp = Interpreter()
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        def expect_Sin(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_Sin(inputs, node, 'Sin', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        def expect_Cos(node, inputs, outputs, name):
+            y_abst, _ = interp.interp_Cos(inputs, node, 'Cos', name)
+            self.assertTrue(correct_abstraction(y_abst, outputs[0]))
+
+        node = helper.make_node(
+            'Sin',
+            inputs=['x'],
+            outputs=['y'],
+        )
+
+        x_ = np.random.randn(3, 4, 5).astype(np.float32) * 5
+        y = np.sin(x_)
+        x = Abstraction().load(conf_exact, 'x', x_.shape, 'FLOAT', x_)
+        expect_Sin(node, inputs=[x], outputs=[y], name='test_sin')
+        x = Abstraction().load(conf_s2, 'x', x_.shape, 'FLOAT', x_)
+        expect_Sin(node, inputs=[x], outputs=[y], name='test_sin')
+        x = Abstraction().load(conf_s3, 'x', x_.shape, 'FLOAT', x_)
+        expect_Sin(node, inputs=[x], outputs=[y], name='test_sin')
+        y = np.cos(x_)
+        x = Abstraction().load(conf_exact, 'x', x_.shape, 'FLOAT', x_)
+        expect_Cos(node, inputs=[x], outputs=[y], name='test_cos')
+        x = Abstraction().load(conf_s2, 'x', x_.shape, 'FLOAT', x_)
+        expect_Cos(node, inputs=[x], outputs=[y], name='test_cos')
+        x = Abstraction().load(conf_s3, 'x', x_.shape, 'FLOAT', x_)
+        expect_Cos(node, inputs=[x], outputs=[y], name='test_cos')
+
 
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
                                   transB=0):  # type: (np.ndarray, np.ndarray, Optional[np.ndarray], float, float, int, int) -> np.ndarray
@@ -4192,4 +4254,4 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
 
 if __name__ == '__main__':
     # unittest.main()
-    TestAbstraction().test_ReduceSumSquare()
+    TestAbstraction().test_Resize()

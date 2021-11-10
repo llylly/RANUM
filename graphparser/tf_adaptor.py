@@ -111,7 +111,8 @@ def freeze_and_initialize_graph(graphdef):
             elif node.op == 'RandomShuffleQueueV2':
                 for no in range(len(node.attr['shapes'].list.shape)):
                     new_shape = node.attr['shapes'].list.shape[no]
-                    new_shape_list = [1] # make the batch_size = 1
+                    # new_shape_list = [1]  # make the batch_size = 1 for next_frame_prediction
+                    new_shape_list = [4]  # make the batch_size = 4 for vid2depth
                     for i, item in enumerate(new_shape.dim):
                         if item.size == -1:
                             item.size = 8
@@ -392,6 +393,7 @@ def freeze_and_initialize_graph(graphdef):
                 or node.op == 'L2Loss' or node.op == 'PyFunc' \
                 or node.op == 'Rank' \
                 or node.op == 'WholeFileReaderV2' or node.op == 'TextLineReaderV2' \
+                or node.op == 'ResizeArea' \
                 or node.name.lower().count('gradient') > 0:
             node_to_trim.append(node.name)
     graphdef = trim_nodes(graphdef, node_to_trim)
@@ -559,9 +561,11 @@ banned_list = ['compression_entropy_coder', 'deep_speech', 'delf', 'domain_adapt
                'textsum', 'ptn', 'sentiment_analysis', 'skip_thought',
                'video_prediction']
 
-# debug
-# attention_ocr, deep_contextual_bandits_bb_alpha_nn
-permit_list = ["next_frame_prediction"]
+# incomplete graphs:
+# attention_ocr, deep_contextual_bandits_bb_alpha_nn, swivel
+# errors:
+# next_frame_prediction, pyramid_net, ssd_inception_v2, ssd_mobile_net_v1, ssd_mobile_net_v2
+permit_list = ["vid2depth"]
 
 
 def convert_protobuf_file(file_path):
