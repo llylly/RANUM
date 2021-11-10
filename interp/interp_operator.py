@@ -994,8 +994,14 @@ class Interpreter(object):
         """append the padding to the abstraction, so that all conv becomes valid padding ops"""
         add_padding_to_X(X, padding, 0)
 
-        W_ref_channels = list(set([item % (X.shape[1] // group) for item in X.splits[1]]))
-        W.split_by([W.splits[0] if B is None else B.splits[0], W_ref_channels] + [list(range(x)) for x in
+        W_ref_channels = sorted(set([item % (X.shape[1] // group) for item in X.splits[1]]))
+        if B is not None:
+            tmp_B_splits = B.splits[0]
+        else:
+            tmp_B_splits = list()
+        W_ref_out_channels = sorted(set([item % (W.shape[0] // group) for item in tmp_B_splits + W.splits[0]]))
+        W_ref_out_channels = [i * (W.shape[0] // group) + j for i in range(group) for j in W_ref_out_channels]
+        W.split_by([W_ref_out_channels, W_ref_channels] + [list(range(x)) for x in
                                                                                   W.shape[2:]], inplace=True)
         X_ref_channels = [item + now_group * W.shape[1] for now_group in range(group) for item in W.splits[1]]
         X.split_by([X.splits[0], X_ref_channels] + X.splits[2:], inplace=True)
@@ -1110,7 +1116,7 @@ class Interpreter(object):
         X_ref_channels = [item + j * X.shape[1] // group for j in range(group) for item in X_ref_channels]
         X.split_by([X.splits[0], X_ref_channels] + X.splits[2:], inplace=True)
         if B is not None:
-            W_ref_channels = list(set([item % (W.shape[1]) for item in B.splits[0]]))
+            W_ref_channels = sorted(set([item % (W.shape[1]) for item in B.splits[0]]))
         else:
             W_ref_channels = list(range(W.shape[1]))
         W.split_by([X.splits[1], W_ref_channels] + [list(range(x)) for x in W.shape[2:]])

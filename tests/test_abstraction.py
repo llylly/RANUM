@@ -1560,6 +1560,33 @@ class TestAbstraction(unittest.TestCase):
         aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node6, 'Conv', 'res')
         self.assertTrue(correct_abstraction(aRes, res))
 
+
+        # =======
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10, 10, 10])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4, 4, 5, 5, 3])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3])
+
+        X = np.random.randn(1, 5, 40, 40, 101)
+        W = np.random.randn(5, 1, 3, 3, 4)
+        B = np.random.randn(5) * 10.
+
+        aX = Abstraction().load(conf1, 'X', X.shape, 'FLOAT', X)
+        aW = Abstraction().load(conf2, 'W', W.shape, 'FLOAT', W)
+        aB = Abstraction().load(conf3, 'B', B.shape, 'FLOAT', B)
+
+        conv_node6 = helper.make_node(
+            'Conv',
+            inputs=['x', 'W', 'b'],
+            outputs=['y'],
+            pads=[1, 0, 1, 1, 0, 1],
+            strides=[2, 2, 3],  # Default values for other attributes: dilations=[1, 1, 1], groups=1
+            group=5
+        )
+        res = torch.nn.functional.conv3d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2, 3),
+                                         padding=[1, 0, 1], groups=5)
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node6, 'Conv', 'res')
+        self.assertTrue(correct_abstraction(aRes, res))
+
     def test_ConvTranspose(self):
 
         interp = Interpreter()
