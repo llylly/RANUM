@@ -11,7 +11,7 @@ from interp.specified_ranges import SpecifiedRanges
 
 
 class InterpModule():
-
+    SUPER_START_NODE = "SUPER_START"
     def __init__(self, onnx_model, debug=True, customize_shape=None):
         self.onnx_model = onnx_model
 
@@ -113,6 +113,7 @@ class InterpModule():
         self.edges = dict()
         self.all_nodes = set()
         self.nodes_to_check = set()
+        self.start_points = set()
 
         for node in self.onnx_model.graph.node:
             if node.domain != '':
@@ -126,7 +127,12 @@ class InterpModule():
                     print(f'  warning: {v} has not appeared yet')
                 self.all_nodes.add(v)
 
-            for i, vi in enumerate(list(node.input)):
+            node_input = list(node.input)
+            if len(node_input) == 0:
+                node_input.append(InterpModule.SUPER_START_NODE)
+                self.start_points.add(InterpModule.SUPER_START_NODE)
+
+            for i, vi in enumerate(node_input):
                 for j, vj in enumerate(list(node.output)):
                     if vi not in self.edges: self.edges[vi] = list()
                     self.edges[vi].append((vj, i, j, node.op_type, node.name, node))
@@ -182,7 +188,7 @@ class InterpModule():
             if v not in self.deg_out: self.deg_out[v] = 0
             if v not in self.edges: self.edges[v] = list()
 
-        self.start_points = set([x for x in self.all_nodes if self.deg_in[x] == 0])
+        self.start_points.update([x for x in self.all_nodes if self.deg_in[x] == 0])
 
         """construct node dictionary"""
         self.node_dict = dict([(x.name, x) for x in self.onnx_model.graph.node])
@@ -281,6 +287,7 @@ class InterpModule():
         fine_grain_config = AbstractionInitConfig(diff=True, stride=1, from_init=True)
         specified_inputs = set(init_config.keys())
         for s in self.start_points:
+            if s == InterpModule.SUPER_START_NODE: continue
             if s not in init_config:
                 if s.lower().count('moving_variance') > 0:
                     # looks like a variance
@@ -407,15 +414,27 @@ class InterpModule():
                                     print(f'! The abstraction generated for {vj} is invalid: '
                                           f'node name = {node_name}, type = {node_optype}\nAborting...')
                                     exit(0)
+                                if any(x != len(y) for x, y in zip(cur_abst.lb.shape, cur_abst.splits)):
+                                    print(f'! The splits for {vj} does not match the lb(ub).shape: '
+                                          f'node name = {node_name}, type = {node_optype}\nAborting...')
+                                    exit(0)
                                 # single output node
                                 self.abstracts[vj] = cur_abst
                             else:
                                 # multiple output node: execute once, update all output nodes
                                 for i, cur_cur_abst in enumerate(cur_abst):
+                                    if cur_cur_abst is None:
+                                        print(f'! No abstraction generated for the {i}-th output of {vj}: '
+                                              f'node name = {node_name}, type = {node_optype}')
+                                        continue
                                     if PossibleNumericalError.is_invalid(
                                             cur_cur_abst.lb) or PossibleNumericalError.is_invalid(
                                         cur_cur_abst.ub):
                                         print(f'! The {i}-th abstraction generated for {vj} is invalid: '
+                                              f'node name = {node_name}, type = {node_optype}\nAborting...')
+                                        exit(0)
+                                    if any(x != len(y) for x, y in zip(cur_cur_abst.lb.shape, cur_cur_abst.splits)):
+                                        print(f'! The splits for {vj} does not match the lb(ub).shape: '
                                               f'node name = {node_name}, type = {node_optype}\nAborting...')
                                         exit(0)
                                     self.abstracts[node.output[i]] = cur_cur_abst

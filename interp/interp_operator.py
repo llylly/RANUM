@@ -1246,7 +1246,7 @@ class Interpreter(object):
         ans = Abstraction()
         ans.lb = data.lb
         ans.ub = data.ub
-        ans.splits = data.splits
+        ans.splits = data.splits.copy()
         ans.shape = data.shape.copy()
         ans.var_name = var_name
         pads = abstracts[1]
@@ -2319,8 +2319,8 @@ class Interpreter(object):
         ans.shape = shape.copy()
         ans.splits = [[] if item == 0 else [0] for item in ans.shape]
         abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, high)
-        ans.ub = torch.full(abs_shape, low)
+        ans.lb = torch.full(abs_shape, low)
+        ans.ub = torch.full(abs_shape, high)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
         ans.var_name = var_name
@@ -2572,7 +2572,13 @@ class Interpreter(object):
             noop_with_empty_axes = attr.get('noop_with_empty_axes', 0)
             if noop_with_empty_axes != 0 and len(abstracts) <= 1:
                 # noop behavior
-                return abstracts[0], list()
+                ret = Abstraction()
+                ret.lb = abstracts[0].lb
+                ret.ub = abstracts[0].ub
+                ret.shape = abstracts[0].shape.copy()
+                ret.splits = abstracts[0].splits.copy()
+                ret.var_name = var_name
+                return ret, list()
             else:
                 if len(abstracts) > 1:
                     assert abstracts[1].is_exact()
@@ -2976,9 +2982,10 @@ class Interpreter(object):
         scale.split_by(B.splits, inplace=True)
         scale.split_by(input_mean.splits, inplace=True)
         scale.split_by(input_var.splits, inplace=True)
+        scale.split_by(x.splits, inplace=True)
 
         # split others
-        x.split_by(scale.splits, inplace=True)
+        x = x.split_by(scale.splits, inplace=False)
         B.split_by(scale.splits, inplace=True)
         input_mean.split_by(scale.splits, inplace=True)
         input_var.split_by(scale.splits, inplace=True)
@@ -2993,7 +3000,7 @@ class Interpreter(object):
                                (x.ub - input_mean.lb) / torch.sqrt(input_var.ub + epsilon) * scale.lb], dim=0)
         ret.lb = torch.amin(choices, dim=0) + B.lb
         ret.ub = torch.amax(choices, dim=0) + B.ub
-        return ret, list()
+        return [ret] + [None] * (len(node.output) - 1), list()
 
     def interp_OneHot(self, abstracts, node, optype, var_name):
         attrs = parse_attribute(node)
