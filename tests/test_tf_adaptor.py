@@ -11,7 +11,7 @@ from graphparser import tf_adaptor
 # faster_rcnn_resnet_50 contains many Switch node
 # feelvos is large, and says ValueError: Node 'map/while/case/cond/DecodeRaw' has an _output_shapes attribute inconsistent with the GraphDef for output #0: Shapes must be equal rank, but are 1 and 3
 # fivo_ghmm, fivo_srnn, fivo_vrnn: ValueError: Dimension 0 in both shapes must be equal, but are 16 and 4. Shapes are [16] and [4]. for 'while_1/Select' (op: 'Select') with input shapes: [?], [16], [4].
-# gan_cifar, gan_mnist: existance of string_ref
+# gan_cifar: existance of string_ref
 # gan_mnist: The model is invalid: Field 'shape' of type is required but missing.
 # learning_to_remember_rare_events: Unsupported ops: Counter({'Switch': 7})
 # neural_gpu1, neural_gpu2: ValueError: squeeze_dims[0] not in [0,0). for 'gpu0/Squeeze' (op: 'Squeeze') with input shapes: [].

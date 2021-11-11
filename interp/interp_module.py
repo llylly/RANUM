@@ -12,6 +12,7 @@ from interp.specified_ranges import SpecifiedRanges
 
 class InterpModule():
     SUPER_START_NODE = "SUPER_START"
+
     def __init__(self, onnx_model, debug=True, customize_shape=None):
         self.onnx_model = onnx_model
 
@@ -349,7 +350,8 @@ class InterpModule():
         analyze_result_neg = {}
         print('=' * 10, "Details", '=' * 10)
         optimize_op_filter = {"Mul",  # -> Square
-                              "Slice", "Concat", "Resize"}
+                              "Sub",  # -> Zero
+                              "Slice", "Concat", "Resize", "Sum"}
         while l < len(queue):
             cur_var = queue[l]
             l += 1

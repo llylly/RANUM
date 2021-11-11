@@ -478,6 +478,14 @@ class Interpreter(object):
         return func(abstracts, node, optype, var_name)
 
     def interp_Sub(self, abstracts, node, optype, var_name):
+        if node.input[0] == node.input[1]:
+            ans = Abstraction()
+            ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
+            ans.lb = torch.zeros_like(abstracts[0].lb)
+            ans.ub = torch.zeros_like(abstracts[0].ub)
+            ans.var_name = var_name
+            return ans, list()
+
         abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
         abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
 
@@ -2316,8 +2324,8 @@ class Interpreter(object):
 
     def interp_RandomUniformLike(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
-        low = attr.get('low', 0)
-        high = attr.get('high', 1)
+        low = attr.get('low', 0.0)
+        high = attr.get('high', 1.0)
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
@@ -2479,8 +2487,22 @@ class Interpreter(object):
     def interp_Not(self, abstracts, node, optype, var_name):
         ans = Abstraction()
         ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
-        ans.lb = 1 - abstracts[0].ub
-        ans.ub = 1 - abstracts[0].lb
+        ans.lb = ~abstracts[0].ub.bool()
+        ans.ub = ~abstracts[0].lb.bool()
+        ans.var_name = var_name
+        return ans, list()
+
+    def interp_Or(self, abstracts, node, optype, var_name):
+        abst0 = abstracts[0].extend_dim(abstracts[1].get_dim(), inplace=False)
+        abst1 = abstracts[1].extend_dim(abstracts[0].get_dim(), inplace=False)
+
+        abst0.split_by(abst1.splits, inplace=True)
+        abst1.split_by(abst0.splits, inplace=True)
+
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
+        ans.lb = abst0.lb.bool() | abst1.lb.bool()
+        ans.ub = abst0.ub.bool() | abst1.ub.bool()
         ans.var_name = var_name
         return ans, list()
 
@@ -3189,6 +3211,26 @@ class Interpreter(object):
             ans.splits = list(filter(lambda x: x is not None, ans.splits))
 
         ans.var_name = var_name
+        return ans, list()
+
+    def interp_IsInf(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.zeros_like(abst.lb)
+        ans.ub = torch.zeros_like(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        return ans, list()
+
+    def interp_IsNaN(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.lb = torch.zeros_like(abst.lb)
+        ans.ub = torch.zeros_like(abst.ub)
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
         return ans, list()
 
     def general_flatten(self, abstract: Abstraction, start_dim=0):

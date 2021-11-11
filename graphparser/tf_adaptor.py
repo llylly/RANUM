@@ -391,10 +391,9 @@ def freeze_and_initialize_graph(graphdef):
                 or node.op == 'Lgamma' \
                 or node.op == 'ScatterUpdate' \
                 or node.op == 'L2Loss' or node.op == 'PyFunc' \
-                or node.op == 'Rank' \
                 or node.op == 'WholeFileReaderV2' or node.op == 'TextLineReaderV2' \
                 or node.op == 'ResizeArea' \
-                or node.name.lower().count('gradient') > 0:
+                or (node.name.lower().count('gradient') > 0 and node.name.lower().count('stopgradient') == 0):
             node_to_trim.append(node.name)
     graphdef = trim_nodes(graphdef, node_to_trim)
 
@@ -561,11 +560,7 @@ banned_list = ['compression_entropy_coder', 'deep_speech', 'delf', 'domain_adapt
                'textsum', 'ptn', 'sentiment_analysis', 'skip_thought',
                'video_prediction']
 
-# incomplete graphs:
-# attention_ocr, deep_contextual_bandits_bb_alpha_nn, swivel
-# errors:
-# next_frame_prediction, pyramid_net, ssd_inception_v2, ssd_mobile_net_v1, ssd_mobile_net_v2
-permit_list = ["vid2depth"]
+permit_list = []
 
 
 def convert_protobuf_file(file_path):

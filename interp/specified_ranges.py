@@ -161,7 +161,7 @@ class SpecifiedRanges:
         # token_id; train or test; variance
         "next_frame_prediction": {"shuffle_batch/random_shuffle_queue": [[-1, 1]]},
         # video feature
-        "minigo": {"pos_tensor": [-1, 1], "mean_5/count/Assign": [1, None]},
+        "minigo": {"pos_tensor": [-1, 1], "mean_7/total/Assign": [1, None]},
         # pos feature
         "compression_entropy_coder": {"padding_fifo_queue": [[-1, 1]]},
         # image pixel
