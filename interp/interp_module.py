@@ -213,8 +213,12 @@ class InterpModule():
         """Space for analysis"""
         self.initial_abstracts = None
         self.abstracts = None
+        self.require_fine_grain_vars = None
         # key: var_name, value: tuple of (list of numerical error exceptions, set of caused tensors)
         self.possible_numerical_errors = dict()
+
+        """Space for reusable queue"""
+        self.queue = None
 
     def _shape_invertor(self, shape):
         """
@@ -269,6 +273,7 @@ class InterpModule():
             l += 1
         print('  ', len(require_fine_grain_vars), 'fine grain variables found')
         print(f'    They are {require_fine_grain_vars}')
+        self.require_fine_grain_vars = require_fine_grain_vars
 
         # compute the involved nodes with respected to the op2check
         queue = list(self.nodes_to_check)
@@ -343,6 +348,16 @@ class InterpModule():
 
         print('topology sort based interpretation...', flush=True)
         queue = list(self.start_points).copy()
+        """self.queue is a list of tuple (node_name, node context)"""
+        """ where node context is 
+        (previous node name, 
+        node_name, 
+        index of previous node name in inputs, 
+        index of current node_name in outputs, 
+        node optype, 
+        node name, 
+        node object) """
+        self.queue = [(item, None) for item in queue]
         cur_deg_in = self.deg_in.copy()
         l = 0
         # try:
@@ -365,6 +380,7 @@ class InterpModule():
                         # only happens for nodes with multiple outputs,
                         # so now we can skip
                         queue.append(vj)
+                        self.queue.append((vj, (cur_var, vj, ind_i, ind_j, node_optype, node_name, node)))
                         pass
 
                     else:
@@ -399,17 +415,23 @@ class InterpModule():
                             roots = set(roots)
                             if len(roots) == 0:
                                 roots = {node.name}
-                            self.possible_numerical_errors[vj] = (cur_exceps, roots)
+                                catastro = False
+                            else:
+                                catastro = True
+                            self.possible_numerical_errors[vj] = (cur_exceps, roots, catastro)
                             print(f'node name = {node_name}, type = {node_optype} can cause numerical error!')
                             analyze_result_pos[node.op_type] = analyze_result_pos.get(node.op_type, 0) + 1
                         elif node.op_type in PossibleNumericalError.OPs2Check:
                             print(f'node name = {node_name}, type = {node_optype} is safe.')
                             analyze_result_neg[node.op_type] = analyze_result_neg.get(node.op_type, 0) + 1
                         if cur_abst is None:
+                            # still enqueue to detect the error with rerunning
+                            self.queue.append((vj, (cur_var, vj, ind_i, ind_j, node_optype, node_name, node)))
                             print(f'! No abstraction generated for {vj}: '
                                   f'node name = {node_name}, type = {node_optype}')
                         else:
                             queue.append(vj)
+                            self.queue.append((vj, (cur_var, vj, ind_i, ind_j, node_optype, node_name, node)))
                             if isinstance(cur_abst, Abstraction):
                                 if PossibleNumericalError.is_invalid(cur_abst.lb) or PossibleNumericalError.is_invalid(
                                         cur_abst.ub):
@@ -453,6 +475,66 @@ class InterpModule():
         print(f"Find {sum(item[1] for item in analyze_result_neg.items())} Negatives: {analyze_result_neg}")
         print(f"Find {sum(item[1] for item in analyze_result_pos.items())} Positives: {analyze_result_pos}")
         return self.possible_numerical_errors
+
+    def forward(self, initial_abstracts, interp_config=dict()):
+        """
+            After the initial call of analyze(), this method tries to quickly relaunch the forward propagation based on initialized abstraction of start points
+        :param initial_abstracts:
+        :return:
+        """
+        interpreter = Interpreter(**interp_config)
+        abstracts = initial_abstracts
+        possible_numerical_errors = dict()
+        for i, (node_name, ctx) in enumerate(self.queue):
+            if ctx is None:
+                if node_name not in abstracts:
+                    print(f'! Initial node {node_name} lacks initialized abstracts')
+            else:
+                if node_name in abstracts:
+                    # already obtained from previous op propagation, skip
+                    pass
+                else:
+                    parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
+
+                    if node.op_type != 'Loop':
+                        cur_abst, cur_exceps = interpreter.handle(
+                            [abstracts[x] for x in node.input], node, node_optype, node_name
+                        )
+                    else:
+                        # specially handle the loop dependencies
+                        cur_abst, cur_exceps = interpreter.interp_Loop(
+                            [abstracts[x] for x in node.input], node, node_optype, node_name,
+                            loop_dependencies=dict(
+                                [(x, abstracts[x]) for x in self.loop_dependencies[node.name] if x in abstracts])
+                        )
+
+                    if len(cur_exceps) > 0:
+                        roots = list()
+                        for x in node.input:
+                            if x in possible_numerical_errors:
+                                roots.extend(possible_numerical_errors[x][1])
+                        roots = set(roots)
+                        # whether it is a catastrophic error
+                        if len(roots) == 0:
+                            roots = {node.name}
+                            catastro = False
+                        else:
+                            catastro = True
+                        possible_numerical_errors[now_node] = (cur_exceps, roots, catastro)
+                    if cur_abst is None:
+                        pass
+                        # print(f'! No abstraction generated for {now_node}: '
+                        #       f'node name = {node_name}, type = {node_optype}')
+                    else:
+                        if isinstance(cur_abst, Abstraction):
+                            # single output node
+                            abstracts[now_node] = cur_abst
+                        else:
+                            # multiple output node: execute once, update all output nodes
+                            for i, cur_cur_abst in enumerate(cur_abst):
+                                abstracts[node.output[i]] = cur_cur_abst
+
+        return abstracts, possible_numerical_errors
 
     def gen_abstraction_heuristics(self, model_name):
         """

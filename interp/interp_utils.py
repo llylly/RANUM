@@ -1,6 +1,7 @@
 import onnx
 import torch
 from onnx.helper import get_attribute_value
+import torch
 
 EPS = 1e-5
 
@@ -121,7 +122,6 @@ def parse_attribute(node):
     for item in node.attribute:
         ans[item.name] = get_attribute_value(item)
     return ans
-
 
 discrete_types = ['UINT8', 'INT8', 'UINT16', 'INT16', 'INT32', 'INT64', 'STRING', 'BOOL']
 

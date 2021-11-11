@@ -1562,6 +1562,32 @@ class TestAbstraction(unittest.TestCase):
         aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node6, 'Conv', 'res')
         self.assertTrue(correct_abstraction(aRes, res))
 
+        # =======
+        conf1 = AbstractionInitConfig(diff=True, from_init=True, stride=[1, 3, 10, 10, 10])
+        conf2 = AbstractionInitConfig(diff=True, from_init=True, stride=[4, 4, 5, 5, 3])
+        conf3 = AbstractionInitConfig(diff=True, from_init=True, stride=[3])
+
+        X = np.random.randn(1, 5, 40, 40, 101)
+        W = np.random.randn(5, 1, 3, 3, 4)
+        B = np.random.randn(5) * 10.
+
+        aX = Abstraction().load(conf1, 'X', X.shape, 'FLOAT', X)
+        aW = Abstraction().load(conf2, 'W', W.shape, 'FLOAT', W)
+        aB = Abstraction().load(conf3, 'B', B.shape, 'FLOAT', B)
+
+        conv_node6 = helper.make_node(
+            'Conv',
+            inputs=['x', 'W', 'b'],
+            outputs=['y'],
+            pads=[1, 0, 1, 1, 0, 1],
+            strides=[2, 2, 3],  # Default values for other attributes: dilations=[1, 1, 1], groups=1
+            group=5
+        )
+        res = torch.nn.functional.conv3d(torch.tensor(X), torch.tensor(W), torch.tensor(B), stride=(2, 2, 3),
+                                         padding=[1, 0, 1], groups=5)
+        aRes, _ = interp.interp_Conv([aX, aW, aB], conv_node6, 'Conv', 'res')
+        self.assertTrue(correct_abstraction(aRes, res))
+
     def test_ConvTranspose(self):
 
         interp = Interpreter()
@@ -3659,7 +3685,7 @@ class TestAbstraction(unittest.TestCase):
 
         # output size: (2, 3, 4, 5)
         y_abst, _ = interp.interp_BatchNormalization([x, s, bias, mean, var], node, 'BatchNormalization', 'output')
-        self.assertTrue(correct_abstraction(y_abst, y))
+        self.assertTrue(correct_abstraction(y_abst[0], y))
 
         node = helper.make_node(
             'BatchNormalization',
@@ -3670,7 +3696,7 @@ class TestAbstraction(unittest.TestCase):
 
         # output size: (2, 3, 4, 5)
         y_abst, _ = interp.interp_BatchNormalization([x, s, bias, mean, var], node, 'BatchNormalization', 'output')
-        self.assertTrue(correct_abstraction(y_abst, y1))
+        self.assertTrue(correct_abstraction(y_abst[0], y1))
 
     def test_OneHot(self):
         interp = Interpreter()
@@ -4253,5 +4279,5 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
 
 
 if __name__ == '__main__':
-    # unittest.main()
-    TestAbstraction().test_Resize()
+    unittest.main()
+    # TestAbstraction().test_Resize()

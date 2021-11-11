@@ -9,6 +9,9 @@ import onnx
 from onnx import numpy_helper
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
     PossibleNumericalError, index_clip_thres
+from interp.grad_thru_functions import StraightSigmoid, StraightTanh, StraightSoftmaxIntervalLb, \
+    StraightSoftmaxIntervalUb, \
+    StraightSoftmaxInterval, StraightRelu, StraightExp
 
 
 class Abstraction(object):
@@ -441,14 +444,14 @@ class Interpreter(object):
 
     def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
                  loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1),
-                 average_pool_mode='precise', onehot_mode='coarse'):
+                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0):
         # default smash threshold
         self.smash = smash_thres
 
         # whether to propagate precise or coarse bound for ceil or floor
         # the precise means that, ceil/floor exactly applies ceil/floor func, but this way we cannot have the gradient
         # the idential means that, we just propagate the identical value as the approximation and we can obtain the gradient
-        # the coarse means that, the corase bound is (lb, ub+1) for ceil and (lb-1, ub) for floor, which is imprecise but we can obtain the gradient
+        # the coarse means that, the coarse bound is (lb, ub+1) for ceil and (lb-1, ub) for floor, which is imprecise but we can obtain the gradient
         assert ceil in ['precise', 'identical', 'coarse']
         assert floor in ['precise', 'identical', 'coarse']
         assert average_pool_mode in ['precise', 'coarse']
@@ -458,6 +461,10 @@ class Interpreter(object):
         self.loop_constant_abst_cfg = loop_constant_abst_cfg
         self.average_pool_mode = average_pool_mode
         self.onehot_mode = onehot_mode
+
+        # diff_order = 1: provide first order gradient as much as possible
+        # diff_order = 2: provide second order gradient as much as possible
+        self.diff_order = diff_order
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -883,6 +890,8 @@ class Interpreter(object):
 
     def interp_AveragePool(self, abstracts, node, optype, var_name):
         """
+            precise mode: precise, but limited support
+            coarse mode: coarse, and general
             @TODO: for precise mode, need to handle these cases later
                 1. count_include_pad = False, left pad < right pad
                 2. count_include_pad = False, left pad > right pad, stride > 1
@@ -1082,9 +1091,15 @@ class Interpreter(object):
         """append the padding to the abstraction, so that all conv becomes valid padding ops"""
         add_padding_to_X(X, padding, 0)
 
-        W_ref_channels = list(set([item % (X.shape[1] // group) for item in X.splits[1]]))
-        W.split_by([W.splits[0] if B is None else B.splits[0], W_ref_channels] + [list(range(x)) for x in
-                                                                                  W.shape[2:]], inplace=True)
+        W_ref_channels = sorted(set([item % (X.shape[1] // group) for item in X.splits[1]]))
+        if B is not None:
+            tmp_B_splits = B.splits[0]
+        else:
+            tmp_B_splits = list()
+        W_ref_out_channels = sorted(set([item % (W.shape[0] // group) for item in tmp_B_splits + W.splits[0]]))
+        W_ref_out_channels = [i * (W.shape[0] // group) + j for i in range(group) for j in W_ref_out_channels]
+        W.split_by([W_ref_out_channels, W_ref_channels] + [list(range(x)) for x in
+                                                           W.shape[2:]], inplace=True)
         X_ref_channels = [item + now_group * W.shape[1] for now_group in range(group) for item in W.splits[1]]
         X.split_by([X.splits[0], X_ref_channels] + X.splits[2:], inplace=True)
         if B is not None:
@@ -1198,7 +1213,7 @@ class Interpreter(object):
         X_ref_channels = [item + j * X.shape[1] // group for j in range(group) for item in X_ref_channels]
         X.split_by([X.splits[0], X_ref_channels] + X.splits[2:], inplace=True)
         if B is not None:
-            W_ref_channels = list(set([item % (W.shape[1]) for item in B.splits[0]]))
+            W_ref_channels = sorted(set([item % (W.shape[1]) for item in B.splits[0]]))
         else:
             W_ref_channels = list(range(W.shape[1]))
         W.split_by([X.splits[1], W_ref_channels] + [list(range(x)) for x in W.shape[2:]])
@@ -1363,8 +1378,13 @@ class Interpreter(object):
     def interp_Relu(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
-        ans.lb = torch.relu(abst.lb)
-        ans.ub = torch.relu(abst.ub)
+        if self.diff_order == 0:
+            ans.lb = torch.relu(abst.lb)
+            ans.ub = torch.relu(abst.ub)
+        else:
+            # use leaky relu's gradient as an approximation to provide necessary gradient feedback for optimization
+            ans.lb = StraightRelu.apply(abst.lb)
+            ans.ub = StraightRelu.apply(abst.ub)
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1405,8 +1425,13 @@ class Interpreter(object):
     def interp_Sigmoid(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
-        ans.lb = torch.sigmoid(abst.lb)
-        ans.ub = torch.sigmoid(abst.ub)
+        if self.diff_order == 0:
+            ans.lb = torch.sigmoid(abst.lb)
+            ans.ub = torch.sigmoid(abst.ub)
+        else:
+            # penetrate gradients through sigmoid
+            ans.lb = StraightSigmoid.apply(abst.lb)
+            ans.ub = StraightSigmoid.apply(abst.ub)
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1433,6 +1458,9 @@ class Interpreter(object):
         if (abst.ub >= PossibleNumericalError.OVERFLOW_D * np.log(10)).any():
             return PossibleNumericalError.clip_to_valid_range(ans, lb=0), [
                 PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
+        func = torch.exp if self.diff_order == 0 else StraightExp.apply
+        ans.lb = func(abst.lb)
+        ans.ub = func(abst.ub)
         # if PossibleNumericalError.is_invalid(ans.lb) or PossibleNumericalError.is_invalid(ans.ub):
         #     return None, [
         #         PossibleNumericalError(optype, var_name, [abst.lb, abst.ub], PossibleNumericalError.ERROR_OVERFLOW)]
@@ -1462,14 +1490,20 @@ class Interpreter(object):
         abst = abstracts[0]
         ans = Abstraction()
         ans.var_name = var_name
-        exp_lb = torch.exp(abst.lb - torch.max(abst.ub, dim=axis, keepdim=True)[0])
-        exp_ub = torch.exp(abst.ub - torch.max(abst.ub, dim=axis, keepdim=True)[0])
         multiplies = self.cal_multiplies_for_sum(abstracts[0], [axis])
-        # inputs: [l1, l2, l3], [u1, u2, u3]
-        # softmax_lb = [l1 / (l1 + u2 + u3), ...]
-        # softmax_ub = [u1 / (u1 + l2 + l3)]
-        ans.lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
-        ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+
+        if self.diff_order == 0:
+            exp_lb = torch.exp(abst.lb - torch.max(abst.ub, dim=axis, keepdim=True)[0])
+            exp_ub = torch.exp(abst.ub - torch.max(abst.ub, dim=axis, keepdim=True)[0])
+            # inputs: [l1, l2, l3], [u1, u2, u3]
+            # softmax_lb = [l1 / (l1 + u2 + u3), ...]
+            # softmax_ub = [u1 / (u1 + l2 + l3)]
+            ans.lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+            ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+        else:
+            # ans.lb = StraightSoftmaxIntervalLb.apply(abst.lb, abst.ub, multiplies, axis)
+            # ans.ub = StraightSoftmaxIntervalUb.apply(abst.lb, abst.ub, multiplies, axis)
+            ans.lb, ans.ub = StraightSoftmaxInterval.apply(abst.lb, abst.ub, multiplies, axis)
 
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -2487,8 +2521,8 @@ class Interpreter(object):
     def interp_Not(self, abstracts, node, optype, var_name):
         ans = Abstraction()
         ans.shape, ans.splits = abstracts[0].shape.copy(), abstracts[0].splits.copy()
-        ans.lb = ~abstracts[0].ub.bool()
-        ans.ub = ~abstracts[0].lb.bool()
+        ans.lb = (~abstracts[0].ub.bool()).double()
+        ans.ub = (~abstracts[0].lb.bool()).double()
         ans.var_name = var_name
         return ans, list()
 
@@ -2501,8 +2535,8 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-        ans.lb = abst0.lb.bool() | abst1.lb.bool()
-        ans.ub = abst0.ub.bool() | abst1.ub.bool()
+        ans.lb = (abst0.lb.bool() | abst1.lb.bool()).double()
+        ans.ub = (abst0.ub.bool() | abst1.ub.bool()).double()
         ans.var_name = var_name
         return ans, list()
 
