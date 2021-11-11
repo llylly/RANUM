@@ -3153,8 +3153,12 @@ class Interpreter(object):
         nearest_mode = attrs.get('nearest_mode', b'round_prefer_floor')
         nearest_mode = nearest_mode.decode('ascii')
         # TODO: Other types of resize arguments. A more accuracte version.
-        if coordinate_transformation_mode == "asymmetric" and mode in ["linear", "nearest"]:
+        if mode in ["linear", "nearest"]:
             ans = abstracts[0].smash(inplace=False)
+            if coordinate_transformation_mode == "tf_crop_and_resize":
+                extrapolation_value_tensor = torch.DoubleTensor([extrapolation_value])
+                ans.lb = torch.minimum(ans.lb, extrapolation_value_tensor)
+                ans.ub = torch.maximum(ans.ub, extrapolation_value_tensor)
             ans.var_name = var_name
             if abstracts[2] is not None and abstracts[2].shape[0] == abstracts[0].get_dim():
                 ans.shape = [int(x * abstracts[2].lb[i].item()) for i, x in enumerate(abstracts[0].shape)]

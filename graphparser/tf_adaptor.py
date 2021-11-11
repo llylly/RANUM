@@ -52,6 +52,40 @@ def trim_nodes(graphdef, node_names):
     return graphdef
 
 
+def trim_node_to_blame(graphdef, target_node_name, node_names: set):
+    """
+    :param graphdef:
+    :param target_node_name: the target missing node name
+    :param node_names:
+    :return: a set of node names in node_names which are to blame.
+    """
+    in_edges = dict()
+    for node in graphdef.node:
+        in_edges[node.name] = []
+        for pre_v in node.input:
+            if pre_v.startswith('^'):
+                pre_v = pre_v[1:]
+            if pre_v.count(':') > 0:
+                pre_v = pre_v[:pre_v.index(':')]
+            in_edges[node.name].append(pre_v)
+
+    que = [target_node_name]
+    se = set(que)
+    ret = []
+    l = 0
+    while l < len(que):
+        if que[l] in in_edges:
+            for oute in in_edges[que[l]]:
+                if oute not in se:
+                    se.add(oute)
+                    que.append(oute)
+                    if oute in node_names:
+                        ret.append(oute)
+        l += 1
+
+    return ret
+
+
 def freeze_and_initialize_graph(graphdef):
     """
         Freeze the graph that only preserves the architecture information - the default graph freezing in TF requires
@@ -395,6 +429,9 @@ def freeze_and_initialize_graph(graphdef):
                 or node.op == 'ResizeArea' \
                 or (node.name.lower().count('gradient') > 0 and node.name.lower().count('stopgradient') == 0):
             node_to_trim.append(node.name)
+    # debug
+    # node_to_blame = trim_node_to_blame(graphdef, "Loss/Compare/IOU/truediv", set(node_to_trim))
+
     graphdef = trim_nodes(graphdef, node_to_trim)
 
     """STEP9: replace PlaceholderWithDefault by its Const input"""
@@ -560,7 +597,7 @@ banned_list = ['compression_entropy_coder', 'deep_speech', 'delf', 'domain_adapt
                'textsum', 'ptn', 'sentiment_analysis', 'skip_thought',
                'video_prediction']
 
-permit_list = []
+permit_list = ["ssd_inception_v2"]
 
 
 def convert_protobuf_file(file_path):

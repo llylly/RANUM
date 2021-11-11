@@ -3923,9 +3923,98 @@ class TestAbstraction(unittest.TestCase):
             expect(node, inputs=[data, None, scales, None], outputs=[output],
                    name='test_resize_downsample_scales_nearest')
 
+        def resize_downsample_scales_linear_align_corners():
+            node = helper.make_node(
+                'Resize',
+                inputs=['X', 'roi', 'scales', 'size'],
+                outputs=['Y'],
+                mode='linear',
+                coordinate_transformation_mode='align_corners'
+            )
+
+            data = np.array([[[
+                [1, 2, 3, 4],
+                [5, 6, 7, 8],
+            ]]], dtype=np.float32)
+
+            scales = np.array([1.0, 1.0, 0.6, 0.6], dtype=np.float32)
+
+            # [[[[1.       3.142857]]]]
+            output = interpolate_nd(
+                data, linear_coeffs, scale_factors=scales, coordinate_transformation_mode='align_corners').astype(
+                np.float32)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            scales = Abstraction().load(conf_exact, 'scales', scales.shape, 'FLOAT', scales)
+            expect(node, inputs=[data, None, scales, None], outputs=[output],
+                   name='test_resize_downsample_scales_linear_align_corners')
+
+        def resize_downsample_sizes_linear_pytorch_half_pixel():
+            node = helper.make_node(
+                'Resize',
+                inputs=['X', '', '', 'sizes'],
+                outputs=['Y'],
+                mode='linear',
+                coordinate_transformation_mode='pytorch_half_pixel'
+            )
+
+            data = np.array([[[
+                [1, 2, 3, 4],
+                [5, 6, 7, 8],
+                [9, 10, 11, 12],
+                [13, 14, 15, 16],
+            ]]], dtype=np.float32)
+
+            sizes = np.array([1, 1, 3, 1], dtype=np.int64)
+
+            # [[[[ 1.6666666]
+            #    [ 7.       ]
+            #    [12.333333 ]]]]
+            output = interpolate_nd(
+                data, linear_coeffs, output_size=sizes, coordinate_transformation_mode='pytorch_half_pixel').astype(
+                np.float32)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            sizes = Abstraction().load(conf_exact, 'scales', sizes.shape, 'INT', sizes)
+            expect(node, inputs=[data, None, None, sizes], outputs=[output],
+                   name='test_resize_downsample_sizes_linear_pytorch_half_pixel')
+
+        def resize_tf_crop_and_resize_extrapolation_value():
+            node = helper.make_node(
+                'Resize',
+                inputs=['X', 'roi', '', 'sizes'],
+                outputs=['Y'],
+                mode='linear',
+                coordinate_transformation_mode='tf_crop_and_resize',
+                extrapolation_value=10.0
+            )
+
+            data = np.array([[[
+                [1, 2, 3, 4],
+                [5, 6, 7, 8],
+                [9, 10, 11, 12],
+                [13, 14, 15, 16],
+            ]]], dtype=np.float32)
+
+            # Note: for some rois, the result may be different with that of TF for inaccurate floating point
+            roi = np.array([0, 0, 0.4, 0.6, 1, 1, 1.2, 1.7], dtype=np.float32)
+            sizes = np.array([1, 1, 3, 3], dtype=np.int64)
+
+            # [[[[ 7.6000004 10.        10.       ]
+            #    [12.400001  10.        10.       ]
+            #    [10.        10.        10.       ]]]]
+            output = interpolate_nd(data, linear_coeffs, output_size=sizes, roi=roi,
+                                    coordinate_transformation_mode='tf_crop_and_resize',
+                                    extrapolation_value=10.0).astype(np.float32)
+            data = Abstraction().load(conf_s2, 'data', data.shape, 'FLOAT', data)
+            sizes = Abstraction().load(conf_exact, 'scales', sizes.shape, 'INT', sizes)
+            expect(node, inputs=[data, None, None, sizes], outputs=[output],
+                   name='test_resize_tf_crop_and_resize')
+
         test_resize_downsample_scales_linear_asymmetric()
         test_resize_downsample_scales_linear_asymmetric_size()
         test_resize_downsample_scales_nearest_asymmetric()
+        resize_downsample_scales_linear_align_corners()
+        resize_downsample_sizes_linear_pytorch_half_pixel()
+        resize_tf_crop_and_resize_extrapolation_value()
         # TODO: other arguments
 
     def test_ReduceProd(self):
@@ -4279,5 +4368,5 @@ def logsoftmax(x, axis=-1):  # type: (np.ndarray, int) -> np.ndarray
 
 
 if __name__ == '__main__':
-    unittest.main()
-    # TestAbstraction().test_Resize()
+    # unittest.main()
+    TestAbstraction().test_Resize()
