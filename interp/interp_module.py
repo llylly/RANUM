@@ -45,7 +45,7 @@ class InterpModule():
                                        (self.tensor_type_mapper[node.data_type], onnx.numpy_helper.to_array(node))
                                        ) for node in self.onnx_model.graph.initializer])
 
-        """collect constant oprators as initializers"""
+        """collect constant operators as initializers"""
         if debug: print('retrieve constant operators', flush=True)
         for node in self.onnx_model.graph.node:
             if node.op_type == 'Constant':
@@ -129,9 +129,9 @@ class InterpModule():
                 self.all_nodes.add(v)
 
             node_input = list(node.input)
-            if len(node_input) == 0:
-                node_input.append(InterpModule.SUPER_START_NODE)
-                self.start_points.add(InterpModule.SUPER_START_NODE)
+            # if len(node_input) == 0:
+            #     node_input.append(InterpModule.SUPER_START_NODE)
+            #     self.start_points.add(InterpModule.SUPER_START_NODE)
 
             for i, vi in enumerate(node_input):
                 for j, vj in enumerate(list(node.output)):
@@ -202,8 +202,8 @@ class InterpModule():
         print('Number of nodes:', len(self.signature_dict))
         print('Number of edges:', sum([len(x) for x in self.edges.values()]))
         print('Number of start points:', len(self.start_points))
-        if len(self.start_points) <= 5:
-            print('  They are', self.start_points)
+        # if len(self.start_points) <= 5:
+        print('  They are', self.start_points)
         print('Number of op types:', len(self.node_types))
         # if len(self.node_types) <= 5:
         print('  They are', self.node_types)
@@ -233,7 +233,18 @@ class InterpModule():
 
     def analyze(self, init_config=None, interp_config=dict(),
                 input_config=AbstractionInitConfig(diff=True, stride=-1, from_init=False, from_init_margin=1.),
-                weight_config=AbstractionInitConfig(diff=True, stride=-1, from_init=True, from_init_margin=1.)):
+                weight_config=AbstractionInitConfig(diff=True, stride=-1, from_init=True, from_init_margin=1.),
+                terminate=None):
+        """
+
+        :param init_config:
+        :param interp_config:
+        :param input_config:
+        :param weight_config:
+        :param terminate: terminate condition, if none, then traverse all involved_vars;
+        else it should be a str, denoting a termination after the abst of the node with specified name is generated
+        :return:
+        """
 
         # independent abstraction variables
         self.initial_abstracts = dict()
@@ -370,8 +381,12 @@ class InterpModule():
         while l < len(queue):
             cur_var = queue[l]
             l += 1
-            if cur_var not in involved_vars:
-                continue
+            if terminate is None:
+                if cur_var not in involved_vars:
+                    continue
+            else:
+                if terminate in self.abstracts:
+                    break
             for vj, ind_i, ind_j, node_optype, node_name, node in self.edges[cur_var]:
                 cur_deg_in[vj] -= 1
                 if cur_deg_in[vj] == 0:
@@ -457,14 +472,16 @@ class InterpModule():
                                     if any(x != len(y) for x, y in zip(cur_cur_abst.lb.shape, cur_cur_abst.splits)):
                                         raise AssertionError(f'! The splits for {vj} does not match the lb(ub).shape: '
                                                              f'node name = {node_name}, type = {node_optype}')
+                                    # if node.output[i] in self.abstracts:
+                                    #     print(f'!!!!!! multiple updates on node {node.output[i]} which should not happen')
                                     self.abstracts[node.output[i]] = cur_cur_abst
         # except:
         #     print('error countered')
 
         # place to inspect abstraction for debug
-        # self.abstracts['8'].print()
-        # self.abstracts['Shape__681:0'].print()
-        # self.abstracts['Sub__683:0'].print()
+        # self.abstracts['dropout/truediv/x:0'].print()
+        # self.abstracts['sub:0'].print()
+        # self.abstracts['keep_prob:0'].print()
         # self.abstracts['ConstantOfShape__684:0'].print()
         # self.abstracts['Concat__685:0'].print()
         print('=' * 10, "Summary", '=' * 10)
@@ -481,6 +498,11 @@ class InterpModule():
         interpreter = Interpreter(**interp_config)
         abstracts = initial_abstracts
         possible_numerical_errors = dict()
+
+        optimize_op_filter = {"Mul",  # -> Square
+                              "Sub",  # -> Zero
+                              "Slice", "Concat", "Resize", "Sum"}
+
         for i, (node_name, ctx) in enumerate(self.queue):
             if ctx is None:
                 if node_name not in abstracts:
@@ -492,17 +514,43 @@ class InterpModule():
                 else:
                     parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
 
+
+
+                    node_input_cnt = len(node.input)
+                    unique_node_input_cnt = len(set([x for x in node.input]))
+                    # detect potential optimizing operators
+                    if unique_node_input_cnt != node_input_cnt and node.op_type not in optimize_op_filter:
+                        print(f"({node.name}, {node.op_type}) can be optimized!\n{node.input}")
                     if node.op_type != 'Loop':
-                        cur_abst, cur_exceps = interpreter.handle(
-                            [abstracts[x] for x in node.input], node, node_optype, node_name
-                        )
+                        # optimize multiplication with two same inputs as square
+                        if node.op_type == "Mul" and unique_node_input_cnt == 1:
+                            cur_abst, cur_exceps = interpreter.handle(
+                                [abstracts[node.input[0]]], None, "Square", node_name
+                            )
+                        else:
+                            cur_abst, cur_exceps = interpreter.handle(
+                                [abstracts[x] for x in node.input], node, node_optype, node_name
+                            )
                     else:
                         # specially handle the loop dependencies
                         cur_abst, cur_exceps = interpreter.interp_Loop(
                             [abstracts[x] for x in node.input], node, node_optype, node_name,
                             loop_dependencies=dict(
-                                [(x, abstracts[x]) for x in self.loop_dependencies[node.name] if x in abstracts])
+                                [(x, abstracts[x]) for x in self.loop_dependencies[node.name] if
+                                 x in abstracts])
                         )
+
+                    # if node.op_type != 'Loop':
+                    #     cur_abst, cur_exceps = interpreter.handle(
+                    #         [abstracts[x] for x in node.input], node, node_optype, node_name
+                    #     )
+                    # else:
+                    #     # specially handle the loop dependencies
+                    #     cur_abst, cur_exceps = interpreter.interp_Loop(
+                    #         [abstracts[x] for x in node.input], node, node_optype, node_name,
+                    #         loop_dependencies=dict(
+                    #             [(x, abstracts[x]) for x in self.loop_dependencies[node.name] if x in abstracts])
+                    #     )
 
                     if len(cur_exceps) > 0:
                         roots = list()
@@ -554,22 +602,29 @@ class InterpModule():
                                                              ub=value[1] if value[1] is not None else
                                                              PossibleNumericalError.OVERFLOW_LIMIT)
 
-        for name, values in self.initializer_dict.items():
-            dtype, data = values
+        # for name, values in self.initializer_dict.items():
+        for name in self.start_points:
+            if name == InterpModule.SUPER_START_NODE: continue
+            dtype = self.signature_dict[name][0]
+            if name in self.initializer_dict:
+                data = self.initializer_dict[name][1]
+            else:
+                data = None
+
             if dtype not in discrete_types and name not in result:
                 # print(name, np.min(data), np.max(data), data.shape)
-                if (name.lower().count('dropout') > 0) and data.size == 1:
+                if (name.lower().count('dropout') > 0 and name.count('/') < 2) and (data is None or data.size == 1):
                     # looks like the div in dropout
                     print(
                         f'Parameter {name} looks like a dropout div, abstract by {AbstractionInitConfig.DROPOUT_CONFIG_DEFAULT}')
-                    result[name] = AbstractionInitConfig(diff=False, from_init=True,
+                    result[name] = AbstractionInitConfig(diff=False, from_init=False,
                                                          lb=AbstractionInitConfig.DROPOUT_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.DROPOUT_CONFIG_DEFAULT[1])
-                elif (name.lower().count('keep_prob') > 0) and data.size == 1:
+                elif (name.lower().count('keep_prob') > 0 and name.count('/') < 2) and (data is None or data.size == 1):
                     # looks like the keep_prob
                     print(
                         f'Parameter {name} looks like a keep_prob, abstract by {AbstractionInitConfig.KEEP_PROB_CONFIG_DEFAULT}')
-                    result[name] = AbstractionInitConfig(diff=False, from_init=True,
+                    result[name] = AbstractionInitConfig(diff=False, from_init=False,
                                                          lb=AbstractionInitConfig.KEEP_PROB_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.KEEP_PROB_CONFIG_DEFAULT[1])
                 elif name.lower().count('moving_variance') > 0:
@@ -579,7 +634,7 @@ class InterpModule():
                     result[name] = AbstractionInitConfig(diff=False, from_init=True,
                                                          lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
-                elif data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
+                elif data is not None and data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
                         np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
                     print(

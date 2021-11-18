@@ -12,7 +12,7 @@ import torch
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
 
-from trigger.test.precondition_gen import PrecondGenModule
+from trigger.inference.precondition_gen import PrecondGenModule
 
 # should be grist and/or debar
 run_benchmarks = ['grist']
@@ -38,7 +38,7 @@ if __name__ == '__main__':
                                         customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
             loadtime = time.time()
 
-            res = model.analyze(model.gen_abstraction_heuristics(), {'average_pool_mode': 'coarse'})
+            res = model.analyze(model.gen_abstraction_heuristics(file), {'average_pool_mode': 'coarse'})
             analyzetime = time.time()
 
             runningtime_stat = {'load': loadtime - stime, 'analyze': analyzetime - loadtime}
@@ -63,7 +63,7 @@ if __name__ == '__main__':
 
                 success = False
 
-                precond_module = PrecondGenModule(model)
+                precond_module = PrecondGenModule(model, ['dropout_1/sub/x:0'])
                 # I only need the zero_grad method from an optimizer, therefore any optimizer works
                 optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
 
@@ -115,7 +115,7 @@ if __name__ == '__main__':
                 else:
                     print('!!! Not success')
                     precond_stat = None
-                    # raise Exception('failed here :(')
+                    raise Exception('failed here :(')
                 print('--------------')
 
 

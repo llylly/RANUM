@@ -3370,9 +3370,11 @@ class Interpreter(object):
         tmp = list()
         for l, r in index_mapping:
             # future work: optimize via binary search
-            real_index_l = max([i for i, item in enumerate(abstract.splits[start_dim]) if l >= item])
-            real_index_r = min(
-                [i for i, item in enumerate(abstract.splits[start_dim] + [abstract.shape[start_dim]]) if r < item]) - 1
+            # real_index_l = max([i for i, item in enumerate(abstract.splits[start_dim]) if l >= item])
+            # real_index_r = min(
+            #     [i for i, item in enumerate(abstract.splits[start_dim] + [abstract.shape[start_dim]]) if r < item]) - 1
+            # done future work
+            real_index_l = real_index_r = bisect.bisect_right(abstract.splits[start_dim], l) - 1
             # print(real_index_l, real_index_r)
             assert real_index_l == real_index_r
             tmp.append(real_index_l)

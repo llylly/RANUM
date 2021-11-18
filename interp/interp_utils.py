@@ -7,10 +7,10 @@ EPS = 1e-5
 
 
 class AbstractionInitConfig(object):
-    INPUT_CONFIG_DEFAULT = [-1., 1.]
-    WEIGHT_CONFIG_DEFAULT = [-1., 1.]
-    DROPOUT_CONFIG_DEFAULT = [0.1, 1.0]
-    KEEP_PROB_CONFIG_DEFAULT = [0., 0.9]
+    INPUT_CONFIG_DEFAULT = [-50., 50.]
+    WEIGHT_CONFIG_DEFAULT = [-10., 10.]
+    DROPOUT_CONFIG_DEFAULT = [0.1, 0,9]
+    KEEP_PROB_CONFIG_DEFAULT = [0.1, 0.9]
     VARIANCE_CONFIG_DEFAULT = [0, 1]
 
     def __init__(self, diff: bool, lb=None, ub=None, from_init=False, from_init_margin=0., stride=-1):
@@ -62,7 +62,7 @@ class PossibleNumericalError(Exception):
     ERROR_CONTAINS_ZERO = 0
     ERROR_OVERFLOW = 1
     ERROR_UNDERFLOW = 2
-    OPs2Check = {"Exp", "Log", "Div", "Sqrt", "Pow", "Reciprocal", "Range", "NegativeLogLikelihoodLoss"}
+    OPs2Check = {"Exp", "Log", "Div", "Sqrt", "Pow", "Reciprocal", "Range", "NegativeLogLikelihoodLoss", "LogSoftmax"}
     code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
                 ERROR_UNDERFLOW: "Operator underflows.", ERROR_UNKNOWN: 'Unknown error.'}
     continue_prop = False

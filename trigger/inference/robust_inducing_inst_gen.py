@@ -6,6 +6,7 @@ EPS = 1e-5
 
 import time
 import argparse
+import os
 
 import torch
 import torch.nn as nn
@@ -26,17 +27,20 @@ def prompt(msg):
     print(f'[{time.time() - stime:.3f}s] ' + msg)
 
 
-class PrecondGenModule(nn.Module):
+class InducingInputGenModule(nn.Module):
     """
         The class for generating secure preconditon with gradient descent.
     """
 
-    def __init__(self, model, no_diff_vars=list()):
-        super(PrecondGenModule, self).__init__()
+    def __init__(self, model, seed=42, span_len=0.01, no_diff_vars=list()):
+        super(InducingInputGenModule, self).__init__()
         # assure that the model is already analyzed
         assert model.abstracts is not None
 
         new_initial_abstracts = dict()
+
+        self.seed = seed
+        self.span_len = span_len
 
         # centers and scales are parameters
         self.centers = dict()
@@ -46,16 +50,15 @@ class PrecondGenModule(nn.Module):
         self.model = model
         self.abstracts = dict()
 
+        self.orig_values = dict()
+
         for s, orig in model.initial_abstracts.items():
-            new_abst = self.construct(orig, s, s in no_diff_vars)
+            new_abst = self.construct(orig, s, s in no_diff_vars, self.model.signature_dict[s][0])
             self.abstracts[s] = new_abst
 
         no = 0
         for k, v in self.centers.items():
             self.register_parameter(f'centers:{no}', v)
-            no += 1
-        for k, v in self.scales.items():
-            self.register_parameter(f'scales:{no}', v)
             no += 1
 
     def forward(self, node, excep, div_branch='+'):
@@ -115,10 +118,10 @@ class PrecondGenModule(nn.Module):
                 divisor_abs = self.abstracts[divisor[0]]
                 if div_branch == '+':
                     loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
-                                      -divisor_abs.lb, torch.zeros_like(divisor_abs.lb)))
+                                                  -divisor_abs.lb, torch.zeros_like(divisor_abs.lb)))
                 elif div_branch == '-':
                     loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
-                                      divisor_abs.ub, torch.zeros_like(divisor_abs.ub)))
+                                                  divisor_abs.ub, torch.zeros_like(divisor_abs.ub)))
             else:
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
@@ -240,8 +243,8 @@ class PrecondGenModule(nn.Module):
     def find_prev_nodes_optypes(self, node):
         # (prev node name, prev node optype, prev node obj, prev node index in op)
         return sorted([(k, [item[3] for item in v if item[0] == node][0], [item[5] for item in v if item[0] == node][0],
-                 min([item[1] for item in v if item[0] == node]))
-                for k, v in self.model.edges.items() if any([item[0] == node for item in v])],
+                        min([item[1] for item in v if item[0] == node]))
+                       for k, v in self.model.edges.items() if any([item[0] == node for item in v])],
                       key=lambda x:x[3])
 
     @staticmethod
@@ -277,7 +280,7 @@ if __name__ == '__main__':
                                 customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
     prompt('model initialized')
 
-    initial_errors = model.analyze(model.gen_abstraction_heuristics(), {'average_pool_mode': 'coarse', 'diff_order': 1})
+    initial_errors = model.analyze(model.gen_abstraction_heuristics(os.path.split(args.modelpath)[-1].split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
     prompt('analysis done')
     if len(initial_errors) == 0:
         print('No numerical bug')
@@ -360,7 +363,7 @@ if __name__ == '__main__':
 
     success = False
 
-    precond_module = PrecondGenModule(model)
+    precond_module = InducingInputGenModule(model)
     # I only need the zero_grad method from an optimizer, therefore any optimizer works
     optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
 
