@@ -15,7 +15,7 @@ import torch.optim
 import numpy as np
 
 from interp.interp_operator import Abstraction
-from interp.interp_module import load_onnx_from_file
+from interp.interp_module import load_onnx_from_file, InterpModule
 from interp.interp_utils import PossibleNumericalError, parse_attribute
 
 parser = argparse.ArgumentParser()
@@ -159,6 +159,7 @@ class PrecondGenModule(nn.Module):
         maximum_shrink = 0.
         minimum_shrink = 1.
         for s in self.model.start_points:
+            if s == InterpModule.SUPER_START_NODE: continue
             orig_abst = self.model.abstracts[s]
             now_abst = self.abstracts[s]
             if self.tensor_equal(orig_abst.lb, now_abst.lb) and self.tensor_equal(orig_abst.ub, now_abst.ub):

@@ -129,9 +129,9 @@ class InterpModule():
                 self.all_nodes.add(v)
 
             node_input = list(node.input)
-            # if len(node_input) == 0:
-            #     node_input.append(InterpModule.SUPER_START_NODE)
-            #     self.start_points.add(InterpModule.SUPER_START_NODE)
+            if len(node_input) == 0 and node.op_type in ['RandomNormal', 'RandomUniform']:
+                node_input.append(InterpModule.SUPER_START_NODE)
+                self.start_points.add(InterpModule.SUPER_START_NODE)
 
             for i, vi in enumerate(node_input):
                 for j, vj in enumerate(list(node.output)):
