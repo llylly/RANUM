@@ -8,11 +8,10 @@ import warnings
 import onnx
 from onnx import numpy_helper
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError, index_clip_thres
+    PossibleNumericalError, index_clip_thres, POSTIVE_MINIMUM
 from interp.grad_thru_functions import StraightSigmoid, StraightTanh, StraightSoftmaxIntervalLb, \
     StraightSoftmaxIntervalUb, \
     StraightSoftmaxInterval, StraightRelu, StraightExp
-
 
 class Abstraction(object):
     """
@@ -1498,12 +1497,14 @@ class Interpreter(object):
             # inputs: [l1, l2, l3], [u1, u2, u3]
             # softmax_lb = [l1 / (l1 + u2 + u3), ...]
             # softmax_ub = [u1 / (u1 + l2 + l3)]
-            ans.lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+            ans.lb = exp_lb / torch.maximum((torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb), torch.full_like(exp_lb, POSTIVE_MINIMUM, device=exp_lb.device))
             ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+            ans.ub = torch.where(torch.isnan(ans.ub), torch.ones_like(ans.ub, device=ans.ub.device), ans.ub)
         else:
             # ans.lb = StraightSoftmaxIntervalLb.apply(abst.lb, abst.ub, multiplies, axis)
             # ans.ub = StraightSoftmaxIntervalUb.apply(abst.lb, abst.ub, multiplies, axis)
             ans.lb, ans.ub = StraightSoftmaxInterval.apply(abst.lb, abst.ub, multiplies, axis)
+        assert not torch.any(torch.isnan(ans.lb)) and not torch.any(torch.isnan(ans.ub))
 
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1884,6 +1885,7 @@ class Interpreter(object):
         return now_abst, list()
 
     def interp_Gather(self, abstracts, node, optype, var_name):
+        # print('gather node:', var_name)
         data, indices = abstracts[0], abstracts[1]
         # data.print()
         # indices.print()

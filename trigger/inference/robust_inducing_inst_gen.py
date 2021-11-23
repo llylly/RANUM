@@ -16,7 +16,34 @@ import numpy as np
 
 from interp.interp_operator import Abstraction
 from interp.interp_module import load_onnx_from_file
-from interp.interp_utils import PossibleNumericalError, parse_attribute
+from interp.interp_utils import PossibleNumericalError, parse_attribute, discrete_types
+from interp.specified_vars import nodiff_vars, nospan_vars
+
+
+def expand(orig_tensor: torch.Tensor, shape: list, splits: list) -> torch.Tensor:
+    """
+        Expand a original abstract tensor into a concrete tensor by tiling
+    :param orig_tensor:
+    :param shape:
+    :param splits:
+    :return: torch.Tensor
+    """
+    if len(shape) == 0:
+        # scalar tensor, return as it is
+        return orig_tensor
+    else:
+        ans_tensor = orig_tensor
+        for now_dim in range(len(shape)):
+            index = [i
+                     for i, item in enumerate(splits[now_dim])
+                     for j in range(splits[now_dim][i],
+                                    shape[now_dim] if i == len(splits[now_dim]) - 1 else splits[now_dim][i+1])
+                     ]
+            index = torch.tensor(index, device=ans_tensor.device)
+            ans_tensor = torch.index_select(ans_tensor, dim=now_dim, index=index)
+        return ans_tensor
+
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('modelpath', type=str, help='model architecture file path')
@@ -32,7 +59,7 @@ class InducingInputGenModule(nn.Module):
         The class for generating secure preconditon with gradient descent.
     """
 
-    def __init__(self, model, seed=42, span_len=0.01, no_diff_vars=list()):
+    def __init__(self, model, seed=42, span_len=0.001, no_diff_vars=list(), no_span_vars=list()):
         super(InducingInputGenModule, self).__init__()
         # assure that the model is already analyzed
         assert model.abstracts is not None
@@ -53,13 +80,22 @@ class InducingInputGenModule(nn.Module):
         self.orig_values = dict()
 
         for s, orig in model.initial_abstracts.items():
-            new_abst = self.construct(orig, s, s in no_diff_vars, self.model.signature_dict[s][0])
+            new_abst = self.construct(orig, s, s in no_diff_vars, s in no_span_vars, self.model.signature_dict[s][0])
             self.abstracts[s] = new_abst
+
+        # backup initial centers
+        self.initial_centers = dict()
+        for k, v in self.centers.items():
+            self.initial_centers[k] = v.detach()
+            # print(f'initial abstract for {k}')
+            # model.initial_abstracts[k].print()
+            print(f'initial grounded: {k} = {self.initial_centers[k]}')
 
         no = 0
         for k, v in self.centers.items():
             self.register_parameter(f'centers:{no}', v)
             no += 1
+
 
     def forward(self, node, excep, div_branch='+'):
         """
@@ -73,7 +109,11 @@ class InducingInputGenModule(nn.Module):
         for s, orig in self.model.initial_abstracts.items():
             new_abst = self.construct(orig, s)
             self.abstracts[s] = new_abst
-        _, errors = self.model.forward(self.abstracts, {'diff_order': 1})
+        _, errors = self.model.forward(self.abstracts, {'diff_order': 0})
+
+        # for k, v in self.abstracts.items():
+        #     print(k)
+        #     v.print()
 
         loss = torch.tensor(0.)
 
@@ -88,7 +128,7 @@ class InducingInputGenModule(nn.Module):
                 # print(node)
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
+                loss += torch.sum(torch.where(prev_abs.ub >= PossibleNumericalError.UNDERFLOW_LIMIT, prev_abs.ub, torch.zeros_like(prev_abs.ub)))
             elif excep.optype == 'Sqrt':
                 # print(node)
                 prev_node = prev_nodes[0][0]
@@ -99,29 +139,29 @@ class InducingInputGenModule(nn.Module):
                 #     loss += torch.sum(targ_abs.ub - targ_abs.lb)
                 # else:
                 prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
+                loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, prev_abs.ub, torch.zeros_like(prev_abs.ub)))
             elif excep.optype == 'Exp':
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 thres = PossibleNumericalError.OVERFLOW_D * np.log(10)
-                loss += torch.sum(torch.where(prev_abs.ub >= thres, prev_abs.ub - thres, torch.zeros_like(prev_abs.ub)))
-            elif excep.optype == 'LogSoftMax':
-                prev_node = prev_nodes[0][0]
-                axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
-                prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.ub - torch.amin(prev_abs.lb, dim=axis, keepdim=True) >= PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D,
-                                              prev_abs.ub - torch.amin(prev_abs.lb, dim=axis, keepdim=True) - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D),
-                                              torch.zeros_like(prev_abs.lb)))
-            elif excep.optype == 'Div':
-                # contains zero in div
-                divisor = [item for item in prev_nodes if item[3] == 1][0]
-                divisor_abs = self.abstracts[divisor[0]]
-                if div_branch == '+':
-                    loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
-                                                  -divisor_abs.lb, torch.zeros_like(divisor_abs.lb)))
-                elif div_branch == '-':
-                    loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
-                                                  divisor_abs.ub, torch.zeros_like(divisor_abs.ub)))
+                loss += torch.sum(torch.where(prev_abs.ub >= thres, - (prev_abs.lb - thres), torch.zeros_like(prev_abs.lb)))
+            # elif excep.optype == 'LogSoftMax':
+            #     prev_node = prev_nodes[0][0]
+            #     axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
+            #     prev_abs = self.abstracts[prev_node]
+            #     loss += torch.sum(torch.where(prev_abs.ub - torch.amin(prev_abs.lb, dim=axis, keepdim=True) >= PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D,
+            #                                   prev_abs.ub - torch.amin(prev_abs.lb, dim=axis, keepdim=True) - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D),
+            #                                   torch.zeros_like(prev_abs.lb)))
+            # elif excep.optype == 'Div':
+            #     # contains zero in div
+            #     divisor = [item for item in prev_nodes if item[3] == 1][0]
+            #     divisor_abs = self.abstracts[divisor[0]]
+            #     if div_branch == '+':
+            #         loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
+            #                                       -divisor_abs.lb, torch.zeros_like(divisor_abs.lb)))
+            #     elif div_branch == '-':
+            #         loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
+            #                                       divisor_abs.ub, torch.zeros_like(divisor_abs.ub)))
             else:
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
@@ -149,7 +189,7 @@ class InducingInputGenModule(nn.Module):
             if v.grad is not None and torch.any(v.data > regularizer):
                 v.data = v.data - scale_lr * torch.abs(v.data) * torch.sign(v.grad)
 
-    def precondition_study(self, print_stdout=True):
+    def err_input_study(self, print_stdout=True):
         """
             summarize the heuristics of generated preconditions
         :param print: whether to print to console
@@ -189,7 +229,7 @@ class InducingInputGenModule(nn.Module):
 
 
 
-    def construct(self, original: Abstraction, var_name: str, no_diff=False):
+    def construct(self, original: Abstraction, var_name: str, no_diff=False, no_span=False, node_dtype='FLOAT'):
         """
             From the original abstraction to create a new abstraction parameterized by span * scale and center:
             [center - span * scale, center + span * scale]
@@ -197,24 +237,40 @@ class InducingInputGenModule(nn.Module):
         :param original: original abstraction from the first run
         :return: parameterized abstraction
         """
-        def _work(lb, ub, name):
-            center = nn.Parameter((lb + ub) / 2., requires_grad=lb.requires_grad and (not no_diff))
-            self.centers[name] = center
-            if torch.sum(ub - lb) > EPS:
-                # non-constant, add the span factor
-                span = torch.tensor(center - lb, requires_grad=False)
-                scale = nn.Parameter(torch.ones_like(span, dtype=span.dtype), requires_grad=not no_diff)
-                self.spans[name] = span
-                self.scales[name] = scale
-                new_lb, new_ub = center - scale * span, center + scale * span
+        def _work(lb, ub, shape, splits, name):
+
+            expand_lb = expand(lb, shape, splits)
+            expand_ub = expand(ub, shape, splits)
+            init_data = torch.rand_like(expand_lb, device=expand_lb.device)
+
+            if node_dtype in discrete_types:
+                init_data = torch.rand_like(expand_lb, device=expand_lb.device)
+                init_data = (expand_lb + init_data * (expand_ub - expand_lb + 1)).floor()
             else:
-                new_lb, new_ub = center, center
+                init_data = expand_lb + init_data * (expand_ub - expand_lb)
+            init_data = nn.Parameter(init_data, requires_grad=not no_diff and node_dtype not in discrete_types)
+
+            span = torch.tensor(expand_ub - expand_lb, device=expand_ub.device)
+            if node_dtype in discrete_types or no_span:
+                scale = torch.zeros_like(span)
+            else:
+                scale = torch.ones_like(span) * self.span_len
+
+            new_lb = init_data - scale * span
+            new_ub = init_data + scale * span
+
+            self.centers[var_name] = init_data
+            self.spans[var_name] = span
+            self.scales[var_name] = scale
+
             return new_lb, new_ub
 
         ans = Abstraction()
+        splits = None
         if isinstance(original.lb, list):
             ans.lb = list()
             ans.ub = list()
+            splits = list()
             for i in range(len(original.lb)):
                 if var_name + f'_{i}' in self.centers and var_name + f'_{i}' in self.spans:
                     item_lb = self.centers[var_name + f'_{i}'] - self.spans[var_name + f'_{i}'] * self.scales[var_name + f'_{i}']
@@ -223,9 +279,10 @@ class InducingInputGenModule(nn.Module):
                     item_lb = self.centers[var_name + f'_{i}']
                     item_ub = self.centers[var_name + f'_{i}']
                 else:
-                    item_lb, item_ub = _work(original.lb[i], original.ub[i], var_name + f'_{i}')
+                    item_lb, item_ub = _work(original.lb[i], original.ub[i], original.shape[i], original.splits[i], var_name + f'_{i}')
                 ans.lb.append(item_lb)
                 ans.ub.append(item_ub)
+                splits.append([list(range(shapei)) for shapei in original.shape[i]])
         else:
             if var_name in self.centers and var_name in self.spans:
                 ans.lb = self.centers[var_name] - self.spans[var_name] * self.scales[var_name]
@@ -234,9 +291,10 @@ class InducingInputGenModule(nn.Module):
                 ans.lb = self.centers[var_name]
                 ans.ub = self.centers[var_name]
             else:
-                ans.lb, ans.ub = _work(original.lb, original.ub, var_name)
+                ans.lb, ans.ub = _work(original.lb, original.ub, original.shape, original.splits, var_name)
+            splits = [list(range(shapei)) for shapei in original.shape]
         ans.shape = original.shape.copy()
-        ans.splits = original.splits.copy()
+        ans.splits = splits
         ans.var_name = original.var_name
         return ans
 
@@ -293,65 +351,6 @@ if __name__ == '__main__':
 
     stime = time.time()
 
-    # securing individual error point
-    # for k, v in initial_errors.items():
-    #     error_entities, root, catastro = v
-    #     if not catastro:
-    #         for error_entity in error_entities:
-    #             print(f'now working on {error_entity.var_name}')
-    #             precond_module = PrecondGenModule(model)
-    #
-    #             success = False
-    #
-    #             # I only need the zero_grad method from an optimizer, therefore any optimizer works
-    #             optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
-    #
-    #
-    #             for kk, vv in precond_module.abstracts.items():
-    #                 print(kk, 'lb     :', vv.lb)
-    #                 print(kk, 'ub     :', vv.ub)
-    #
-    #             for iter in range(100):
-    #                 print('----------------')
-    #                 optimizer.zero_grad()
-    #                 loss, errors = precond_module.forward(error_entity.var_name, error_entity)
-    #                 # for kk, vv in precond_module.abstracts.items():
-    #                 #     try:
-    #                 #         vv.lb.retain_grad()
-    #                 #         vv.ub.retain_grad()
-    #                 #     except:
-    #                 #         print(kk, 'cannot retain grad')
-    #
-    #                 print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
-    #
-    #                 loss.backward()
-    #
-    #                 # for kk, vv in precond_module.abstracts.items():
-    #                 #     print(kk, 'lb grad:', vv.lb.grad)
-    #                 #     print(kk, 'ub grad:', vv.ub.grad)
-    #                 #     print(kk, 'lb     :', vv.lb)
-    #                 #     print(kk, 'ub     :', vv.ub)
-    #
-    #                 precond_module.grad_step()
-    #                 if k not in errors:
-    #                     success = True
-    #                     print('securing condition found!')
-    #                     break
-    #
-    #             for kk, vv in precond_module.abstracts.items():
-    #                 print(kk, 'lb     :', vv.lb)
-    #                 print(kk, 'ub     :', vv.ub)
-    #             #     print(kk, 'lb grad:', vv.lb.grad)
-    #             #     print(kk, 'ub grad:', vv.ub.grad)
-    #
-    #             print('--------------')
-    #             if success: print('Success!')
-    #             else:
-    #                 print('!!! Not success')
-    #                 raise Exception('failed here :(')
-    #             print(f'Time elapsed: {time.time() - stime:.3f} s')
-    #             print('--------------')
-
     # securing all error points
     err_nodes, err_exceps = list(), list()
     for k, v in initial_errors.items():
@@ -363,51 +362,61 @@ if __name__ == '__main__':
 
     success = False
 
-    precond_module = InducingInputGenModule(model)
-    # I only need the zero_grad method from an optimizer, therefore any optimizer works
-    optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
+    inputgen_module = InducingInputGenModule(model, no_diff_vars=nodiff_vars, no_span_vars=nospan_vars)
+    optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=0.1)
 
-    for kk, vv in precond_module.abstracts.items():
-        print(kk, 'lb     :', vv.lb)
-        print(kk, 'ub     :', vv.ub)
+    # for kk, vv in precond_module.abstracts.items():
+    #     print(kk, 'lb     :', vv.lb)
+    #     print(kk, 'ub     :', vv.ub)
 
     for iter in range(100):
         print('----------------')
         optimizer.zero_grad()
-        loss, errors = precond_module.forward(err_nodes, err_exceps)
-        # for kk, vv in precond_module.abstracts.items():
-        #     try:
-        #         vv.lb.retain_grad()
-        #         vv.ub.retain_grad()
-        #     except:
-        #         print(kk, 'cannot retain grad')
+        loss, errors = inputgen_module.forward(err_nodes, err_exceps)
+        for kk, vv in inputgen_module.abstracts.items():
+            try:
+                vv.lb.retain_grad()
+                vv.ub.retain_grad()
+            except:
+                print(kk, 'cannot retain grad')
 
         print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
 
         loss.backward()
+        optimizer.step()
 
-        # for kk, vv in precond_module.abstracts.items():
-        #     print(kk, 'lb grad:', vv.lb.grad)
-        #     print(kk, 'ub grad:', vv.ub.grad)
-        #     print(kk, 'lb     :', vv.lb)
-        #     print(kk, 'ub     :', vv.ub)
+        # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/Reshape:0'].print()
+        # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/add_6:0'].print()
+        # # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/GatherV2:0'].print()
+        # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/add_4:0'].print()
+        # inputgen_module.abstracts['Max__100__102:0'].print()
 
-        precond_module.grad_step()
-        if len(errors) == 0:
-            success = True
-            print('securing condition found!')
-            break
+        # inputgen_module.abstracts['Cast__89:0'].print()
+        # inputgen_module.abstracts['const_fold_opt__157'].print()
+        # inputgen_module.abstracts['SpatialTransformer/_transform/Reshape_3:0'].print()
 
-    for kk, vv in precond_module.abstracts.items():
-        print(kk, 'lb     :', vv.lb)
-        print(kk, 'ub     :', vv.ub)
+        for kk, vv in inputgen_module.abstracts.items():
+            print(kk, 'lb grad:', vv.lb.grad)
+            print(kk, 'ub grad:', vv.ub.grad)
+            print(kk, 'lb     :', vv.lb)
+            print(kk, 'ub     :', vv.ub)
+
+        # precond_module.grad_step()
+        # if len(errors) == 0:
+        #     success = True
+        #     print('securing condition found!')
+        #     break
+
+    # for kk, vv in precond_module.abstracts.items():
+    #     print(kk, 'lb     :', vv.lb)
+    #     print(kk, 'ub     :', vv.ub)
     #     print(kk, 'lb grad:', vv.lb.grad)
     #     print(kk, 'ub grad:', vv.ub.grad)
 
     print('--------------')
     if success:
         print('Success!')
-        precond_module.precondition_study()
+        inputgen_module.precondition_study()
     else:
         print('!!! Not success')
         raise Exception('failed here :(')

@@ -5,6 +5,8 @@ import torch
 
 EPS = 1e-5
 
+POSTIVE_MINIMUM = 1e-10
+
 
 class AbstractionInitConfig(object):
     INPUT_CONFIG_DEFAULT = [-50., 50.]
@@ -12,6 +14,7 @@ class AbstractionInitConfig(object):
     DROPOUT_CONFIG_DEFAULT = [0.1, 0,9]
     KEEP_PROB_CONFIG_DEFAULT = [0.1, 0.9]
     VARIANCE_CONFIG_DEFAULT = [0, 1]
+    INT_CONFIG_DEFAULT = [0, 20]
 
     def __init__(self, diff: bool, lb=None, ub=None, from_init=False, from_init_margin=0., stride=-1):
         if lb is None:

@@ -11,6 +11,7 @@ import torch
 
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
+from interp.specified_vars import nodiff_vars
 
 from trigger.inference.precondition_gen import PrecondGenModule
 
@@ -63,7 +64,7 @@ if __name__ == '__main__':
 
                 success = False
 
-                precond_module = PrecondGenModule(model, ['dropout_1/sub/x:0'])
+                precond_module = PrecondGenModule(model, nodiff_vars)
                 # I only need the zero_grad method from an optimizer, therefore any optimizer works
                 optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
 

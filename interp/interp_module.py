@@ -634,6 +634,11 @@ class InterpModule():
                     result[name] = AbstractionInitConfig(diff=False, from_init=True,
                                                          lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
+                elif dtype in discrete_types:
+                    print(f'Parameter or weight {name} corresponds to a discrete node, abstract by {AbstractionInitConfig.INT_CONFIG_DEFAULT}')
+                    result[name] = AbstractionInitConfig(diff=False, from_init=False,
+                                                         lb=AbstractionInitConfig.INT_CONFIG_DEFAULT[0],
+                                                         ub=AbstractionInitConfig.INT_CONFIG_DEFAULT[1])
                 elif data is not None and data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
                         np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite

@@ -5,6 +5,7 @@
 """
 import torch
 
+from interp.interp_utils import POSTIVE_MINIMUM
 
 class StraightSigmoid(torch.autograd.Function):
 
@@ -43,8 +44,11 @@ class StraightSoftmaxInterval(torch.autograd.Function):
         # inputs: [l1, l2, l3], [u1, u2, u3]
         # softmax_lb = [l1 / (l1 + u2 + u3), ...]
         # softmax_ub = [u1 / (u1 + l2 + l3)]
-        lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+        # lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+        # ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+        lb = exp_lb / torch.maximum((torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb), torch.full_like(exp_lb, POSTIVE_MINIMUM, device=exp_lb.device))
         ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+        ub = torch.where(torch.isnan(ub), torch.ones_like(ub, device=ub.device), ub)
         return lb, ub
 
     @staticmethod
