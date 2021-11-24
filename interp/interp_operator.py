@@ -7,7 +7,8 @@ import warnings
 
 import onnx
 from onnx import numpy_helper
-from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
+from interp.interp_utils import AbstractionInitConfig, parse_attribute, \
+    discrete_types, unsupported_types, datatype_mapping, get_numel, \
     PossibleNumericalError, index_clip_thres, POSTIVE_MINIMUM
 from interp.grad_thru_functions import StraightSigmoid, StraightTanh, StraightSoftmaxIntervalLb, \
     StraightSoftmaxIntervalUb, \
@@ -443,7 +444,7 @@ class Interpreter(object):
 
     def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
                  loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1),
-                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0):
+                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0, concrete_rand=None):
         # default smash threshold
         self.smash = smash_thres
 
@@ -462,8 +463,12 @@ class Interpreter(object):
         self.onehot_mode = onehot_mode
 
         # diff_order = 1: provide first order gradient as much as possible
-        # diff_order = 2: provide second order gradient as much as possible
+        # diff_order = 2: provide second order gradient as much as possible, by substituting ReLU to softplus
         self.diff_order = diff_order
+
+        # concrete_rand: whether generate concrete random tensors for tensor-generating ops, like randomUniform etc.
+        # if concrete_rand is none, not applied, otherwise, use the manual_seed for generating ops
+        self.concrete_rand = concrete_rand
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -1712,8 +1717,8 @@ class Interpreter(object):
             in_tensor_shape = in_tensor_shape[start: end]
 
         ans = Abstraction()
-        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float, device=in_tensor.lb.device)
-        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float, device=in_tensor.ub.device)
+        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float64, device=in_tensor.lb.device)
+        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float64, device=in_tensor.ub.device)
         ans.shape = [len(in_tensor_shape)]
         ans.splits = [list(range(len(in_tensor_shape)))]
         ans.var_name = var_name
@@ -1735,7 +1740,15 @@ class Interpreter(object):
             else:
                 ret.var_name = 'null'
         else:
-            ret = abst
+            if to_type in discrete_types:
+                ret = Abstraction()
+                ret.lb = abst.lb.floor().type(torch.float64)
+                ret.ub = abst.ub.floor().type(torch.float64)
+                ret.splits = abst.splits
+                ret.shape = abst.shape
+                ret.var_name = abst.var_name
+            else:
+                ret = abst
 
         return ret, list()
 
@@ -2351,10 +2364,16 @@ class Interpreter(object):
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
-        ans.splits = [[0] if item > 0 else [] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, mean - 5. * scale, device=device)
-        ans.ub = torch.full(abs_shape, mean + 5. * scale, device=device)
+        if self.concrete_rand is None:
+            ans.splits = [[0] if item > 0 else [] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, mean - 5. * scale, device=device)
+            ans.ub = torch.full(abs_shape, mean + 5. * scale, device=device)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.randn(ans.shape, device=device) * scale + mean
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         ans.var_name = var_name
         return ans, list()
 
@@ -2365,10 +2384,16 @@ class Interpreter(object):
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
-        ans.splits = [[0] if item > 0 else [] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, low, device=device)
-        ans.ub = torch.full(abs_shape, high, device=device)
+        if self.concrete_rand is None:
+            ans.splits = [[0] if item > 0 else [] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, low, device=device)
+            ans.ub = torch.full(abs_shape, high, device=device)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.rand(ans.shape, device=device) * (high-low) + low
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         ans.var_name = var_name
         return ans, list()
 
@@ -2381,10 +2406,16 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape = shape.copy()
-        ans.splits = [[] if item == 0 else [0] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, mean - 5. * scale)
-        ans.ub = torch.full(abs_shape, mean + 5. * scale)
+        if self.concrete_rand is None:
+            ans.splits = [[] if item == 0 else [0] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, mean - 5. * scale)
+            ans.ub = torch.full(abs_shape, mean + 5. * scale)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.randn(ans.shape, device=device) * scale + mean
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
         ans.var_name = var_name
@@ -2398,10 +2429,16 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape = shape.copy()
-        ans.splits = [[] if item == 0 else [0] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, low)
-        ans.ub = torch.full(abs_shape, high)
+        if self.concrete_rand is None:
+            ans.splits = [[] if item == 0 else [0] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, low)
+            ans.ub = torch.full(abs_shape, high)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.rand(ans.shape, device=device) * (high-low) + low
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
         ans.var_name = var_name

@@ -3,3 +3,4 @@ result/
 .idea/
 *.pyc
 results/
+tmp.txt

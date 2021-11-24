@@ -109,7 +109,7 @@ class InducingInputGenModule(nn.Module):
         for s, orig in self.model.initial_abstracts.items():
             new_abst = self.construct(orig, s)
             self.abstracts[s] = new_abst
-        _, errors = self.model.forward(self.abstracts, {'diff_order': 0})
+        _, errors = self.model.forward(self.abstracts, {'diff_order': 1, 'concrete_rand': 42})
 
         # for k, v in self.abstracts.items():
         #     print(k)
@@ -124,70 +124,73 @@ class InducingInputGenModule(nn.Module):
 
         for node, excep in zip(nodes, exceps):
             prev_nodes = self.find_prev_nodes_optypes(node)
-            if excep.optype == 'Log':
+            if excep.optype == 'Log' or excep.optype == 'Sqrt':
                 # print(node)
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.ub >= PossibleNumericalError.UNDERFLOW_LIMIT, prev_abs.ub, torch.zeros_like(prev_abs.ub)))
-            elif excep.optype == 'Sqrt':
-                # print(node)
-                prev_node = prev_nodes[0][0]
-                # prev_prev_nodes = self.find_prev_nodes_optypes(prev_node)
-                # if len(prev_prev_nodes) > 0 and prev_prev_nodes[0][1] == 'Softmax':
-                #     # penetrating softmax to avoid vanishing gradient
-                #     targ_abs = self.abstracts[prev_prev_nodes[0][0]]
-                #     loss += torch.sum(targ_abs.ub - targ_abs.lb)
-                # else:
-                prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, prev_abs.ub, torch.zeros_like(prev_abs.ub)))
+                # loss += torch.max(prev_abs.ub * (prev_abs.lb < PossibleNumericalError.UNDERFLOW_LIMIT))
+                loss += torch.amin(prev_abs.ub)
             elif excep.optype == 'Exp':
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 thres = PossibleNumericalError.OVERFLOW_D * np.log(10)
-                loss += torch.sum(torch.where(prev_abs.ub >= thres, - (prev_abs.lb - thres), torch.zeros_like(prev_abs.lb)))
-            # elif excep.optype == 'LogSoftMax':
-            #     prev_node = prev_nodes[0][0]
-            #     axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
-            #     prev_abs = self.abstracts[prev_node]
-            #     loss += torch.sum(torch.where(prev_abs.ub - torch.amin(prev_abs.lb, dim=axis, keepdim=True) >= PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D,
-            #                                   prev_abs.ub - torch.amin(prev_abs.lb, dim=axis, keepdim=True) - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D),
-            #                                   torch.zeros_like(prev_abs.lb)))
-            # elif excep.optype == 'Div':
-            #     # contains zero in div
-            #     divisor = [item for item in prev_nodes if item[3] == 1][0]
-            #     divisor_abs = self.abstracts[divisor[0]]
-            #     if div_branch == '+':
-            #         loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
-            #                                       -divisor_abs.lb, torch.zeros_like(divisor_abs.lb)))
-            #     elif div_branch == '-':
-            #         loss += torch.sum(torch.where((divisor_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT),
-            #                                       divisor_abs.ub, torch.zeros_like(divisor_abs.ub)))
+                loss += torch.amin(- prev_abs.lb + thres)
+            elif excep.optype == 'LogSoftMax':
+                prev_node = prev_nodes[0][0]
+                axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
+                prev_abs = self.abstracts[prev_node]
+                loss += - torch.amax(prev_abs.lb, dim=axis) + torch.amin(prev_abs.ub, dim=axis) - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D)
+            elif excep.optype == 'Div':
+                # contains zero in div
+                divisor = [item for item in prev_nodes if item[3] == 1][0]
+                divisor_abs = self.abstracts[divisor[0]]
+                loss += torch.abs(divisor_abs.lb) + torch.abs(divisor_abs.ub)
             else:
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
 
-    def grad_step(self, center_lr=0.1, scale_lr=0.1, min_step=0.1, regularizer=0.):
-        """
-            My customzed FGSM-style gradient step to avoid gradient explosion
-        :param center_lr: relative learning rate for center parameters
-        :param scale_lr: relative learning rate for scale parameters
-        :param min_step: minimum step size for center, in case the center magnitude is too small
-        :param regularizer: if scale < regularizer, stop to update to avoid too narrow range
-        :return:
-        """
-        for k, v in self.centers.items():
-            # print(k)
-            # print(v.data)
-            if v.grad is not None:
-                v.data = v.data - center_lr * torch.maximum(torch.abs(v.data), torch.full_like(v.data, min_step)) * torch.sign(v.grad)
+    def robust_error_check(self, node, excep):
+        robust_exceps = list()
 
-        for k, v in self.scales.items():
-            # print(k)
-            # print(v.data)
-            # print((v.data > regularizer))
-            # print(torch.any(v.data > regularizer))
-            if v.grad is not None and torch.any(v.data > regularizer):
-                v.data = v.data - scale_lr * torch.abs(v.data) * torch.sign(v.grad)
+        if not isinstance(node, list):
+            nodes, exceps = [node], [excep]
+        else:
+            nodes, exceps = node, excep
+
+        for node, excep in zip(nodes, exceps):
+            prev_nodes = self.find_prev_nodes_optypes(node)
+            if excep.optype == 'Log' or excep.optype == 'Sqrt':
+                prev_node = prev_nodes[0][0]
+                if prev_node in self.abstracts:
+                    prev_abs = self.abstracts[prev_node]
+                    if torch.any(prev_abs.ub <= PossibleNumericalError.UNDERFLOW_LIMIT):
+                        robust_exceps.append(excep)
+                else:
+                    print(f'! cannot find the abstraction for the previous node of {node}')
+            elif excep.optype == 'Exp':
+                prev_node = prev_nodes[0][0]
+                if prev_node in self.abstracts:
+                    prev_abs = self.abstracts[prev_node]
+                    if torch.any(prev_abs.lb > PossibleNumericalError.OVERFLOW_D * np.log(10)):
+                        robust_exceps.append(excep)
+                else:
+                    print(f'! cannot find the abstraction for the previous node of {node}')
+            elif excep.optype == 'LogSoftMax':
+                prev_node = prev_nodes[0][0]
+                axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
+                if prev_node in self.abstracts:
+                    prev_abs = self.abstracts[prev_node]
+                    if torch.any(torch.max(prev_abs.lb, dim=axis) - torch.min(prev_abs.ub, dim=axis) >= (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D)):
+                        robust_exceps.append(excep)
+            elif excep.optype == 'Div':
+                divisor = [item for item in prev_nodes if item[3] == 1][0]
+                if divisor[0] in self.abstracts:
+                    divisor_abs = self.abstracts[divisor[0]]
+                    if torch.any((divisor_abs.lb >= -PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub <= PossibleNumericalError.UNDERFLOW_LIMIT)):
+                        robust_exceps.append(excep)
+
+        return robust_exceps
+
 
     def err_input_study(self, print_stdout=True):
         """
@@ -226,8 +229,6 @@ class InducingInputGenModule(nn.Module):
             print('maximum shrinkage', maximum_shrink)
             print('minimum shrinkage', minimum_shrink)
         return ans
-
-
 
     def construct(self, original: Abstraction, var_name: str, no_diff=False, no_span=False, node_dtype='FLOAT'):
         """
@@ -373,39 +374,36 @@ if __name__ == '__main__':
         print('----------------')
         optimizer.zero_grad()
         loss, errors = inputgen_module.forward(err_nodes, err_exceps)
-        for kk, vv in inputgen_module.abstracts.items():
-            try:
-                vv.lb.retain_grad()
-                vv.ub.retain_grad()
-            except:
-                print(kk, 'cannot retain grad')
 
-        print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
+        robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+
+        # for kk, vv in inputgen_module.abstracts.items():
+        #     try:
+        #         vv.lb.retain_grad()
+        #         vv.ub.retain_grad()
+        #     except:
+        #         print(kk, 'cannot retain grad')
+
+        print('iter =', iter, 'loss =', loss, '# robust errors =', len(robust_errors), '/', len(err_nodes))
 
         loss.backward()
         optimizer.step()
 
-        # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/Reshape:0'].print()
-        # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/add_6:0'].print()
-        # # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/GatherV2:0'].print()
-        # inputgen_module.abstracts['SpatialTransformer/_transform/_interpolate/add_4:0'].print()
-        # inputgen_module.abstracts['Max__100__102:0'].print()
+        # for kk, vv in inputgen_module.abstracts.items():
+        # for kk in ['add_5:0', 'Softmax:0']:
+        #     vv = inputgen_module.abstracts[kk]
+        #     print(kk, 'lb grad:', vv.lb.grad)
+        #     print(kk, 'ub grad:', vv.ub.grad)
+        #     print(kk, 'lb     :', vv.lb)
+        #     print(kk, 'ub     :', vv.ub)
 
-        # inputgen_module.abstracts['Cast__89:0'].print()
-        # inputgen_module.abstracts['const_fold_opt__157'].print()
-        # inputgen_module.abstracts['SpatialTransformer/_transform/Reshape_3:0'].print()
 
-        for kk, vv in inputgen_module.abstracts.items():
-            print(kk, 'lb grad:', vv.lb.grad)
-            print(kk, 'ub grad:', vv.ub.grad)
-            print(kk, 'lb     :', vv.lb)
-            print(kk, 'ub     :', vv.ub)
-
-        # precond_module.grad_step()
-        # if len(errors) == 0:
-        #     success = True
-        #     print('securing condition found!')
-        #     break
+        if len(robust_errors) > 0:
+            success = True
+            print('securing condition found!')
+            if len(robust_errors) == len(err_nodes):
+                print('triggered all errors')
+                break
 
     # for kk, vv in precond_module.abstracts.items():
     #     print(kk, 'lb     :', vv.lb)
@@ -416,7 +414,7 @@ if __name__ == '__main__':
     print('--------------')
     if success:
         print('Success!')
-        inputgen_module.precondition_study()
+        # inputgen_module.precondition_study()
     else:
         print('!!! Not success')
         raise Exception('failed here :(')
