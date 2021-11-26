@@ -7,6 +7,8 @@ EPS = 1e-5
 import time
 import argparse
 import os
+import json
+import math
 
 import torch
 import torch.nn as nn
@@ -18,6 +20,7 @@ from interp.interp_operator import Abstraction
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import PossibleNumericalError, parse_attribute, discrete_types
 from interp.specified_vars import nodiff_vars, nospan_vars
+from trigger.inference.range_clipping import range_clipping
 
 
 def expand(orig_tensor: torch.Tensor, shape: list, splits: list) -> torch.Tensor:
@@ -43,23 +46,12 @@ def expand(orig_tensor: torch.Tensor, shape: list, splits: list) -> torch.Tensor
             ans_tensor = torch.index_select(ans_tensor, dim=now_dim, index=index)
         return ans_tensor
 
-
-
-parser = argparse.ArgumentParser()
-parser.add_argument('modelpath', type=str, help='model architecture file path')
-
-
-stime = time.time()
-def prompt(msg):
-    print(f'[{time.time() - stime:.3f}s] ' + msg)
-
-
 class InducingInputGenModule(nn.Module):
     """
         The class for generating secure preconditon with gradient descent.
     """
 
-    def __init__(self, model, seed=42, span_len=0.001, no_diff_vars=list(), no_span_vars=list()):
+    def __init__(self, model, seed=42, span_len=1e-4, no_diff_vars=list(), no_span_vars=list()):
         super(InducingInputGenModule, self).__init__()
         # assure that the model is already analyzed
         assert model.abstracts is not None
@@ -74,6 +66,10 @@ class InducingInputGenModule(nn.Module):
         self.scales = dict()
         self.spans = dict()
 
+        # backup initial centers
+        self.initial_centers = dict()
+        self.expand_initial_spans = dict()
+
         self.model = model
         self.abstracts = dict()
 
@@ -83,13 +79,11 @@ class InducingInputGenModule(nn.Module):
             new_abst = self.construct(orig, s, s in no_diff_vars, s in no_span_vars, self.model.signature_dict[s][0])
             self.abstracts[s] = new_abst
 
-        # backup initial centers
-        self.initial_centers = dict()
         for k, v in self.centers.items():
-            self.initial_centers[k] = v.detach()
+            self.initial_centers[k] = v.detach().clone()
             # print(f'initial abstract for {k}')
             # model.initial_abstracts[k].print()
-            print(f'initial grounded: {k} = {self.initial_centers[k]}')
+            # print(f'initial grounded: {k} = {self.initial_centers[k]}')
 
         no = 0
         for k, v in self.centers.items():
@@ -109,7 +103,7 @@ class InducingInputGenModule(nn.Module):
         for s, orig in self.model.initial_abstracts.items():
             new_abst = self.construct(orig, s)
             self.abstracts[s] = new_abst
-        _, errors = self.model.forward(self.abstracts, {'diff_order': 1, 'concrete_rand': 42})
+        _, errors = self.model.forward(self.abstracts, {'diff_order': 1, 'concrete_rand': self.seed})
 
         # for k, v in self.abstracts.items():
         #     print(k)
@@ -129,22 +123,22 @@ class InducingInputGenModule(nn.Module):
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 # loss += torch.max(prev_abs.ub * (prev_abs.lb < PossibleNumericalError.UNDERFLOW_LIMIT))
-                loss += torch.amin(prev_abs.ub)
+                loss += torch.min(prev_abs.ub.view(-1), dim=0)[0]
             elif excep.optype == 'Exp':
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 thres = PossibleNumericalError.OVERFLOW_D * np.log(10)
-                loss += torch.amin(- prev_abs.lb + thres)
+                loss += torch.min(- prev_abs.lb + thres)
             elif excep.optype == 'LogSoftMax':
                 prev_node = prev_nodes[0][0]
                 axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
                 prev_abs = self.abstracts[prev_node]
-                loss += - torch.amax(prev_abs.lb, dim=axis) + torch.amin(prev_abs.ub, dim=axis) - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D)
+                loss += torch.sum(- torch.max(prev_abs.lb, dim=axis)[0] + torch.min(prev_abs.ub, dim=axis)[0] - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D))
             elif excep.optype == 'Div':
                 # contains zero in div
                 divisor = [item for item in prev_nodes if item[3] == 1][0]
                 divisor_abs = self.abstracts[divisor[0]]
-                loss += torch.abs(divisor_abs.lb) + torch.abs(divisor_abs.ub)
+                loss += torch.sum(torch.log(torch.abs(divisor_abs.lb) + torch.abs(divisor_abs.ub)))
             else:
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
@@ -180,7 +174,7 @@ class InducingInputGenModule(nn.Module):
                 axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
                 if prev_node in self.abstracts:
                     prev_abs = self.abstracts[prev_node]
-                    if torch.any(torch.max(prev_abs.lb, dim=axis) - torch.min(prev_abs.ub, dim=axis) >= (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D)):
+                    if torch.any(torch.max(prev_abs.lb, dim=axis)[0] - torch.min(prev_abs.ub, dim=axis)[0] >= (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D)):
                         robust_exceps.append(excep)
             elif excep.optype == 'Div':
                 divisor = [item for item in prev_nodes if item[3] == 1][0]
@@ -192,43 +186,61 @@ class InducingInputGenModule(nn.Module):
         return robust_exceps
 
 
-    def err_input_study(self, print_stdout=True):
+    def robust_input_study(self, print_stdout=True):
         """
             summarize the heuristics of generated preconditions
         :param print: whether to print to console
         :return:
         """
-        tot_nodes = len(self.model.start_points)
+        tot_nodes = len(self.initial_centers)
         changed_nodes = 0
-        average_shrink = list()
-        maximum_shrink = 0.
-        minimum_shrink = 1.
-        for s in self.model.start_points:
-            orig_abst = self.model.abstracts[s]
-            now_abst = self.abstracts[s]
-            if self.tensor_equal(orig_abst.lb, now_abst.lb) and self.tensor_equal(orig_abst.ub, now_abst.ub):
-                minimum_shrink = 0.
-                average_shrink.append(0.)
+        unchanged_nodes = 0
+        inf_change_nodes = 0
+        average_abs_drift = list()
+        average_relative_drift = list()
+        maximum_abs_drift = 0.
+        minimum_abs_drift = 1e+20
+        maximum_relative_drift = 0.
+        minimum_relative_drift = 1e+20
+        for s in self.initial_centers:
+            if self.tensor_equal(self.initial_centers[s], self.centers[s]):
+                unchanged_nodes += 1
             else:
                 changed_nodes += 1
-                now_shrinkage = self.compute_shrinkage(now_abst, orig_abst)
-                maximum_shrink = max(maximum_shrink, now_shrinkage)
-                minimum_shrink = min(minimum_shrink, now_shrinkage)
-                average_shrink.append(now_shrinkage)
+                now_abs_drift = torch.mean(torch.abs(self.initial_centers[s] - self.centers[s])).detach().cpu().item()
+                now_relative_drift = torch.mean(torch.abs(self.initial_centers[s] - self.centers[s]) / (self.expand_initial_spans[s])).detach().cpu().item()
+                average_abs_drift.append(now_abs_drift)
+                maximum_abs_drift = max(maximum_abs_drift, now_abs_drift)
+                minimum_abs_drift = min(minimum_abs_drift, now_abs_drift)
+                if not math.isfinite(now_relative_drift):
+                    inf_change_nodes += 1
+                else:
+                    average_relative_drift.append(now_relative_drift)
+                    maximum_relative_drift = max(maximum_relative_drift, now_relative_drift)
+                    minimum_relative_drift = min(minimum_relative_drift, now_relative_drift)
+
         ans = {
-            'tot_start_points': tot_nodes,
+            'span_len': self.span_len,
+            'tot_nodes': tot_nodes,
             'tot_changed_nodes': changed_nodes,
-            'average_shrinkage': np.mean(average_shrink),
-            'maximum_shrinkage': maximum_shrink,
-            'minimum_shrink': minimum_shrink
+            'tot_unchanged_nodes': unchanged_nodes,
+            'tot_infchanged_nodes': inf_change_nodes,
+            'average_abs_drift': np.mean(average_abs_drift),
+            'average_relative_drift': np.mean(average_relative_drift),
+            'maximum_abs_drift': maximum_abs_drift,
+            'minimum_abs_drift': minimum_abs_drift,
+            'maximum_relative_drift': maximum_relative_drift,
+            'minimum_relative_drift': minimum_relative_drift
         }
         if print_stdout:
-            print('tot start point', tot_nodes)
-            print('tot changed nodes', changed_nodes)
-            print('average shrinkage', np.mean(average_shrink))
-            print('maximum shrinkage', maximum_shrink)
-            print('minimum shrinkage', minimum_shrink)
+            print(json.dumps(ans, indent=2))
         return ans
+
+    def dump_init_weights(self):
+        return self.initial_centers
+
+    def dump_gen_weights(self):
+        return self.centers
 
     def construct(self, original: Abstraction, var_name: str, no_diff=False, no_span=False, node_dtype='FLOAT'):
         """
@@ -242,7 +254,9 @@ class InducingInputGenModule(nn.Module):
 
             expand_lb = expand(lb, shape, splits)
             expand_ub = expand(ub, shape, splits)
+            torch.manual_seed(self.seed)
             init_data = torch.rand_like(expand_lb, device=expand_lb.device)
+            self.expand_initial_spans[name] = expand_ub - expand_lb
 
             if node_dtype in discrete_types:
                 init_data = torch.rand_like(expand_lb, device=expand_lb.device)
@@ -310,27 +324,21 @@ class InducingInputGenModule(nn.Module):
     def tensor_equal(a, b, EPS=1e-5):
         # tensor float equal
         if isinstance(a, list):
-            return all([PrecondGenModule.tensor_equal(item_a, item_b) for item_a, item_b in zip(a, b)])
+            return all([InducingInputGenModule.tensor_equal(item_a, item_b) for item_a, item_b in zip(a, b)])
         else:
             return torch.norm(a.view(-1) - b.view(-1), p=float('inf')).detach().cpu().item() <= EPS
 
-    @staticmethod
-    def compute_shrinkage(a, b):
-        # compute the shrinkage of abstraction a w.r.t. abstraction b
 
-        def work(alb, aub, blb, bub):
-            if PrecondGenModule.tensor_equal(blb, bub):
-                return 0.0
-            else:
-                delta_b = bub - blb
-                delta_a = aub - alb
-                return 1.0 - torch.mean(delta_a / torch.clip(delta_b, min=1e-5)).detach().cpu().item()
+# ================ # ================
+# below is for individual instance running
 
-        if isinstance(a.lb, list):
-            return np.mean([work(a.lb[i], a.ub[i], b.lb[i], b.ub[i]) for i in range(len(a.lb))])
-        else:
-            return work(a.lb, a.ub, b.lb, b.ub)
+parser = argparse.ArgumentParser()
+parser.add_argument('modelpath', type=str, help='model architecture file path')
 
+
+stime = time.time()
+def prompt(msg):
+    print(f'[{time.time() - stime:.3f}s] ' + msg)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -364,39 +372,32 @@ if __name__ == '__main__':
     success = False
 
     inputgen_module = InducingInputGenModule(model, no_diff_vars=nodiff_vars, no_span_vars=nospan_vars)
-    optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=0.1)
+    optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=1)
 
-    # for kk, vv in precond_module.abstracts.items():
+    # for kk, vv in inputgen_module.abstracts.items():
+    # for kk in ['Variable_2/read:0']:
+    #     vv = inputgen_module.abstracts[kk]
     #     print(kk, 'lb     :', vv.lb)
     #     print(kk, 'ub     :', vv.ub)
 
-    for iter in range(100):
+    for iter in range(10000):
         print('----------------')
+
         optimizer.zero_grad()
         loss, errors = inputgen_module.forward(err_nodes, err_exceps)
 
-        robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
-
         # for kk, vv in inputgen_module.abstracts.items():
         #     try:
+        #         vv.lb.requires_grad_(True)
+        #         vv.ub.requires_grad_(True)
         #         vv.lb.retain_grad()
         #         vv.ub.retain_grad()
         #     except:
         #         print(kk, 'cannot retain grad')
 
+        robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+
         print('iter =', iter, 'loss =', loss, '# robust errors =', len(robust_errors), '/', len(err_nodes))
-
-        loss.backward()
-        optimizer.step()
-
-        # for kk, vv in inputgen_module.abstracts.items():
-        # for kk in ['add_5:0', 'Softmax:0']:
-        #     vv = inputgen_module.abstracts[kk]
-        #     print(kk, 'lb grad:', vv.lb.grad)
-        #     print(kk, 'ub grad:', vv.ub.grad)
-        #     print(kk, 'lb     :', vv.lb)
-        #     print(kk, 'ub     :', vv.ub)
-
 
         if len(robust_errors) > 0:
             success = True
@@ -404,6 +405,17 @@ if __name__ == '__main__':
             if len(robust_errors) == len(err_nodes):
                 print('triggered all errors')
                 break
+
+        loss.backward()
+        optimizer.step()
+
+        # for kk, vv in inputgen_module.abstracts.items():
+        # for kk in ['dropout/mul_1:0']:
+        #     vv = inputgen_module.abstracts[kk]
+        #     # print(kk, 'lb grad:', vv.lb.grad)
+        #     # print(kk, 'ub grad:', vv.ub.grad)
+        #     print(kk, 'lb     :', vv.lb)
+        #     print(kk, 'ub     :', vv.ub)
 
     # for kk, vv in precond_module.abstracts.items():
     #     print(kk, 'lb     :', vv.lb)
@@ -414,7 +426,7 @@ if __name__ == '__main__':
     print('--------------')
     if success:
         print('Success!')
-        # inputgen_module.precondition_study()
+        inputgen_module.robust_input_study()
     else:
         print('!!! Not success')
         raise Exception('failed here :(')

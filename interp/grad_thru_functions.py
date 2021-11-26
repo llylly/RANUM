@@ -57,7 +57,9 @@ class StraightSoftmaxInterval(torch.autograd.Function):
         # Gradients of non-Tensor arguments to forward must be None.
         # straightthrough
         # print('work')
-        return grad_lb - grad_ub, -grad_lb + grad_ub, None, None
+        # return grad_lb - grad_ub, -grad_lb + grad_ub, None, None
+        # return grad_lb + grad_ub, grad_lb + grad_ub, None, None
+        return grad_lb, grad_ub, None, None
 
 class StraightSoftmaxIntervalLb(torch.autograd.Function):
 

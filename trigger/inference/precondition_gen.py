@@ -17,15 +17,7 @@ import numpy as np
 from interp.interp_operator import Abstraction
 from interp.interp_module import load_onnx_from_file, InterpModule
 from interp.interp_utils import PossibleNumericalError, parse_attribute
-
-parser = argparse.ArgumentParser()
-parser.add_argument('modelpath', type=str, help='model architecture file path')
-
-
-stime = time.time()
-def prompt(msg):
-    print(f'[{time.time() - stime:.3f}s] ' + msg)
-
+from trigger.inference.range_clipping import range_clipping
 
 class PrecondGenModule(nn.Module):
     """
@@ -82,20 +74,9 @@ class PrecondGenModule(nn.Module):
 
         for node, excep in zip(nodes, exceps):
             prev_nodes = self.find_prev_nodes_optypes(node)
-            if excep.optype == 'Log':
+            if excep.optype == 'Log' or excep.optype == 'Sqrt':
                 # print(node)
                 prev_node = prev_nodes[0][0]
-                prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
-            elif excep.optype == 'Sqrt':
-                # print(node)
-                prev_node = prev_nodes[0][0]
-                # prev_prev_nodes = self.find_prev_nodes_optypes(prev_node)
-                # if len(prev_prev_nodes) > 0 and prev_prev_nodes[0][1] == 'Softmax':
-                #     # penetrating softmax to avoid vanishing gradient
-                #     targ_abs = self.abstracts[prev_prev_nodes[0][0]]
-                #     loss += torch.sum(targ_abs.ub - targ_abs.lb)
-                # else:
                 prev_abs = self.abstracts[prev_node]
                 loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
             elif excep.optype == 'Exp':
@@ -271,6 +252,15 @@ class PrecondGenModule(nn.Module):
         else:
             return work(a.lb, a.ub, b.lb, b.ub)
 
+# ================ # ================
+# below is for individual instance running
+
+parser = argparse.ArgumentParser()
+parser.add_argument('modelpath', type=str, help='model architecture file path')
+
+stime = time.time()
+def prompt(msg):
+    print(f'[{time.time() - stime:.3f}s] ' + msg)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -291,65 +281,6 @@ if __name__ == '__main__':
                 print(str(item))
 
     stime = time.time()
-
-    # securing individual error point
-    # for k, v in initial_errors.items():
-    #     error_entities, root, catastro = v
-    #     if not catastro:
-    #         for error_entity in error_entities:
-    #             print(f'now working on {error_entity.var_name}')
-    #             precond_module = PrecondGenModule(model)
-    #
-    #             success = False
-    #
-    #             # I only need the zero_grad method from an optimizer, therefore any optimizer works
-    #             optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
-    #
-    #
-    #             for kk, vv in precond_module.abstracts.items():
-    #                 print(kk, 'lb     :', vv.lb)
-    #                 print(kk, 'ub     :', vv.ub)
-    #
-    #             for iter in range(100):
-    #                 print('----------------')
-    #                 optimizer.zero_grad()
-    #                 loss, errors = precond_module.forward(error_entity.var_name, error_entity)
-    #                 # for kk, vv in precond_module.abstracts.items():
-    #                 #     try:
-    #                 #         vv.lb.retain_grad()
-    #                 #         vv.ub.retain_grad()
-    #                 #     except:
-    #                 #         print(kk, 'cannot retain grad')
-    #
-    #                 print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
-    #
-    #                 loss.backward()
-    #
-    #                 # for kk, vv in precond_module.abstracts.items():
-    #                 #     print(kk, 'lb grad:', vv.lb.grad)
-    #                 #     print(kk, 'ub grad:', vv.ub.grad)
-    #                 #     print(kk, 'lb     :', vv.lb)
-    #                 #     print(kk, 'ub     :', vv.ub)
-    #
-    #                 precond_module.grad_step()
-    #                 if k not in errors:
-    #                     success = True
-    #                     print('securing condition found!')
-    #                     break
-    #
-    #             for kk, vv in precond_module.abstracts.items():
-    #                 print(kk, 'lb     :', vv.lb)
-    #                 print(kk, 'ub     :', vv.ub)
-    #             #     print(kk, 'lb grad:', vv.lb.grad)
-    #             #     print(kk, 'ub grad:', vv.ub.grad)
-    #
-    #             print('--------------')
-    #             if success: print('Success!')
-    #             else:
-    #                 print('!!! Not success')
-    #                 raise Exception('failed here :(')
-    #             print(f'Time elapsed: {time.time() - stime:.3f} s')
-    #             print('--------------')
 
     # securing all error points
     err_nodes, err_exceps = list(), list()
@@ -383,6 +314,11 @@ if __name__ == '__main__':
 
         print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
 
+        if len(errors) == 0:
+            success = True
+            print('securing condition found!')
+            break
+
         loss.backward()
 
         # for kk, vv in precond_module.abstracts.items():
@@ -392,10 +328,9 @@ if __name__ == '__main__':
         #     print(kk, 'ub     :', vv.ub)
 
         precond_module.grad_step()
-        if len(errors) == 0:
-            success = True
-            print('securing condition found!')
-            break
+
+    # clip by initial abstracts
+    range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans)
 
     for kk, vv in precond_module.abstracts.items():
         print(kk, 'lb     :', vv.lb)
@@ -414,5 +349,61 @@ if __name__ == '__main__':
     print('--------------')
 
 
-
-
+# securing individual error point
+# for k, v in initial_errors.items():
+#     error_entities, root, catastro = v
+#     if not catastro:
+#         for error_entity in error_entities:
+#             print(f'now working on {error_entity.var_name}')
+#             precond_module = PrecondGenModule(model)
+#
+#             success = False
+#
+#             # I only need the zero_grad method from an optimizer, therefore any optimizer works
+#             optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
+#
+#
+#             for kk, vv in precond_module.abstracts.items():
+#                 print(kk, 'lb     :', vv.lb)
+#                 print(kk, 'ub     :', vv.ub)
+#
+#             for iter in range(100):
+#                 print('----------------')
+#                 optimizer.zero_grad()
+#                 loss, errors = precond_module.forward(error_entity.var_name, error_entity)
+#                 # for kk, vv in precond_module.abstracts.items():
+#                 #     try:
+#                 #         vv.lb.retain_grad()
+#                 #         vv.ub.retain_grad()
+#                 #     except:
+#                 #         print(kk, 'cannot retain grad')
+#
+#                 print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
+#
+#                 loss.backward()
+#
+#                 # for kk, vv in precond_module.abstracts.items():
+#                 #     print(kk, 'lb grad:', vv.lb.grad)
+#                 #     print(kk, 'ub grad:', vv.ub.grad)
+#                 #     print(kk, 'lb     :', vv.lb)
+#                 #     print(kk, 'ub     :', vv.ub)
+#
+#                 precond_module.grad_step()
+#                 if k not in errors:
+#                     success = True
+#                     print('securing condition found!')
+#                     break
+#
+#             for kk, vv in precond_module.abstracts.items():
+#                 print(kk, 'lb     :', vv.lb)
+#                 print(kk, 'ub     :', vv.ub)
+#             #     print(kk, 'lb grad:', vv.lb.grad)
+#             #     print(kk, 'ub grad:', vv.ub.grad)
+#
+#             print('--------------')
+#             if success: print('Success!')
+#             else:
+#                 print('!!! Not success')
+#                 raise Exception('failed here :(')
+#             print(f'Time elapsed: {time.time() - stime:.3f} s')
+#             print('--------------')

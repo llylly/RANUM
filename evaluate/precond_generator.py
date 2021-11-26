@@ -1,5 +1,5 @@
 """
-    This script runs whole benchmark set only for the purpose of certifying against numerical bugs
+    This script runs whole benchmark set only for the purpose of securing against numerical bugs by generating preconditions
     It then records the detailed status and running time statistics
 """
 import os
@@ -14,6 +14,8 @@ from interp.interp_utils import AbstractionInitConfig
 from interp.specified_vars import nodiff_vars
 
 from trigger.inference.precondition_gen import PrecondGenModule
+
+MAX_ITER = 100
 
 # should be grist and/or debar
 run_benchmarks = ['grist']
@@ -72,7 +74,7 @@ if __name__ == '__main__':
                 #     print(kk, 'lb     :', vv.lb)
                 #     print(kk, 'ub     :', vv.ub)
 
-                for iter in range(100):
+                for iter in range(MAX_ITER):
                     # print('----------------')
                     optimizer.zero_grad()
                     loss, errors = precond_module.forward(err_nodes, err_exceps)
