@@ -505,7 +505,7 @@ class InterpModule():
 
         for i, (node_name, ctx) in enumerate(self.queue):
             if ctx is None:
-                if node_name not in abstracts:
+                if node_name not in abstracts and node_name != InterpModule.SUPER_START_NODE:
                     print(f'! Initial node {node_name} lacks initialized abstracts')
             else:
                 if node_name in abstracts:
@@ -513,8 +513,6 @@ class InterpModule():
                     pass
                 else:
                     parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
-
-
 
                     node_input_cnt = len(node.input)
                     unique_node_input_cnt = len(set([x for x in node.input]))

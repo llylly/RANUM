@@ -51,7 +51,7 @@ class InducingInputGenModule(nn.Module):
         The class for generating secure preconditon with gradient descent.
     """
 
-    def __init__(self, model, seed=42, span_len=1e-4, no_diff_vars=list(), no_span_vars=list()):
+    def __init__(self, model, seed=42, span_len=1e-3, no_diff_vars=list(), no_span_vars=list(), from_init_dict=False):
         super(InducingInputGenModule, self).__init__()
         # assure that the model is already analyzed
         assert model.abstracts is not None
@@ -60,6 +60,7 @@ class InducingInputGenModule(nn.Module):
 
         self.seed = seed
         self.span_len = span_len
+        self.from_init_dict = from_init_dict
 
         # centers and scales are parameters
         self.centers = dict()
@@ -76,7 +77,7 @@ class InducingInputGenModule(nn.Module):
         self.orig_values = dict()
 
         for s, orig in model.initial_abstracts.items():
-            new_abst = self.construct(orig, s, s in no_diff_vars, s in no_span_vars, self.model.signature_dict[s][0])
+            new_abst = self.construct(orig, s, s in no_diff_vars, s in no_span_vars, self.model.signature_dict[s][0], self.from_init_dict)
             self.abstracts[s] = new_abst
 
         for k, v in self.centers.items():
@@ -90,6 +91,9 @@ class InducingInputGenModule(nn.Module):
             self.register_parameter(f'centers:{no}', v)
             no += 1
 
+    def rewind(self):
+        for k in self.initial_centers:
+            self.centers[k].data = self.initial_centers[k].detach().clone()
 
     def forward(self, node, excep, div_branch='+'):
         """
@@ -101,7 +105,7 @@ class InducingInputGenModule(nn.Module):
         """
         self.abstracts.clear()
         for s, orig in self.model.initial_abstracts.items():
-            new_abst = self.construct(orig, s)
+            new_abst = self.construct(orig, s, self.from_init_dict)
             self.abstracts[s] = new_abst
         _, errors = self.model.forward(self.abstracts, {'diff_order': 1, 'concrete_rand': self.seed})
 
@@ -128,7 +132,7 @@ class InducingInputGenModule(nn.Module):
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 thres = PossibleNumericalError.OVERFLOW_D * np.log(10)
-                loss += torch.min(- prev_abs.lb + thres)
+                loss += torch.sum(torch.maximum(- prev_abs.lb + thres, torch.zeros_like(prev_abs.lb)))
             elif excep.optype == 'LogSoftMax':
                 prev_node = prev_nodes[0][0]
                 axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
@@ -138,7 +142,7 @@ class InducingInputGenModule(nn.Module):
                 # contains zero in div
                 divisor = [item for item in prev_nodes if item[3] == 1][0]
                 divisor_abs = self.abstracts[divisor[0]]
-                loss += torch.sum(torch.log(torch.abs(divisor_abs.lb) + torch.abs(divisor_abs.ub)))
+                loss += torch.sum((torch.abs(divisor_abs.lb) + torch.abs(divisor_abs.ub)))
             else:
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
@@ -242,7 +246,7 @@ class InducingInputGenModule(nn.Module):
     def dump_gen_weights(self):
         return self.centers
 
-    def construct(self, original: Abstraction, var_name: str, no_diff=False, no_span=False, node_dtype='FLOAT'):
+    def construct(self, original: Abstraction, var_name: str, no_diff=False, no_span=False, node_dtype='FLOAT', from_init_dict=False):
         """
             From the original abstraction to create a new abstraction parameterized by span * scale and center:
             [center - span * scale, center + span * scale]
@@ -250,19 +254,29 @@ class InducingInputGenModule(nn.Module):
         :param original: original abstraction from the first run
         :return: parameterized abstraction
         """
-        def _work(lb, ub, shape, splits, name):
+        def _work(lb, ub, shape, splits, name, center_spec=None):
 
             expand_lb = expand(lb, shape, splits)
             expand_ub = expand(ub, shape, splits)
             torch.manual_seed(self.seed)
-            init_data = torch.rand_like(expand_lb, device=expand_lb.device)
+            if center_spec is None:
+                init_data = torch.rand_like(expand_lb, device=expand_lb.device)
+            else:
+                print(f'init {name} from initializer dict')
+                # print(center_spec.shape)
+                # print(expand_lb.shape)
+                init_data = torch.tensor(center_spec, dtype=expand_lb.dtype, device=expand_lb.device)
             self.expand_initial_spans[name] = expand_ub - expand_lb
 
             if node_dtype in discrete_types:
-                init_data = torch.rand_like(expand_lb, device=expand_lb.device)
-                init_data = (expand_lb + init_data * (expand_ub - expand_lb + 1)).floor()
+                if center_spec is None:
+                    init_data = torch.rand_like(expand_lb, device=expand_lb.device)
+                    init_data = (expand_lb + init_data * (expand_ub - expand_lb + 1)).floor()
+                else:
+                    init_data = torch.tensor(center_spec, dtype=expand_lb.dtype, device=expand_lb.device)
             else:
-                init_data = expand_lb + init_data * (expand_ub - expand_lb)
+                if center_spec is None:
+                    init_data = expand_lb + init_data * (expand_ub - expand_lb)
             init_data = nn.Parameter(init_data, requires_grad=not no_diff and node_dtype not in discrete_types)
 
             span = torch.tensor(expand_ub - expand_lb, device=expand_ub.device)
@@ -294,7 +308,8 @@ class InducingInputGenModule(nn.Module):
                     item_lb = self.centers[var_name + f'_{i}']
                     item_ub = self.centers[var_name + f'_{i}']
                 else:
-                    item_lb, item_ub = _work(original.lb[i], original.ub[i], original.shape[i], original.splits[i], var_name + f'_{i}')
+                    center_spec = self.model.initializer_dict[var_name][1][i] if from_init_dict and var_name in self.model.initializer_dict else None
+                    item_lb, item_ub = _work(original.lb[i], original.ub[i], original.shape[i], original.splits[i], var_name + f'_{i}', center_spec)
                 ans.lb.append(item_lb)
                 ans.ub.append(item_ub)
                 splits.append([list(range(shapei)) for shapei in original.shape[i]])
@@ -306,7 +321,8 @@ class InducingInputGenModule(nn.Module):
                 ans.lb = self.centers[var_name]
                 ans.ub = self.centers[var_name]
             else:
-                ans.lb, ans.ub = _work(original.lb, original.ub, original.shape, original.splits, var_name)
+                center_spec = self.model.initializer_dict[var_name][1] if from_init_dict and var_name in self.model.initializer_dict else None
+                ans.lb, ans.ub = _work(original.lb, original.ub, original.shape, original.splits, var_name, center_spec)
             splits = [list(range(shapei)) for shapei in original.shape]
         ans.shape = original.shape.copy()
         ans.splits = splits
@@ -371,8 +387,11 @@ if __name__ == '__main__':
 
     success = False
 
-    inputgen_module = InducingInputGenModule(model, no_diff_vars=nodiff_vars, no_span_vars=nospan_vars)
+    inputgen_module = InducingInputGenModule(model, no_diff_vars=nodiff_vars, no_span_vars=nospan_vars,
+                                             from_init_dict=True, span_len=1e-4)
     optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=1)
+
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=500)
 
     # for kk, vv in inputgen_module.abstracts.items():
     # for kk in ['Variable_2/read:0']:
@@ -380,42 +399,43 @@ if __name__ == '__main__':
     #     print(kk, 'lb     :', vv.lb)
     #     print(kk, 'ub     :', vv.ub)
 
-    for iter in range(10000):
-        print('----------------')
+    for err_node, err_excep in zip(err_nodes, err_exceps):
+        for iter in range(1000):
+            print('----------------')
 
-        optimizer.zero_grad()
-        loss, errors = inputgen_module.forward(err_nodes, err_exceps)
+            optimizer.zero_grad()
+            loss, errors = inputgen_module.forward([err_node], [err_excep])
 
-        # for kk, vv in inputgen_module.abstracts.items():
-        #     try:
-        #         vv.lb.requires_grad_(True)
-        #         vv.ub.requires_grad_(True)
-        #         vv.lb.retain_grad()
-        #         vv.ub.retain_grad()
-        #     except:
-        #         print(kk, 'cannot retain grad')
+            # for kk, vv in inputgen_module.abstracts.items():
+            #     try:
+            #         vv.lb.requires_grad_(True)
+            #         vv.ub.requires_grad_(True)
+            #         vv.lb.retain_grad()
+            #         vv.ub.retain_grad()
+            #     except:
+            #         print(kk, 'cannot retain grad')
 
-        robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+            robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
 
-        print('iter =', iter, 'loss =', loss, '# robust errors =', len(robust_errors), '/', len(err_nodes))
+            print('iter =', iter, 'loss =', loss, '# robust errors =', len(robust_errors), '/', len(err_nodes))
 
-        if len(robust_errors) > 0:
-            success = True
-            print('securing condition found!')
-            if len(robust_errors) == len(err_nodes):
-                print('triggered all errors')
+            if len(robust_errors) > 0:
+                success = True
+                print('securing condition found!')
                 break
 
-        loss.backward()
-        optimizer.step()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()
 
-        # for kk, vv in inputgen_module.abstracts.items():
-        # for kk in ['dropout/mul_1:0']:
-        #     vv = inputgen_module.abstracts[kk]
-        #     # print(kk, 'lb grad:', vv.lb.grad)
-        #     # print(kk, 'ub grad:', vv.ub.grad)
-        #     print(kk, 'lb     :', vv.lb)
-        #     print(kk, 'ub     :', vv.ub)
+            # for kk, vv in inputgen_module.abstracts.items():
+            # for kk in ['dense_2/kernel/read:0']:
+            #     vv = inputgen_module.abstracts[kk]
+            #     # print(kk, 'lb grad:', vv.lb.grad)
+            #     # print(kk, 'ub grad:', vv.ub.grad)
+            #     print(kk, 'lb     :', vv.lb)
+            #     print(kk, 'ub     :', vv.ub)
+
 
     # for kk, vv in precond_module.abstracts.items():
     #     print(kk, 'lb     :', vv.lb)
@@ -423,15 +443,15 @@ if __name__ == '__main__':
     #     print(kk, 'lb grad:', vv.lb.grad)
     #     print(kk, 'ub grad:', vv.ub.grad)
 
-    print('--------------')
-    if success:
-        print('Success!')
-        inputgen_module.robust_input_study()
-    else:
-        print('!!! Not success')
-        raise Exception('failed here :(')
-    print(f'Time elapsed: {time.time() - stime:.3f} s')
-    print('--------------')
+        print('--------------')
+        if success:
+            print('Success!')
+            inputgen_module.robust_input_study()
+        else:
+            print('!!! Not success')
+            # raise Exception('failed here :(')
+        print(f'Time elapsed: {time.time() - stime:.3f} s')
+        print('--------------')
 
 
 

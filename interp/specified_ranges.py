@@ -55,7 +55,8 @@ class SpecifiedRanges:
               "gan_image_compression",
               "vid2depth",
               "domain_adaptation",
-              "delf", ]
+              "delf",
+              "29"]
 
     # a dictionary with key = "filename", and value with another dictionary {"variable_name" -> ranges}
     specified_ranges = {
@@ -197,8 +198,11 @@ class SpecifiedRanges:
         "real_nvp": {"model/shuffle_batch/random_shuffle_queue": [[0, 1]]},
         #
         "delf": {"input_scales": [0.1, 1], "input_image": [0, 255], "input_abs_thres": [0, None],
-                 "input_max_feature_num": [0, None]}
+                 "input_max_feature_num": [0, None]},
         # scale; input pixel in 0-255; abs value; feature num
+
+        # Placeholder is the dropout rate, which cannot be 0
+        "29": {'Placeholder': [0.8, 1]}
     }
 
     # the following dict is called by the parse_format_text.py

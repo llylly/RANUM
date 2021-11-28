@@ -1608,6 +1608,7 @@ class Interpreter(object):
         desired_shape = [int(tmp) if x == -1 else (abst_data.shape[ind] if x == 0 else x)
                          for ind, x in enumerate(desired_shape)]
 
+        # print(abst_data.var_name)
         # print('prev    shape:', abst_data.shape)
         # print('desired shape:', desired_shape)
 
