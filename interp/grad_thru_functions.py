@@ -119,6 +119,22 @@ class StraightRelu(torch.autograd.Function):
         return torch.where(input >= 0., grad_output, 0.01 * grad_output)
 
 
+class SmoothRelu(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        return input.relu()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
+        # straightthrough
+        input, = ctx.saved_tensors
+        return torch.where(input >= 5., (1.-torch.exp(-torch.clip(input, min=5.))) * grad_output,
+                                         (1. - 1. / (1. + torch.exp(torch.clip(input, max=5.+1e-5)))) * grad_output)
+
 
 class StraightExp(torch.autograd.Function):
 
@@ -133,7 +149,7 @@ class StraightExp(torch.autograd.Function):
         # We return as many input gradients as there were arguments.
         # Gradients of non-Tensor arguments to forward must be None.
         # straight-through
-        print('work')
+        # print('work')
         output, = ctx.saved_tensors
         # gradient clip to avoid vanishing gradients
         cliped_output = torch.clip(output, 0.01, 1e+5)

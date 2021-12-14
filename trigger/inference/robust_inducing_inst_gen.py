@@ -97,7 +97,7 @@ class InducingInputGenModule(nn.Module):
 
     def forward(self, node, excep, div_branch='+'):
         """
-            construct precondition generation loss
+            construct robust error instance generation loss
         :param node: the node name (str) or (list of that) that causes numerical error
         :param excep: the numerical error object or (list of that)
         :param div_branch: for div op, whether to use positive branch or negative branch, '+' or '-'
@@ -421,7 +421,7 @@ if __name__ == '__main__':
 
             if len(robust_errors) > 0:
                 success = True
-                print('securing condition found!')
+                print('robust error found!')
                 break
 
             loss.backward()

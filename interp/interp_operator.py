@@ -12,7 +12,7 @@ from interp.interp_utils import AbstractionInitConfig, parse_attribute, \
     PossibleNumericalError, index_clip_thres, POSTIVE_MINIMUM
 from interp.grad_thru_functions import StraightSigmoid, StraightTanh, StraightSoftmaxIntervalLb, \
     StraightSoftmaxIntervalUb, \
-    StraightSoftmaxInterval, StraightRelu, StraightExp
+    StraightSoftmaxInterval, StraightRelu, StraightExp, SmoothRelu
 
 class Abstraction(object):
     """
@@ -444,7 +444,8 @@ class Interpreter(object):
 
     def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
                  loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1),
-                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0, concrete_rand=None):
+                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0, concrete_rand=None,
+                 continue_prop=False):
         # default smash threshold
         self.smash = smash_thres
 
@@ -469,6 +470,10 @@ class Interpreter(object):
         # concrete_rand: whether generate concrete random tensors for tensor-generating ops, like randomUniform etc.
         # if concrete_rand is none, not applied, otherwise, use the manual_seed for generating ops
         self.concrete_rand = concrete_rand
+
+        # continue_prop: whether to continue propagation when facing numerical bugs
+        self.continue_prop = continue_prop
+        PossibleNumericalError.continue_prop = continue_prop
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -1385,10 +1390,13 @@ class Interpreter(object):
         if self.diff_order == 0:
             ans.lb = torch.relu(abst.lb)
             ans.ub = torch.relu(abst.ub)
-        else:
+        elif self.diff_order == 1:
             # use leaky relu's gradient as an approximation to provide necessary gradient feedback for optimization
             ans.lb = StraightRelu.apply(abst.lb)
             ans.ub = StraightRelu.apply(abst.ub)
+        else:
+            ans.lb = SmoothRelu.apply(abst.lb)
+            ans.ub = SmoothRelu.apply(abst.ub)
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1741,10 +1749,11 @@ class Interpreter(object):
             else:
                 ret.var_name = 'null'
         else:
+            # stupid torch does not support float64 floor
             if to_type in discrete_types:
                 ret = Abstraction()
-                ret.lb = abst.lb.floor().type(torch.float64)
-                ret.ub = abst.ub.floor().type(torch.float64)
+                ret.lb = abst.lb.type(torch.float32).floor().type(torch.float64)
+                ret.ub = abst.ub.type(torch.float32).floor().type(torch.float64)
                 ret.splits = abst.splits
                 ret.shape = abst.shape
                 ret.var_name = abst.var_name
@@ -2899,7 +2908,9 @@ class Interpreter(object):
                                            torch.ones_like(target_value).to(target_value.device).long() * len(
                                                input.splits[1]),
                                            target_value)
-                index_map.append(lb.shape[1])
+                index_map.append(lb.shape[1] - 1)
+
+            target_value = target_value.clamp(min=0, max=len(index_map) - 1)
 
             index_map = torch.tensor(index_map).to(target_value.device)
 
@@ -2951,7 +2962,7 @@ class Interpreter(object):
                                                    torch.ones_like(target_value).to(target_value.device).long() * len(
                                                        input.splits[1]),
                                                    target_value)
-                        index_map.append(lb.shape[1])
+                        index_map.append(lb.shape[1] - 1)
 
                     index_map = torch.tensor(index_map).to(target_value.device)
 

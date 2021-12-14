@@ -31,7 +31,7 @@ if __name__ == '__main__':
                                         customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
             loadtime = time.time()
 
-            res = model.analyze(model.gen_abstraction_heuristics(), {'average_pool_mode': 'coarse'})
+            res = model.analyze(model.gen_abstraction_heuristics(file.split('.')[0]), {'average_pool_mode': 'coarse'})
             analyzetime = time.time()
 
             runningtime_stat = {'load': loadtime - stime, 'analyze': analyzetime - loadtime, 'all': analyzetime - stime}

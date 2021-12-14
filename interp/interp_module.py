@@ -234,6 +234,7 @@ class InterpModule():
     def analyze(self, init_config=None, interp_config=dict(),
                 input_config=AbstractionInitConfig(diff=True, stride=-1, from_init=False, from_init_margin=1.),
                 weight_config=AbstractionInitConfig(diff=True, stride=-1, from_init=True, from_init_margin=1.),
+                from_existing_abstract=None,
                 terminate=None):
         """
 
@@ -305,6 +306,12 @@ class InterpModule():
         specified_inputs = set(init_config.keys())
         for s in self.start_points:
             if s == InterpModule.SUPER_START_NODE: continue
+
+            # use pre-determined abstracts
+            if from_existing_abstract is not None and s in from_existing_abstract:
+                self.initial_abstracts[s] = from_existing_abstract[s]
+                continue
+
             if s not in init_config:
                 if s.lower().count('moving_variance') > 0:
                     # looks like a variance
@@ -514,6 +521,10 @@ class InterpModule():
                 else:
                     parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
 
+                    if any([x not in abstracts for x in node.input]):
+                        print(f'! no abstractions for some input of node {node_name}, skip')
+                        continue
+
                     node_input_cnt = len(node.input)
                     unique_node_input_cnt = len(set([x for x in node.input]))
                     # detect potential optimizing operators
@@ -647,6 +658,37 @@ class InterpModule():
                                                          ub=AbstractionInitConfig.WEIGHT_CONFIG_DEFAULT[1])
 
         return result
+
+    def detect_input_and_output_nodes(self):
+        """
+            Heuristically detect the input and output nodes
+            Require: one pass of analyze has already happened
+        :return: a list of str: names of input nodes, a list of str: names of output nodes
+        """
+        input_nodes = list()
+        loss_function_nodes = list()
+
+        for now_node, now_ctx in self.queue:
+            if self.deg_out[now_node] == 0:
+                loss_function_nodes.append(now_node)
+
+        if len(loss_function_nodes) > 1:
+            loss_function_nodes = [x for x in loss_function_nodes if not x.startswith('obj_function')]
+            for name_start in ['loss', 'D_loss', 'cross_entropy']:
+                if any([x.startswith(name_start) for x in loss_function_nodes]):
+                    loss_function_nodes = [x for x in loss_function_nodes if x.startswith(name_start)]
+        if len(loss_function_nodes) == 0:
+            raise Exception(f'cannot locate the loss function nodes')
+
+        if any([any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target']) for x in self.queue]):
+            input_nodes = [x[0] for x in self.queue if any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target'])]
+
+        if len(input_nodes) == 0:
+            print('for debug:')
+            print('  possible input nodes:', [now_node for now_node, now_ctx in self.queue if self.deg_in[now_node] == 0])
+            raise Exception(f'cannot locate the input nodes')
+
+        return input_nodes, loss_function_nodes
 
 
 def load_onnx_from_file(path, customize_shape=None):
