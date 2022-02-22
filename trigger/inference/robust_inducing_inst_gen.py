@@ -19,8 +19,9 @@ import numpy as np
 from interp.interp_operator import Abstraction
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import PossibleNumericalError, parse_attribute, discrete_types
-from interp.specified_vars import nodiff_vars, nospan_vars
-from trigger.inference.range_clipping import range_clipping
+from interp.specified_vars import nospan_vars
+from interp.specified_vars import nodiff_vars as nodiff_vars_default
+from trigger.hints import hard_coded_input_output_hints, customized_lr_inference_inst_gen
 
 
 def expand(orig_tensor: torch.Tensor, shape: list, splits: list) -> torch.Tensor:
@@ -48,7 +49,7 @@ def expand(orig_tensor: torch.Tensor, shape: list, splits: list) -> torch.Tensor
 
 class InducingInputGenModule(nn.Module):
     """
-        The class for generating secure preconditon with gradient descent.
+        The class for generating error-inducing inputs and weights with interval span via gradient descent.
     """
 
     def __init__(self, model, seed=42, span_len=1e-3, no_diff_vars=list(), no_span_vars=list(), from_init_dict=False):
@@ -95,6 +96,25 @@ class InducingInputGenModule(nn.Module):
         for k in self.initial_centers:
             self.centers[k].data = self.initial_centers[k].detach().clone()
 
+    def set_span_len(self, new_span_len, no_span_vars):
+        self.span_len = new_span_len
+        for var_name in self.scales:
+            if self.model.signature_dict[var_name][0] in discrete_types or var_name in no_span_vars:
+                pass
+            else:
+                self.scales[var_name].fill_(new_span_len)
+
+    def clip_to_valid_range(self, vanilla_lb_ub):
+        for var_name in self.centers:
+            if var_name in vanilla_lb_ub:
+                if var_name in self.spans:
+                    now_lb, now_ub = vanilla_lb_ub[var_name]
+                    now_lb += torch.max(self.spans[var_name] * self.scales[var_name]).item()
+                    now_ub -= torch.max(self.spans[var_name] * self.scales[var_name]).item()
+                else:
+                    now_lb, now_ub = vanilla_lb_ub[var_name]
+                self.centers[var_name].data.clamp_(min=now_lb, max=now_ub)
+
     def forward(self, node, excep, div_branch='+'):
         """
             construct robust error instance generation loss
@@ -122,19 +142,26 @@ class InducingInputGenModule(nn.Module):
 
         for node, excep in zip(nodes, exceps):
             prev_nodes = self.find_prev_nodes_optypes(node)
+            prev_node = prev_nodes[0][0]
             if excep.optype == 'Log' or excep.optype == 'Sqrt':
                 # print(node)
-                prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 # loss += torch.max(prev_abs.ub * (prev_abs.lb < PossibleNumericalError.UNDERFLOW_LIMIT))
-                loss += torch.min(prev_abs.ub.view(-1), dim=0)[0]
+                prev_prev_nodes = self.find_prev_nodes_optypes(prev_node)
+                if len(prev_prev_nodes) > 0 and prev_prev_nodes[0][1] == 'Softmax' and self.abstracts[prev_prev_nodes[0][0]].lb.numel() > 1:
+                    # use prev prev node
+                    # loss penetration through softmax due to optimization challenge
+                    prev_prev_abs = self.abstracts[prev_prev_nodes[0][0]]
+                    # prev_prev_abs.print()
+                    loss += torch.sum(prev_prev_abs.ub.min(axis=-1)[0]) - torch.sum(prev_prev_abs.lb) + \
+                    torch.sum(torch.gather(prev_prev_abs.lb, dim=-1, index=torch.argmin(prev_prev_abs.ub, dim=-1, keepdim=True)))
+                else:
+                    loss += torch.min(prev_abs.ub.view(-1), dim=0)[0]
             elif excep.optype == 'Exp':
-                prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
                 thres = PossibleNumericalError.OVERFLOW_D * np.log(10)
                 loss += torch.sum(torch.maximum(- prev_abs.lb + thres, torch.zeros_like(prev_abs.lb)))
             elif excep.optype == 'LogSoftMax':
-                prev_node = prev_nodes[0][0]
                 axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
                 prev_abs = self.abstracts[prev_node]
                 loss += torch.sum(- torch.max(prev_abs.lb, dim=axis)[0] + torch.min(prev_abs.ub, dim=axis)[0] - (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D))
@@ -148,6 +175,8 @@ class InducingInputGenModule(nn.Module):
         return loss, errors
 
     def robust_error_check(self, node, excep):
+        # self.abstracts['MatMul:0'].print()
+        err_nodes = list()
         robust_exceps = list()
 
         if not isinstance(node, list):
@@ -157,37 +186,39 @@ class InducingInputGenModule(nn.Module):
 
         for node, excep in zip(nodes, exceps):
             prev_nodes = self.find_prev_nodes_optypes(node)
+            prev_node = prev_nodes[0][0]
             if excep.optype == 'Log' or excep.optype == 'Sqrt':
-                prev_node = prev_nodes[0][0]
                 if prev_node in self.abstracts:
                     prev_abs = self.abstracts[prev_node]
                     if torch.any(prev_abs.ub <= PossibleNumericalError.UNDERFLOW_LIMIT):
+                        err_nodes.append(node)
                         robust_exceps.append(excep)
                 else:
                     print(f'! cannot find the abstraction for the previous node of {node}')
             elif excep.optype == 'Exp':
-                prev_node = prev_nodes[0][0]
                 if prev_node in self.abstracts:
                     prev_abs = self.abstracts[prev_node]
                     if torch.any(prev_abs.lb > PossibleNumericalError.OVERFLOW_D * np.log(10)):
+                        err_nodes.append(node)
                         robust_exceps.append(excep)
                 else:
                     print(f'! cannot find the abstraction for the previous node of {node}')
             elif excep.optype == 'LogSoftMax':
-                prev_node = prev_nodes[0][0]
                 axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
                 if prev_node in self.abstracts:
                     prev_abs = self.abstracts[prev_node]
                     if torch.any(torch.max(prev_abs.lb, dim=axis)[0] - torch.min(prev_abs.ub, dim=axis)[0] >= (PossibleNumericalError.OVERFLOW_D - PossibleNumericalError.UNDERFLOW_D)):
+                        err_nodes.append(node)
                         robust_exceps.append(excep)
             elif excep.optype == 'Div':
                 divisor = [item for item in prev_nodes if item[3] == 1][0]
                 if divisor[0] in self.abstracts:
                     divisor_abs = self.abstracts[divisor[0]]
                     if torch.any((divisor_abs.lb >= -PossibleNumericalError.UNDERFLOW_LIMIT) & (divisor_abs.ub <= PossibleNumericalError.UNDERFLOW_LIMIT)):
+                        err_nodes.append(node)
                         robust_exceps.append(excep)
 
-        return robust_exceps
+        return err_nodes, robust_exceps
 
 
     def robust_input_study(self, print_stdout=True):
@@ -241,9 +272,11 @@ class InducingInputGenModule(nn.Module):
         return ans
 
     def dump_init_weights(self):
+        # indeed it is not limited to weights, but also input nodes
         return self.initial_centers
 
     def dump_gen_weights(self):
+        # indeed it is not limited to weights, but also input nodes
         return self.centers
 
     def construct(self, original: Abstraction, var_name: str, no_diff=False, no_span=False, node_dtype='FLOAT', from_init_dict=False):
@@ -262,7 +295,7 @@ class InducingInputGenModule(nn.Module):
             if center_spec is None:
                 init_data = torch.rand_like(expand_lb, device=expand_lb.device)
             else:
-                print(f'init {name} from initializer dict')
+                # print(f'init {name} from initializer dict')
                 # print(center_spec.shape)
                 # print(expand_lb.shape)
                 init_data = torch.tensor(center_spec, dtype=expand_lb.dtype, device=expand_lb.device)
@@ -345,16 +378,266 @@ class InducingInputGenModule(nn.Module):
             return torch.norm(a.view(-1) - b.view(-1), p=float('inf')).detach().cpu().item() <= EPS
 
 
+stime = time.time()
+def prompt(msg):
+    print(f'[{time.time() - stime:.3f}s] ' + msg)
+
+def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, default_lr=1., default_lr_decay=0.1, default_step=500,
+                                max_iters=100, span_len_step=np.sqrt(10), span_len_start=1e-10/2.0,
+                                skip_stages=list()):
+    """
+        The wrapped function for inference time input generation
+    :param modelpath:
+    :param mode: 'rand-input-rand-weight' / 'spec-input-rand-weight' / 'spec-input-spec-weight' / 'all'
+    :return:
+    """
+
+    model = load_onnx_from_file(modelpath,
+                                customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
+    prompt('model initialized')
+
+    bare_name = modelpath.split('/')[-1].split('.')[0]
+
+    initial_errors = model.analyze(model.gen_abstraction_heuristics(os.path.split(modelpath)[-1].split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
+
+    if len(initial_errors) == 0:
+        print('No numerical bug')
+    else:
+        print(f'{len(initial_errors)} possible numerical bug(s)')
+        for k, v in initial_errors.items():
+            print(f'- On tensor {k} triggered by operator {v[1]}:')
+            for item in v[0]:
+                print(str(item))
+
+    stats_dict = dict()
+
+    # store original input abstraction for clipping
+    vanilla_lb_ub = dict()
+    for s, abst in model.initial_abstracts.items():
+        vanilla_lb_ub[s] = (torch.min(abst.lb).item(), torch.max(abst.ub).item())
+    # print(vanilla_lb_ub)
+
+    # scan all error points
+    err_nodes, err_exceps = list(), list()
+    for k, v in initial_errors.items():
+        error_entities, root, catastro = v
+        if not catastro:
+            for error_entity in error_entities:
+                err_nodes.append(error_entity.var_name)
+                err_exceps.append(error_entity)
+
+    if not os.path.exists(os.path.join(dumping_folder, bare_name)):
+        os.makedirs(os.path.join(dumping_folder, bare_name))
+
+    err_seq_no = 0
+    for err_node, err_excep in zip(err_nodes, err_exceps):
+        stime = time.time()
+
+        now_stats_item = dict()
+        success = False
+        category = None
+
+        if (mode == 'rand-input-rand-weight' or mode == 'all') and 'rand-input-rand-weight' not in skip_stages:
+            print('rand-input-rand-weight stage')
+            ls_time = time.time()
+            inputgen_module = InducingInputGenModule(model, seed=seed, no_diff_vars=nodiff_vars_default, no_span_vars=nospan_vars,
+                                                     from_init_dict=True,
+                                                     span_len=0.)
+            loss, errors = inputgen_module.forward([err_node], [err_excep])
+            trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+            if err_node in trigger_nodes:
+                # means random input and random weights can trigger the error
+                success = True
+                category = 'rand-input-rand-weight'
+
+                # try to maximize span length
+                span_len = 0.
+                try_span_len = span_len_start
+                while try_span_len < 0.5:
+                    print('try span len =', try_span_len)
+                    inputgen_module.set_span_len(span_len, no_span_vars=nospan_vars)
+                    loss, errors = inputgen_module.forward([err_node], [err_excep])
+                    trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+                    if err_node not in trigger_nodes:
+                        break
+                    else:
+                        span_len = try_span_len
+                        try_span_len *= span_len_step
+                now_stats_item['span_len'] = span_len
+
+                if dumping_folder is not None:
+                    if not os.path.exists(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))):
+                        os.makedirs(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt')))
+                    torch.save(inputgen_module.dump_init_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))
+                    torch.save(inputgen_module.dump_init_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_gen.pt'))
+
+            lt_time = time.time()
+            now_stats_item['rand-input-rand-weight-time'] = lt_time - ls_time
+
+        if (mode == 'spec-input-rand-weight' or (mode == 'all' and not success)) and 'spec-input-rand-weight' not in skip_stages:
+            print('spec-input-rand-weight stage')
+            # detect input nodes, then other nodes are weights and they will be fixed
+            ls_time = time.time()
+            iters_log = dict()
+
+            # extract model name from path
+            if bare_name in hard_coded_input_output_hints:
+                input_nodes, loss_function_nodes = hard_coded_input_output_hints[bare_name][0].copy(), hard_coded_input_output_hints[bare_name][1].copy()
+            else:
+                input_nodes, loss_function_nodes = model.detect_input_and_output_nodes(alert_exceps=False)
+            no_diff_vars = nodiff_vars_default + [s for s in model.initial_abstracts if s not in input_nodes]
+
+
+            inputgen_module = InducingInputGenModule(model, seed=seed, no_diff_vars=no_diff_vars, no_span_vars=nospan_vars,
+                                                     from_init_dict=True,
+                                                     span_len=0.)
+
+            # try to maximize span length
+            span_len = -1.
+            try_span_len = 0.
+
+            while try_span_len < 0.5:
+                print('try span len =', try_span_len)
+                now_span_len_success = False
+
+                inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
+                optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=default_lr if bare_name not in customized_lr_inference_inst_gen else customized_lr_inference_inst_gen[bare_name])
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=default_step)
+
+                for iter in range(max_iters):
+                    # print('----------------')
+
+                    optimizer.zero_grad()
+                    loss, errors = inputgen_module.forward([err_node], [err_excep])
+                    trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+
+                    print(f'[{bare_name},err{err_seq_no},{err_node}] iter =', iter, 'loss =', loss, 'has robust error =', len(robust_errors))
+
+                    if err_node in trigger_nodes:
+                        now_span_len_success = True
+                        print('robust error found!')
+                        break
+                    try:
+                        loss.backward()
+                    except:
+                        break
+                    optimizer.step()
+                    scheduler.step()
+
+                    inputgen_module.clip_to_valid_range(vanilla_lb_ub)
+
+                iters_log[try_span_len] = iter
+
+                if now_span_len_success:
+                    success = True
+                    category = 'spec-input-rand-weight'
+                    span_len = try_span_len
+                    now_stats_item['span_len'] = span_len
+                    if try_span_len == 0.:
+                        try_span_len = span_len_start
+                    else:
+                        try_span_len *= span_len_step
+
+                    if dumping_folder is not None:
+                        if not os.path.exists(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))):
+                            os.makedirs(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt')))
+                        torch.save(inputgen_module.dump_init_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))
+                        torch.save(inputgen_module.dump_gen_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_gen.pt'))
+
+                else:
+                    break
+
+            lt_time = time.time()
+            now_stats_item['spec-input-rand-weight-time'] = lt_time - ls_time
+            now_stats_item['spec-input-rand-weight-iters'] = iters_log
+
+        if (mode == 'spec-input-spec-weight' or (mode == 'all' and not success)) and 'spec-input-spec-weight' not in skip_stages:
+            print('spec-input-spec-weight stage')
+
+            ls_time = time.time()
+            iters_log = dict()
+
+            inputgen_module = InducingInputGenModule(model, seed=seed, no_diff_vars=nodiff_vars_default, no_span_vars=nospan_vars,
+                                                     from_init_dict=True,
+                                                     span_len=0.)
+
+            # try to maximize span length
+            span_len = -1.
+            try_span_len = 0.
+
+            while try_span_len < 0.5:
+                print('try span len =', try_span_len)
+                now_span_len_success = False
+
+                inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
+                optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=default_lr if bare_name not in customized_lr_inference_inst_gen else customized_lr_inference_inst_gen[bare_name])
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=default_step)
+
+                for iter in range(max_iters):
+                    # print('----------------')
+
+                    optimizer.zero_grad()
+                    loss, errors = inputgen_module.forward([err_node], [err_excep])
+                    trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+
+                    print(f'[{bare_name},err{err_seq_no},{err_node}] iter =', iter, 'loss =', loss, 'has robust error =', len(robust_errors))
+
+                    if err_node in trigger_nodes:
+                        now_span_len_success = True
+                        print('robust error found!')
+                        break
+
+                    try:
+                        loss.backward()
+                    except:
+                        break
+                    optimizer.step()
+                    scheduler.step()
+
+                    inputgen_module.clip_to_valid_range(vanilla_lb_ub)
+
+                iters_log[try_span_len] = iter
+
+                if now_span_len_success:
+                    success = True
+                    category = 'spec-input-spec-weight'
+                    span_len = try_span_len
+                    now_stats_item['span_len'] = span_len
+
+                    if try_span_len == 0.:
+                        try_span_len = span_len_start
+                    else:
+                        try_span_len *= span_len_step
+
+                    if dumping_folder is not None:
+                        if not os.path.exists(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))):
+                            os.makedirs(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt')))
+                        torch.save(inputgen_module.dump_init_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))
+                        torch.save(inputgen_module.dump_gen_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_gen.pt'))
+                else:
+                    break
+
+            lt_time = time.time()
+            now_stats_item['spec-input-spec-weight-time'] = lt_time - ls_time
+            now_stats_item['spec-input-spec-weight-iters'] = iters_log
+
+        now_stats_item['success'] = success
+        now_stats_item['category'] = category
+        now_stats_item['time'] = time.time() - stime
+        now_stats_item['err_seq_no'] = err_seq_no
+        stats_dict[err_node] = now_stats_item
+
+        err_seq_no += 1
+
+    return stats_dict
+
+
 # ================ # ================
 # below is for individual instance running
 
 parser = argparse.ArgumentParser()
 parser.add_argument('modelpath', type=str, help='model architecture file path')
 
-
-stime = time.time()
-def prompt(msg):
-    print(f'[{time.time() - stime:.3f}s] ' + msg)
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -387,7 +670,7 @@ if __name__ == '__main__':
 
     success = False
 
-    inputgen_module = InducingInputGenModule(model, no_diff_vars=nodiff_vars, no_span_vars=nospan_vars,
+    inputgen_module = InducingInputGenModule(model, no_diff_vars=nodiff_vars_default, no_span_vars=nospan_vars,
                                              from_init_dict=True, span_len=1e-4)
     optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=1)
 

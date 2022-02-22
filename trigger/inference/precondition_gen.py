@@ -17,7 +17,9 @@ import numpy as np
 from interp.interp_operator import Abstraction
 from interp.interp_module import load_onnx_from_file, InterpModule
 from interp.interp_utils import PossibleNumericalError, parse_attribute
+from interp.specified_vars import nodiff_vars as default_nodiff_vars
 from trigger.inference.range_clipping import range_clipping
+from trigger.hints import hard_coded_input_output_hints
 
 class PrecondGenModule(nn.Module):
     """
@@ -105,7 +107,7 @@ class PrecondGenModule(nn.Module):
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
 
-    def grad_step(self, center_lr=0.1, scale_lr=0.1, min_step=0.1, regularizer=0.):
+    def grad_step(self, clipping_reference=dict(), center_lr=0.1, scale_lr=0.1, min_step=0.1, regularizer=0.):
         """
             My customzed FGSM-style gradient step to avoid gradient explosion
         :param center_lr: relative learning rate for center parameters
@@ -128,6 +130,20 @@ class PrecondGenModule(nn.Module):
             if v.grad is not None and torch.any(v.data > regularizer):
                 v.data = v.data - scale_lr * torch.abs(v.data) * torch.sign(v.grad)
 
+        # after each grad step, we will do range clipping to make sure the precondition range is valid
+        for s, bounds in clipping_reference.items():
+            # TODO: support list-typed nodes
+            if s in self.centers and s in self.scales:
+                v_center = self.centers[s]
+                v_scale = self.scales[s]
+                if torch.any(v_center - v_scale < bounds[0]) or torch.any(v_center + v_scale > bounds[1]):
+                    clipped_lb = torch.clamp(v_center - v_scale, min=bounds[0], max=bounds[1])
+                    clipped_ub = torch.clamp(v_center + v_scale, min=bounds[0], max=bounds[1])
+                    new_center = (clipped_lb + clipped_ub) / 2.0
+                    new_scale = new_center - clipped_lb
+                    self.centers[s].data = new_center.detach()
+                    self.scales[s].data = new_scale.detach()
+
     def precondition_study(self, print_stdout=True):
         """
             summarize the heuristics of generated preconditions
@@ -149,6 +165,13 @@ class PrecondGenModule(nn.Module):
             else:
                 changed_nodes += 1
                 now_shrinkage = self.compute_shrinkage(now_abst, orig_abst)
+                if now_shrinkage > 1 + 1e-6:
+                    print('weird shrinkage @ point', s)
+                    print('center:', self.centers[s])
+                    print('scale:', self.scales[s])
+                    now_abst.print()
+                    orig_abst.print()
+                    raise Exception()
                 maximum_shrink = max(maximum_shrink, now_shrinkage)
                 minimum_shrink = min(minimum_shrink, now_shrinkage)
                 average_shrink.append(now_shrinkage)
@@ -166,8 +189,6 @@ class PrecondGenModule(nn.Module):
             print('maximum shrinkage', maximum_shrink)
             print('minimum shrinkage', minimum_shrink)
         return ans
-
-
 
     def construct(self, original: Abstraction, var_name: str, no_diff=False):
         """
@@ -251,6 +272,166 @@ class PrecondGenModule(nn.Module):
             return np.mean([work(a.lb[i], a.ub[i], b.lb[i], b.ub[i]) for i in range(len(a.lb))])
         else:
             return work(a.lb, a.ub, b.lb, b.ub)
+
+
+def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, scale_lr=0.1, min_step=0.1, debug=True):
+    """
+        The wrapped function for precondition generation
+    :param modelpath:
+    :param goal: secure all errors ('all') or individual errors ('indiv')
+    :param variables: precondition on all variables ('all') or input variables ('input')
+    :return: tot number of succeessfull secured bugs, tot number of bugs, result details, running time statistics details, and running iteration statistic details
+    """
+
+    model = load_onnx_from_file(modelpath,
+                                customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
+    prompt('model initialized')
+
+    bare_name = modelpath.split('/')[-1].split('.')[0]
+
+    initial_errors = model.analyze(model.gen_abstraction_heuristics(bare_name.split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
+    prompt('analysis done')
+    if len(initial_errors) == 0:
+        print('No numerical bug')
+    else:
+        print(f'{len(initial_errors)} possible numerical bug(s)')
+        for k, v in initial_errors.items():
+            print(f'- On tensor {k} triggered by operator {v[1]}:')
+            for item in v[0]:
+                print(str(item))
+
+    # record the original range, so that when the generated interval becomes out of range, we can push it back
+    vanilla_lb_ub = dict()
+    for s, abst in model.initial_abstracts.items():
+        vanilla_lb_ub[s] = (torch.min(abst.lb).item(), torch.max(abst.ub).item())
+
+    if goal == 'all':
+        # securing all error points
+        err_node, err_excep = list(), list()
+        for k, v in initial_errors.items():
+            error_entities, root, catastro = v
+            if not catastro:
+                for error_entity in error_entities:
+                    err_node.append(error_entity.var_name)
+                    err_excep.append(error_entity)
+        err_nodes = [err_node]
+        err_exceps = [err_excep]
+
+    elif goal == 'indiv':
+        err_nodes = list()
+        err_exceps = list()
+        for k, v in initial_errors.items():
+            error_entities, root, catastro = v
+            if not catastro:
+                for error_entity in error_entities:
+                    err_nodes.append([error_entity.var_name])
+                    err_exceps.append([error_entity])
+    else:
+        raise Exception(f'Unsupported goal: {goal} - needs to be all or indiv')
+
+    # find no_diff_vars according to variables
+    if variables == 'all':
+        no_diff_vars = default_nodiff_vars
+    elif variables == 'input':
+        # extract model name from path
+        print('bare_name:', bare_name)
+        if bare_name in hard_coded_input_output_hints:
+            input_nodes, loss_function_nodes = hard_coded_input_output_hints[bare_name][0].copy(), hard_coded_input_output_hints[bare_name][1].copy()
+        else:
+            input_nodes, loss_function_nodes = model.detect_input_and_output_nodes(alert_exceps=False)
+        no_diff_vars = default_nodiff_vars + [s for s in model.initial_abstracts if s not in input_nodes]
+    elif variables == 'weight':
+        # extract model name from path
+        print('bare_name:', bare_name)
+        if bare_name in hard_coded_input_output_hints:
+            input_nodes, loss_function_nodes = hard_coded_input_output_hints[bare_name][0].copy(), hard_coded_input_output_hints[bare_name][1].copy()
+        else:
+            input_nodes, loss_function_nodes = model.detect_input_and_output_nodes(alert_exceps=False)
+        no_diff_vars = default_nodiff_vars + [s for s in model.initial_abstracts if s in input_nodes]
+
+
+
+    tot_bugs = len(err_nodes)
+    tot_success = 0
+    result_details = dict()
+    running_times = dict()
+    running_iters = dict()
+
+    for err_node, err_excep in zip(err_nodes, err_exceps):
+
+        stime = time.time()
+        success = False
+
+        precond_module = PrecondGenModule(model, no_diff_vars)
+        # I only need the zero_grad method from an optimizer, therefore any optimizer works
+        optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
+
+        if debug:
+            for kk, vv in precond_module.abstracts.items():
+                print(kk, 'lb     :', vv.lb)
+                print(kk, 'ub     :', vv.ub)
+
+        for iter in range(max_iter):
+            print('----------------')
+            optimizer.zero_grad()
+            loss, errors = precond_module.forward(err_node, err_excep)
+            # for kk, vv in precond_module.abstracts.items():
+            #     try:
+            #         vv.lb.retain_grad()
+            #         vv.ub.retain_grad()
+            #     except:
+            #         print(kk, 'cannot retain grad')
+
+            print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
+
+            if all([e not in errors for e in err_node]):
+                success = True
+                print('securing condition found!')
+                break
+
+            if loss.requires_grad:
+                loss.backward()
+
+                # for kk, vv in precond_module.abstracts.items():
+                #     print(kk, 'lb grad:', vv.lb.grad)
+                #     print(kk, 'ub grad:', vv.ub.grad)
+                #     print(kk, 'lb     :', vv.lb)
+                #     print(kk, 'ub     :', vv.ub)
+
+                precond_module.grad_step(vanilla_lb_ub, center_lr=center_lr, scale_lr=scale_lr, min_step=min_step)
+            else:
+                # failure case
+                break
+
+        # clip by initial abstracts
+        range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans)
+
+        if debug:
+            for kk, vv in precond_module.abstracts.items():
+                print(kk, 'lb     :', vv.lb)
+                print(kk, 'ub     :', vv.ub)
+            #     print(kk, 'lb grad:', vv.lb.grad)
+            #     print(kk, 'ub grad:', vv.ub.grad)
+
+        if success:
+            result_details[err_node[0] if goal == 'indiv' else 'all'] = precond_module.precondition_study()
+            tot_success += 1
+        running_times[err_node[0] if goal == 'indiv' else 'all'] = time.time() - stime
+        running_iters[err_node[0] if goal == 'indiv' else 'all'] = iter
+
+        print('--------------')
+        if success:
+            print('Success!')
+            precond_module.precondition_study()
+        else:
+            print('!!! Not success')
+            # raise Exception('failed here :(')
+        print(f'Time elapsed: {time.time() - stime:.3f} s')
+        print('--------------')
+
+    return tot_success, tot_bugs, result_details, running_times, running_iters
+
+
 
 # ================ # ================
 # below is for individual instance running

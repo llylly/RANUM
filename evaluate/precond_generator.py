@@ -13,17 +13,40 @@ from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
 from interp.specified_vars import nodiff_vars
 
-from trigger.inference.precondition_gen import PrecondGenModule
+from trigger.inference.precondition_gen import PrecondGenModule, precondition_gen
 
 MAX_ITER = 100
 
 # should be grist and/or debar
 run_benchmarks = ['grist']
 
+
+# whitelist = ['17']
+whitelist = []
+blacklist = []
+# blacklist = ['17']
+
 average_shrink = list()
+
+goal = 'all'
+# variables = 'all'
+# variables = 'input'
+variables = 'weight'
+
+max_iter = 1000
+# center_lr = 0.1
+# scale_lr = 0.1
+# min_step = 0.1
+center_lr = 0.01
+scale_lr = 0.01
+min_step = 0.01
 
 if __name__ == '__main__':
     global_unsupported_ops = dict()
+
+    global_tot_bugs = 0
+    global_tot_success = 0
+
     for bench_type in run_benchmarks:
         if bench_type == 'grist':
             print('on GRIST bench')
@@ -35,100 +58,32 @@ if __name__ == '__main__':
         nowlen = len(files)
         for id, file in enumerate(files):
             print(f'[{id+1} / {nowlen}] {file}')
-            stime = time.time()
+            barefilename = file.rsplit('.', maxsplit=1)[0]
+            if len(whitelist) > 0 and barefilename not in whitelist: continue
+            if barefilename in blacklist: continue
 
-            model = load_onnx_from_file(os.path.join(nowdir, file),
-                                        customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
-            loadtime = time.time()
+            tot_success, tot_bugs, result_details, running_times, running_iters = precondition_gen(os.path.join(nowdir, file), goal, variables, debug=False,
+                                                                                                   max_iter=max_iter, center_lr=center_lr, scale_lr=scale_lr, min_step=min_step)
 
-            res = model.analyze(model.gen_abstraction_heuristics(file), {'average_pool_mode': 'coarse'})
-            analyzetime = time.time()
+            pkl_package = {'time_stat': running_times, 'iter_stat': running_iters, 'numerical_bugs': tot_bugs, 'success_cnt': tot_success,
+                           'precond_stat': result_details}
+            print(pkl_package)
 
-            runningtime_stat = {'load': loadtime - stime, 'analyze': analyzetime - loadtime}
-            bugs = res
-            unsupported_ops = list(model.unimplemented_types)
+            pkl_path = f'results/precond_gen/{bench_type}/{goal}/{variables}/iter_{max_iter}_lr_{center_lr}_{scale_lr}_minstep_{min_step}/{file[:-5]}.pkl'
+            if not os.path.exists(os.path.dirname(pkl_path)):
+                os.makedirs(os.path.dirname(pkl_path))
+            with open(pkl_path, 'wb') as f:
+                pickle.dump(pkl_package, f)
+            print(f'saved to {pkl_path}')
 
-            if len(unsupported_ops) > 0:
-                global_unsupported_ops[f'{bench_type}/{file}'] = unsupported_ops
-                print(f'* Unsupported ops ({len(unsupported_ops)}): {unsupported_ops}')
+            global_tot_bugs += tot_bugs
+            global_tot_success += tot_success
 
+            for det in result_details.values():
+                average_shrink.append(det['average_shrinkage'])
+                print('now avg shrinkage:', det['average_shrinkage'])
 
-            if len(bugs) > 0:
-                print(f'* Found {len(bugs)} numerical bugs')
-                # securing all error points
-                err_nodes, err_exceps = list(), list()
-                for k, v in bugs.items():
-                    error_entities, root, catastro = v
-                    if not catastro:
-                        for error_entity in error_entities:
-                            err_nodes.append(error_entity.var_name)
-                            err_exceps.append(error_entity)
-
-                success = False
-
-                precond_module = PrecondGenModule(model, nodiff_vars)
-                # I only need the zero_grad method from an optimizer, therefore any optimizer works
-                optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
-
-                # for kk, vv in precond_module.abstracts.items():
-                #     print(kk, 'lb     :', vv.lb)
-                #     print(kk, 'ub     :', vv.ub)
-
-                for iter in range(MAX_ITER):
-                    # print('----------------')
-                    optimizer.zero_grad()
-                    loss, errors = precond_module.forward(err_nodes, err_exceps)
-                    # for kk, vv in precond_module.abstracts.items():
-                    #     try:
-                    #         vv.lb.retain_grad()
-                    #         vv.ub.retain_grad()
-                    #     except:
-                    #         print(kk, 'cannot retain grad')
-
-                    print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
-
-                    loss.backward()
-
-                    # for kk, vv in precond_module.abstracts.items():
-                    #     print(kk, 'lb grad:', vv.lb.grad)
-                    #     print(kk, 'ub grad:', vv.ub.grad)
-                    #     print(kk, 'lb     :', vv.lb)
-                    #     print(kk, 'ub     :', vv.ub)
-
-                    precond_module.grad_step()
-                    if len(errors) == 0:
-                        success = True
-                        print('securing condition found!')
-                        break
-
-                # for kk, vv in precond_module.abstracts.items():
-                #     print(kk, 'lb     :', vv.lb)
-                #     print(kk, 'ub     :', vv.ub)
-                #     print(kk, 'lb grad:', vv.lb.grad)
-                #     print(kk, 'ub grad:', vv.ub.grad)
-
-                print('--------------')
-                runningtime_stat['precond'] = time.time() - stime
-                print(f'* Time: load - {runningtime_stat["load"]:.3f} s | analyze - {runningtime_stat["analyze"]:.3f} s')
-                if success:
-                    print('Success!')
-                    precond_stat = precond_module.precondition_study()
-                    print('Shrinkage', precond_stat['average_shrinkage'])
-                    average_shrink.append(precond_stat['average_shrinkage'])
-                else:
-                    print('!!! Not success')
-                    precond_stat = None
-                    raise Exception('failed here :(')
-                print('--------------')
-
-
-                pkl_package = {'time_stat': runningtime_stat, 'numerical_bugs': bugs, 'unspported_ops': unsupported_ops,
-                               'success': success, 'precond_stat': precond_stat}
-                pkl_path = f'results/precond_gen/{bench_type}/{file[:-5]}.pkl'
-                with open(pkl_path, 'wb') as f:
-                    pickle.dump(pkl_package, f)
-                print(f'saved to {pkl_path}')
-
+    print(f'{global_tot_bugs} bugs, {global_tot_success} out of them succeed to secure')
     print('Unsupported Ops:', global_unsupported_ops)
     print('Tot Cases:', len(average_shrink))
     print('Mean Shrinkage:', np.mean(average_shrink))

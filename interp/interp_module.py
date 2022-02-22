@@ -418,6 +418,7 @@ class InterpModule():
                                     [self.abstracts[node.input[0]]], None, "Square", vj
                                 )
                             else:
+                                # print(f'on {vj}(type: {node_optype})')
                                 cur_abst, cur_exceps = interpreter.handle(
                                     [self.abstracts[x] for x in node.input], node, node_optype, vj
                                 )
@@ -659,7 +660,7 @@ class InterpModule():
 
         return result
 
-    def detect_input_and_output_nodes(self):
+    def detect_input_and_output_nodes(self, alert_exceps=True):
         """
             Heuristically detect the input and output nodes
             Require: one pass of analyze has already happened
@@ -674,11 +675,12 @@ class InterpModule():
 
         if len(loss_function_nodes) > 1:
             loss_function_nodes = [x for x in loss_function_nodes if not x.startswith('obj_function')]
+            print(loss_function_nodes)
             for name_start in ['loss', 'D_loss', 'cross_entropy']:
                 if any([x.startswith(name_start) for x in loss_function_nodes]):
                     loss_function_nodes = [x for x in loss_function_nodes if x.startswith(name_start)]
         if len(loss_function_nodes) == 0:
-            raise Exception(f'cannot locate the loss function nodes')
+            if alert_exceps: raise Exception(f'cannot locate the loss function nodes')
 
         if any([any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target']) for x in self.queue]):
             input_nodes = [x[0] for x in self.queue if any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target'])]

@@ -19,7 +19,7 @@ if __name__ == '__main__':
     with open(file, 'r') as f:
         data = json.load(f)
     if dataset == 'grist':
-        keys = sorted(data.keys(), key=lambda x: int(str(x).rstrip('abcdefghijklmnopqrstuvwxyz')) + ord(x[-1]) / 255.)
+        keys = sorted(data.keys(), key=lambda x: int(str(x).split(':')[0].rstrip('abcdefghijklmnopqrstuvwxyz')) + ord(x[-1]) / 255.)
     else:
         keys = list(data.keys())
     if mode == 'bug_verifier':
@@ -29,23 +29,30 @@ if __name__ == '__main__':
         fields = ['time_stat/precond', 'success', 'precond_stat/tot_start_points', 'precond_stat/tot_changed_nodes', 'precond_stat/average_shrinkage']
         names = ['Pre-Cond. Gen. Time (s)', 'Success', '\# Input/Param Nodes', '\# Constrained Nodes', 'Average Interval Length Shrinkage']
     if mode == 'inference_inst_gen':
-        fields = ['tot_err', 'tot_success', 'tot_success_rate', 'gen_time', 'iter', 'relative_span', 'tot_node', 'tot_change_node', 'tot_change_node_rate', 'relative_drift']
-        names = ['Tot. Err.', 'Triggered Err. $\\uparrow$', 'Triggered Rate $\\uparrow$', 'Inst. Gen. Time (s) $\\downarrow$', '\\# Iterations $\\downarrow$', 'Relative Span $\\uparrow$',
-                 'Tot. Node', '\\# Changed Node $\\downarrow$', 'Changed Note Rate $\\downarrow$', 'Relative Drift $\\downarrow$']
+        fields = ['success', 'span_len', 'input_type', 'weight_type', 'stage_time']
+        names = ['Success', 'Relative Span $\\uparrow$', 'Input Mode', 'Weight Mode', 'Gen. Time (s) $\\downarrow$']
+        # fields = ['tot_err', 'tot_success', 'tot_success_rate', 'gen_time', 'iter', 'relative_span', 'tot_node', 'tot_change_node', 'tot_change_node_rate', 'relative_drift']
+        # names = ['Tot. Err.', 'Triggered Err. $\\uparrow$', 'Triggered Rate $\\uparrow$', 'Inst. Gen. Time (s) $\\downarrow$', '\\# Iterations $\\downarrow$', 'Relative Span $\\uparrow$',
+        #          'Tot. Node', '\\# Changed Node $\\downarrow$', 'Changed Note Rate $\\downarrow$', 'Relative Drift $\\downarrow$']
     text = '\\begin{tabular}{' + 'c' * (len(fields) + 1) + '}\n'
     text += '\\toprule \n'
     text += '  ' + ' & '.join(['No.'] + names) + ' \\\\\n'
     text += '\\midrule \n'
 
     for k in keys:
-        row = '  ' + k
+        row = '  ' + str(k).replace('_', '\\_')
         for now_field in fields:
             row += ' & '
             now_fields = now_field.split('/')
-            now_item = data[k]
-            for field in now_fields:
-                now_item = now_item[field]
-            print(type(now_item), now_item)
+            try:
+                now_item = data[k]
+                print(now_item)
+                for field in now_fields:
+                    now_item = now_item[field]
+            except:
+                # this field is empty now, skip
+                continue
+            # print(type(now_item), now_item)
             if isinstance(now_item, float) and (now_item > 1e-3 or now_item < 1e-10):
                 row += f'${now_item:.3f}$'
             elif isinstance(now_item, float):
@@ -56,10 +63,14 @@ if __name__ == '__main__':
                 row += f'${now_item[0]:.3f} \\pm {now_item[1]:.3f}$'
             elif (isinstance(now_item, str) and now_item == 'True') or (isinstance(now_item, bool) and now_item):
                 row += '$\\checkmark$'
+            elif (isinstance(now_item, str) and now_item == 'False') or (isinstance(now_item, bool) and not now_item):
+                row += ''
             elif isinstance(now_item, int):
                 row += f'${now_item}$'
             elif isinstance(now_item, list) and isinstance(now_item[0], int) and isinstance(now_item[1], int):
                 row += f'${now_item[0]} \\pm {now_item[1]}$'
+            elif isinstance(now_item, str):
+                row += now_item[0].capitalize() + now_item[1:]
         row += ' \\\\\n'
         text += row
 
