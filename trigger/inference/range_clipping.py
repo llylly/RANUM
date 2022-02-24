@@ -5,12 +5,13 @@ import torch
 
 EPS = 1e-5
 
-def range_clipping(initial_abstracts: dict, centers: dict, scales: dict, spans: dict):
+def range_clipping(initial_abstracts: dict, centers: dict, scales: dict, spans: dict, freeze_constant_node: bool):
 
     def work(init_lb, init_ub, name):
         if name not in scales:
-            # only handle centers is sufficient
-            centers[name] = torch.minimum(torch.maximum(centers[name], init_lb), init_ub)
+            if freeze_constant_node:
+                # only handle centers is sufficient
+                centers[name] = torch.minimum(torch.maximum(centers[name], init_lb), init_ub)
         else:
             clipped_min = torch.maximum(init_lb, centers[name] - scales[name] * spans[name])
             clipped_max = torch.minimum(init_ub, centers[name] + scales[name] * spans[name])

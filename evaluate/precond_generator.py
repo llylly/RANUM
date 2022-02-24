@@ -29,14 +29,16 @@ blacklist = []
 average_shrink = list()
 
 goal = 'all'
-# variables = 'all'
+variables = 'all'
 # variables = 'input'
-variables = 'weight'
+# variables = 'weight'
 
-max_iter = 1000
+# max_iter = 100
 # center_lr = 0.1
 # scale_lr = 0.1
 # min_step = 0.1
+
+max_iter = 1000
 center_lr = 0.01
 scale_lr = 0.01
 min_step = 0.01

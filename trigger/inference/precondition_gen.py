@@ -107,7 +107,7 @@ class PrecondGenModule(nn.Module):
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
 
-    def grad_step(self, clipping_reference=dict(), center_lr=0.1, scale_lr=0.1, min_step=0.1, regularizer=0.):
+    def grad_step(self, freeze_constant_node, clipping_reference=dict(), center_lr=0.1, scale_lr=0.1, min_step=0.1, regularizer=0.):
         """
             My customzed FGSM-style gradient step to avoid gradient explosion
         :param center_lr: relative learning rate for center parameters
@@ -143,6 +143,11 @@ class PrecondGenModule(nn.Module):
                     new_scale = new_center - clipped_lb
                     self.centers[s].data = new_center.detach()
                     self.scales[s].data = new_scale.detach()
+            elif s in self.centers and freeze_constant_node:
+                # no scales, means that the initial abstract corresponds to a concrete value -> we cannot change this concrete value
+                print(f'Cannot change variable {s}')
+                v_center = self.centers[s]
+                self.centers[s].data = torch.clamp(v_center, min=bounds[0], max=bounds[1])
 
     def precondition_study(self, print_stdout=True):
         """
@@ -274,12 +279,15 @@ class PrecondGenModule(nn.Module):
             return work(a.lb, a.ub, b.lb, b.ub)
 
 
-def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, scale_lr=0.1, min_step=0.1, debug=True):
+def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, scale_lr=0.1, min_step=0.1, debug=True, freeze_constant_node=True):
     """
         The wrapped function for precondition generation
     :param modelpath:
     :param goal: secure all errors ('all') or individual errors ('indiv')
     :param variables: precondition on all variables ('all') or input variables ('input')
+    :param freeze_constant_node: if the initial abstract of the node is concrete, we call this node "constant node".
+    If False, we think these nodes can also be preconditioned (i.e., can also change these nodes)
+    If True, we think these nodes are frozen
     :return: tot number of succeessfull secured bugs, tot number of bugs, result details, running time statistics details, and running iteration statistic details
     """
 
@@ -398,13 +406,13 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
                 #     print(kk, 'lb     :', vv.lb)
                 #     print(kk, 'ub     :', vv.ub)
 
-                precond_module.grad_step(vanilla_lb_ub, center_lr=center_lr, scale_lr=scale_lr, min_step=min_step)
+                precond_module.grad_step(freeze_constant_node, vanilla_lb_ub, center_lr=center_lr, scale_lr=scale_lr, min_step=min_step)
             else:
                 # failure case
                 break
 
         # clip by initial abstracts
-        range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans)
+        range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans, freeze_constant_node)
 
         if debug:
             for kk, vv in precond_module.abstracts.items():
@@ -508,7 +516,7 @@ if __name__ == '__main__':
         #     print(kk, 'lb     :', vv.lb)
         #     print(kk, 'ub     :', vv.ub)
 
-        precond_module.grad_step()
+        precond_module.grad_step(True)
 
     # clip by initial abstracts
     range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans)

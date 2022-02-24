@@ -6,7 +6,7 @@ import onnx.numpy_helper
 
 from interp.interp_operator import *
 from interp.interp_utils import AbstractionInitConfig, fine_grain_parameters, forbid_fine_grain_flow, discrete_types, \
-    PossibleNumericalError
+    PossibleNumericalError, EPS
 from interp.specified_ranges import SpecifiedRanges
 
 
@@ -355,6 +355,16 @@ class InterpModule():
             now_raw_data = self.initializer_dict[s][
                 1] if s in self.initializer_dict and s not in specified_inputs else None
             self.initial_abstracts[s] = Abstraction()
+
+            # heuristic: if we have now_raw_data, but now_raw_data is a tensor with uniform number or is from clipping operation, then we think it is a trivial initialization of input or weight nodes
+            # In this case, if we directly use this now_raw_data to initialize our abstraction, the whole node would be fixed, which is not the case - the input or weight can indeed be changed
+            # Thus, we discard now_raw_data for initialization
+            if now_raw_data is not None:
+                if now_t not in discrete_types and \
+                        ((np.max(now_raw_data) - np.min(now_raw_data) <= EPS and np.array(now_raw_data).size > 1) or (s.count('clip_by_value') > 0)):
+                    print(f'discard the initial data for node {s}')
+                    now_raw_data = None
+
             self.initial_abstracts[s].load(init_config[s], s, now_shape, now_t, now_raw_data)
 
         # whole abstract variables
