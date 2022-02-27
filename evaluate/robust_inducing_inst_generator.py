@@ -25,7 +25,10 @@ run_benchmarks = ['grist']
 
 # ver_code = f'v1_lr{DEFAULT_LR}_step{DEFAULT_STEP}_{DEFAULT_LR_DECAY}_iter{DEFAULT_ITERS}'
 # ver_code = f'v2_lr{DEFAULT_LR}_step{DEFAULT_STEP}_{DEFAULT_LR_DECAY}_iter{DEFAULT_ITERS}'
+
 ver_code = f'v3_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
+# v4 changes the loss formulation
+# ver_code = f'v4_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
 
 import os
 import time
@@ -39,8 +42,8 @@ from trigger.inference.robust_inducing_inst_gen import InducingInputGenModule, i
 from trigger.hints import customized_lr_inference_inst_gen
 from evaluate.seeds import seeds
 
-whitelist = ['17']
-# whitelist = []
+# whitelist = ['1']
+whitelist = []
 blacklist = []
 # blacklist = ['17']
 

@@ -153,8 +153,14 @@ class InducingInputGenModule(nn.Module):
                     # loss penetration through softmax due to optimization challenge
                     prev_prev_abs = self.abstracts[prev_prev_nodes[0][0]]
                     # prev_prev_abs.print()
+
+                    # v3
                     loss += torch.sum(prev_prev_abs.ub.min(axis=-1)[0]) - torch.sum(prev_prev_abs.lb) + \
                     torch.sum(torch.gather(prev_prev_abs.lb, dim=-1, index=torch.argmin(prev_prev_abs.ub, dim=-1, keepdim=True)))
+
+                    # v4
+                    # axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
+                    # loss += torch.sum(- torch.max(prev_abs.lb, dim=axis)[0] + torch.min(prev_abs.ub, dim=axis)[0])
                 else:
                     loss += torch.min(prev_abs.ub.view(-1), dim=0)[0]
             elif excep.optype == 'Exp':
@@ -456,6 +462,7 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
                 while try_span_len < 0.5:
                     print('try span len =', try_span_len)
                     inputgen_module.set_span_len(span_len, no_span_vars=nospan_vars)
+                    inputgen_module.clip_to_valid_range(vanilla_lb_ub)
                     loss, errors = inputgen_module.forward([err_node], [err_excep])
                     trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
                     if err_node not in trigger_nodes:
