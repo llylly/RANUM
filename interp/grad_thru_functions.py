@@ -149,8 +149,35 @@ class StraightExp(torch.autograd.Function):
         # We return as many input gradients as there were arguments.
         # Gradients of non-Tensor arguments to forward must be None.
         # straight-through
-        # print('work')
         output, = ctx.saved_tensors
         # gradient clip to avoid vanishing gradients
         cliped_output = torch.clip(output, 0.01, 1e+5)
         return grad_output * cliped_output
+
+
+class StraightMinimum(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input_a, input_b):
+        return torch.minimum(input_a, input_b)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
+        # straightthrough
+        return grad_output, grad_output
+
+
+class StraightMaximum(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input_a, input_b):
+        return torch.maximum(input_a, input_b)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
+        # straightthrough
+        return grad_output, grad_output

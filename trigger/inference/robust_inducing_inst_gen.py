@@ -4,6 +4,8 @@
 
 EPS = 1e-5
 
+TLE = 180
+
 import time
 import argparse
 import os
@@ -143,6 +145,11 @@ class InducingInputGenModule(nn.Module):
         for node, excep in zip(nodes, exceps):
             prev_nodes = self.find_prev_nodes_optypes(node)
             prev_node = prev_nodes[0][0]
+            try:
+                self.abstracts[prev_node]
+            except:
+                # omitted since this term does not exist
+                continue
             if excep.optype == 'Log' or excep.optype == 'Sqrt':
                 # print(node)
                 prev_abs = self.abstracts[prev_node]
@@ -404,7 +411,7 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
 
     bare_name = modelpath.split('/')[-1].split('.')[0]
 
-    initial_errors = model.analyze(model.gen_abstraction_heuristics(os.path.split(modelpath)[-1].split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
+    initial_errors = model.analyze(model.gen_abstraction_heuristics(os.path.split(modelpath)[-1].split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1, 'discard_clip': False})
 
     if len(initial_errors) == 0:
         print('No numerical bug')
@@ -461,7 +468,7 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
                 try_span_len = span_len_start
                 while try_span_len < 0.5:
                     print('try span len =', try_span_len)
-                    inputgen_module.set_span_len(span_len, no_span_vars=nospan_vars)
+                    inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
                     inputgen_module.clip_to_valid_range(vanilla_lb_ub)
                     loss, errors = inputgen_module.forward([err_node], [err_excep])
                     trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
@@ -602,6 +609,8 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
                     scheduler.step()
 
                     inputgen_module.clip_to_valid_range(vanilla_lb_ub)
+
+                    if time.time() - stime > TLE: break
 
                 iters_log[try_span_len] = iter
 

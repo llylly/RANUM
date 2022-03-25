@@ -5,6 +5,7 @@
 import os
 import time
 import pickle
+import json
 
 from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
@@ -50,5 +51,11 @@ if __name__ == '__main__':
             with open(pkl_path, 'wb') as f:
                 pickle.dump(pkl_package, f)
             print(f'saved to {pkl_path}')
+
+            json_package = {'time_stat': runningtime_stat, 'numerical_bugs': len(bugs), 'nodes': len(model.all_nodes)}
+            if not os.path.exists('results/endtoend/detection'):
+                os.makedirs('results/endtoend/detection')
+            with open(f'results/endtoend/detection/{file[:-5]}.json', 'w') as f:
+                json.dump(json_package, f, indent=2)
 
     print('Unsupported Ops:', global_unsupported_ops)

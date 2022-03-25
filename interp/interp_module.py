@@ -356,12 +356,12 @@ class InterpModule():
                 1] if s in self.initializer_dict and s not in specified_inputs else None
             self.initial_abstracts[s] = Abstraction()
 
-            # heuristic: if we have now_raw_data, but now_raw_data is a tensor with uniform number or is from clipping operation, then we think it is a trivial initialization of input or weight nodes
+            # heuristic: if we have now_raw_data, but now_raw_data is a tensor with uniform number or we use fine grain abstraction
             # In this case, if we directly use this now_raw_data to initialize our abstraction, the whole node would be fixed, which is not the case - the input or weight can indeed be changed
             # Thus, we discard now_raw_data for initialization
             if now_raw_data is not None:
                 if now_t not in discrete_types and \
-                        ((np.max(now_raw_data) - np.min(now_raw_data) <= EPS and np.array(now_raw_data).size > 1) or (s.count('clip_by_value') > 0)):
+                        ((((np.max(now_raw_data) - np.min(now_raw_data) <= EPS) or (init_config[s].stride == 1)) and np.array(now_raw_data).size > 1) or ((s.count('clip_by_value') > 0) and (interp_config.get('discard_clip', False)))):
                     print(f'discard the initial data for node {s}')
                     now_raw_data = None
 
@@ -498,10 +498,6 @@ class InterpModule():
 
         # place to inspect abstraction for debug
         # self.abstracts['dropout/truediv/x:0'].print()
-        # self.abstracts['sub:0'].print()
-        # self.abstracts['keep_prob:0'].print()
-        # self.abstracts['ConstantOfShape__684:0'].print()
-        # self.abstracts['Concat__685:0'].print()
         print('=' * 10, "Summary", '=' * 10)
         print(f"Find {sum(item[1] for item in analyze_result_neg.items())} Negatives: {analyze_result_neg}")
         print(f"Find {sum(item[1] for item in analyze_result_pos.items())} Positives: {analyze_result_pos}")
@@ -533,7 +529,7 @@ class InterpModule():
                     parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
 
                     if any([x not in abstracts for x in node.input]):
-                        print(f'! no abstractions for some input of node {node_name}, skip')
+                        print(f'! no abstractions for some input of node {node_name}, skip: they are {[x for x in node.input if x not in abstracts]}')
                         continue
 
                     node_input_cnt = len(node.input)

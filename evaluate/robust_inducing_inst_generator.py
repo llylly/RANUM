@@ -26,9 +26,12 @@ run_benchmarks = ['grist']
 # ver_code = f'v1_lr{DEFAULT_LR}_step{DEFAULT_STEP}_{DEFAULT_LR_DECAY}_iter{DEFAULT_ITERS}'
 # ver_code = f'v2_lr{DEFAULT_LR}_step{DEFAULT_STEP}_{DEFAULT_LR_DECAY}_iter{DEFAULT_ITERS}'
 
-ver_code = f'v3_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
+# ver_code = f'v3_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
 # v4 changes the loss formulation
 # ver_code = f'v4_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
+
+# v5 uses correct matmul abstraction
+ver_code = f'v5_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
 
 import os
 import time
@@ -48,7 +51,7 @@ blacklist = []
 # blacklist = ['17']
 
 if __name__ == '__main__':
-    for seed in seeds[:1]:
+    for seed in seeds:
         print('*' * 20)
         print('*' * 20)
         print('seed =', seed)
@@ -84,12 +87,12 @@ if __name__ == '__main__':
                 barefilename = file.rsplit('.', maxsplit=1)[0]
                 if len(whitelist) > 0 and barefilename not in whitelist: continue
                 if barefilename in blacklist: continue
-                if not nopass:
-                    passornot = input('pass?')
-                    if passornot == 'Y':
-                        continue
-                    else:
-                        nopass = True
+                # if not nopass:
+                #     passornot = input('pass?')
+                #     if passornot == 'Y':
+                #         continue
+                #     else:
+                #         nopass = True
                 status = inducing_inference_inst_gen(os.path.join(nowdir, file), 'all', seed, data_dir,
                                                   default_lr=DEFAULT_LR if barefilename not in customized_lr_inference_inst_gen
                                                   else customized_lr_inference_inst_gen[barefilename],

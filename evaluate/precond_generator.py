@@ -5,7 +5,9 @@
 import os
 import time
 import pickle
+import argparse
 
+import json
 import numpy as np
 import torch
 
@@ -39,11 +41,29 @@ variables = 'all'
 # min_step = 0.1
 
 max_iter = 1000
-center_lr = 0.01
-scale_lr = 0.01
+center_lr = 0.1
+scale_lr = 0.1
 min_step = 0.01
 
+approach = ''
+
+success_cases = list()
+failed_cases = list()
+
+parser = argparse.ArgumentParser()
+parser.add_argument('method', choices=['debarus', 'gd', 'debarusexpand'])
+parser.add_argument('var', choices=['all', 'input', 'weight'], default='all')
+
 if __name__ == '__main__':
+    args = parser.parse_args()
+    if args.method == 'debarus':
+        approach = ''
+    elif args.method == 'gd':
+        approach = 'gd'
+    elif args.method == 'debarusexpand':
+        approach = 'debarusexpand'
+    variables = args.var
+
     global_unsupported_ops = dict()
 
     global_tot_bugs = 0
@@ -64,28 +84,42 @@ if __name__ == '__main__':
             if len(whitelist) > 0 and barefilename not in whitelist: continue
             if barefilename in blacklist: continue
 
+            pkl_path = f'results/precond_gen/{bench_type}/{goal}/{variables}/iter_{max_iter}_lr_{center_lr}_{scale_lr}_minstep_{min_step}{approach}/{file[:-5]}.pkl'
+            json_path = f'results/precond_gen/{bench_type}/{goal}/{variables}/iter_{max_iter}_lr_{center_lr}_{scale_lr}_minstep_{min_step}{approach}/{file[:-5]}.json'
+            dumping_path = f'results/precond_gen/{bench_type}/{goal}/{variables}/iter_{max_iter}_lr_{center_lr}_{scale_lr}_minstep_{min_step}{approach}/{file[:-5]}_data.pt'
+
             tot_success, tot_bugs, result_details, running_times, running_iters = precondition_gen(os.path.join(nowdir, file), goal, variables, debug=False,
-                                                                                                   max_iter=max_iter, center_lr=center_lr, scale_lr=scale_lr, min_step=min_step)
+                                                                                                   max_iter=max_iter, center_lr=center_lr, scale_lr=scale_lr, min_step=min_step, approach=approach,
+                                                                                                   dumping_path=dumping_path)
 
             pkl_package = {'time_stat': running_times, 'iter_stat': running_iters, 'numerical_bugs': tot_bugs, 'success_cnt': tot_success,
                            'precond_stat': result_details}
             print(pkl_package)
 
-            pkl_path = f'results/precond_gen/{bench_type}/{goal}/{variables}/iter_{max_iter}_lr_{center_lr}_{scale_lr}_minstep_{min_step}/{file[:-5]}.pkl'
             if not os.path.exists(os.path.dirname(pkl_path)):
                 os.makedirs(os.path.dirname(pkl_path))
             with open(pkl_path, 'wb') as f:
                 pickle.dump(pkl_package, f)
+            with open(json_path, 'w') as f:
+                json.dump(pkl_package, f, indent=2)
             print(f'saved to {pkl_path}')
 
             global_tot_bugs += tot_bugs
             global_tot_success += tot_success
+
+            if tot_success > 0:
+                print(tot_success)
+                success_cases.append(file)
+            else:
+                failed_cases.append(file)
 
             for det in result_details.values():
                 average_shrink.append(det['average_shrinkage'])
                 print('now avg shrinkage:', det['average_shrinkage'])
 
     print(f'{global_tot_bugs} bugs, {global_tot_success} out of them succeed to secure')
+    print('success cases:', success_cases)
+    print('failed cases:', failed_cases)
     print('Unsupported Ops:', global_unsupported_ops)
     print('Tot Cases:', len(average_shrink))
     print('Mean Shrinkage:', np.mean(average_shrink))

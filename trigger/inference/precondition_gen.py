@@ -19,6 +19,7 @@ from interp.interp_module import load_onnx_from_file, InterpModule
 from interp.interp_utils import PossibleNumericalError, parse_attribute
 from interp.specified_vars import nodiff_vars as default_nodiff_vars
 from trigger.inference.range_clipping import range_clipping
+from trigger.inference.robust_inducing_inst_gen import expand
 from trigger.hints import hard_coded_input_output_hints
 
 class PrecondGenModule(nn.Module):
@@ -26,12 +27,14 @@ class PrecondGenModule(nn.Module):
         The class for generating secure preconditon with gradient descent.
     """
 
-    def __init__(self, model, no_diff_vars=list()):
+    def __init__(self, model, no_diff_vars=list(), diff_order='1b', expand_abs=False):
         super(PrecondGenModule, self).__init__()
         # assure that the model is already analyzed
         assert model.abstracts is not None
 
         new_initial_abstracts = dict()
+
+        self.expand_abs = expand_abs
 
         # centers and scales are parameters
         self.centers = dict()
@@ -53,6 +56,8 @@ class PrecondGenModule(nn.Module):
             self.register_parameter(f'scales:{no}', v)
             no += 1
 
+        self.diff_order = diff_order
+
     def forward(self, node, excep, div_branch='+'):
         """
             construct precondition generation loss
@@ -65,7 +70,7 @@ class PrecondGenModule(nn.Module):
         for s, orig in self.model.initial_abstracts.items():
             new_abst = self.construct(orig, s)
             self.abstracts[s] = new_abst
-        _, errors = self.model.forward(self.abstracts, {'diff_order': 1})
+        _, errors = self.model.forward(self.abstracts, {'diff_order': self.diff_order})
 
         loss = torch.tensor(0.)
 
@@ -78,9 +83,30 @@ class PrecondGenModule(nn.Module):
             prev_nodes = self.find_prev_nodes_optypes(node)
             if excep.optype == 'Log' or excep.optype == 'Sqrt':
                 # print(node)
+                # prev_node = prev_nodes[0][0]
+                # prev_abs = self.abstracts[prev_node]
+                # loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
+
+
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
-                loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
+                # loss += torch.max(prev_abs.ub * (prev_abs.lb < PossibleNumericalError.UNDERFLOW_LIMIT))
+                prev_prev_nodes = self.find_prev_nodes_optypes(prev_node)
+                if len(prev_prev_nodes) > 0 and prev_prev_nodes[0][1] == 'Softmax':
+                    # use prev prev node
+                    # loss penetration through softmax due to optimization challenge
+                    prev_prev_abs = self.abstracts[prev_prev_nodes[0][0]]
+                    # prev_prev_abs.print()
+
+                    # v3
+                    loss += torch.sum(prev_prev_abs.ub) - torch.sum(prev_prev_abs.lb)
+
+                    # v4
+                    # axis = parse_attribute(prev_nodes[0][2]).get('axis', -1)
+                    # loss += torch.sum(- torch.max(prev_abs.lb, dim=axis)[0] + torch.min(prev_abs.ub, dim=axis)[0])
+                else:
+                    loss += torch.sum(torch.where(prev_abs.lb <= PossibleNumericalError.UNDERFLOW_LIMIT, -prev_abs.lb, torch.zeros_like(prev_abs.lb)))
+
             elif excep.optype == 'Exp':
                 prev_node = prev_nodes[0][0]
                 prev_abs = self.abstracts[prev_node]
@@ -116,11 +142,18 @@ class PrecondGenModule(nn.Module):
         :param regularizer: if scale < regularizer, stop to update to avoid too narrow range
         :return:
         """
-        for k, v in self.centers.items():
-            # print(k)
-            # print(v.data)
-            if v.grad is not None:
-                v.data = v.data - center_lr * torch.maximum(torch.abs(v.data), torch.full_like(v.data, min_step)) * torch.sign(v.grad)
+        if self.diff_order != 0:
+            for k, v in self.centers.items():
+                # print(k)
+                # print(v.data)
+                if v.grad is not None:
+                    v.data = v.data - center_lr * torch.maximum(torch.abs(v.data), torch.full_like(v.data, min_step)) * torch.sign(v.grad)
+        else:
+            # means using standard gradient descent
+            for k, v in self.centers.items():
+                if v.grad is not None:
+                    v.data = v.data - center_lr * v.grad
+
 
         for k, v in self.scales.items():
             # print(k)
@@ -145,7 +178,7 @@ class PrecondGenModule(nn.Module):
                     self.scales[s].data = new_scale.detach()
             elif s in self.centers and freeze_constant_node:
                 # no scales, means that the initial abstract corresponds to a concrete value -> we cannot change this concrete value
-                print(f'Cannot change variable {s}')
+                # print(f'Cannot change variable {s}')
                 v_center = self.centers[s]
                 self.centers[s].data = torch.clamp(v_center, min=bounds[0], max=bounds[1])
 
@@ -163,6 +196,14 @@ class PrecondGenModule(nn.Module):
         for s in self.model.start_points:
             if s == InterpModule.SUPER_START_NODE: continue
             orig_abst = self.model.abstracts[s]
+            if self.expand_abs:
+                expand_orig_abst = Abstraction()
+                expand_orig_abst.lb = expand(orig_abst.lb, orig_abst.shape, orig_abst.splits)
+                expand_orig_abst.ub = expand(orig_abst.ub, orig_abst.shape, orig_abst.splits)
+                expand_orig_abst.shape = orig_abst.shape
+                expand_orig_abst.splits = orig_abst.splits
+                expand_orig_abst.var_name = orig_abst.var_name
+                orig_abst = expand_orig_abst
             now_abst = self.abstracts[s]
             if self.tensor_equal(orig_abst.lb, now_abst.lb) and self.tensor_equal(orig_abst.ub, now_abst.ub):
                 minimum_shrink = 0.
@@ -203,7 +244,10 @@ class PrecondGenModule(nn.Module):
         :param original: original abstraction from the first run
         :return: parameterized abstraction
         """
-        def _work(lb, ub, name):
+        def _work(lb, ub, shape, splits, name):
+            if self.expand_abs:
+                lb = expand(lb, shape, splits)
+                ub = expand(ub, shape, splits)
             center = nn.Parameter((lb + ub) / 2., requires_grad=lb.requires_grad and (not no_diff))
             self.centers[name] = center
             if torch.sum(ub - lb) > EPS:
@@ -218,6 +262,10 @@ class PrecondGenModule(nn.Module):
             return new_lb, new_ub
 
         ans = Abstraction()
+        if not self.expand_abs:
+            splits = original.splits.copy()
+        else:
+            splits = list()
         if isinstance(original.lb, list):
             ans.lb = list()
             ans.ub = list()
@@ -229,9 +277,11 @@ class PrecondGenModule(nn.Module):
                     item_lb = self.centers[var_name + f'_{i}']
                     item_ub = self.centers[var_name + f'_{i}']
                 else:
-                    item_lb, item_ub = _work(original.lb[i], original.ub[i], var_name + f'_{i}')
+                    item_lb, item_ub = _work(original.lb[i], original.ub[i], original.shape[i], original.splits[i], var_name + f'_{i}')
                 ans.lb.append(item_lb)
                 ans.ub.append(item_ub)
+                if self.expand_abs:
+                    splits.append([list(range(shapei)) for shapei in original.shape[i]])
         else:
             if var_name in self.centers and var_name in self.spans:
                 ans.lb = self.centers[var_name] - self.spans[var_name] * self.scales[var_name]
@@ -240,9 +290,11 @@ class PrecondGenModule(nn.Module):
                 ans.lb = self.centers[var_name]
                 ans.ub = self.centers[var_name]
             else:
-                ans.lb, ans.ub = _work(original.lb, original.ub, var_name)
+                ans.lb, ans.ub = _work(original.lb, original.ub, original.shape, original.splits, var_name)
+            if self.expand_abs:
+                splits = [list(range(shapei)) for shapei in original.shape]
         ans.shape = original.shape.copy()
-        ans.splits = original.splits.copy()
+        ans.splits = splits
         ans.var_name = original.var_name
         return ans
 
@@ -279,7 +331,7 @@ class PrecondGenModule(nn.Module):
             return work(a.lb, a.ub, b.lb, b.ub)
 
 
-def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, scale_lr=0.1, min_step=0.1, debug=True, freeze_constant_node=True):
+def precondition_gen(modelpath, goal, variables, max_iter=1000, center_lr=0.1, scale_lr=0.1, min_step=0.1, debug=True, freeze_constant_node=True, approach='', time_limit=180, dumping_path=None):
     """
         The wrapped function for precondition generation
     :param modelpath:
@@ -297,7 +349,7 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
 
     bare_name = modelpath.split('/')[-1].split('.')[0]
 
-    initial_errors = model.analyze(model.gen_abstraction_heuristics(bare_name.split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
+    initial_errors = model.analyze(model.gen_abstraction_heuristics(bare_name.split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': '1b' if approach != 'gd' else 0})
     prompt('analysis done')
     if len(initial_errors) == 0:
         print('No numerical bug')
@@ -357,8 +409,6 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
             input_nodes, loss_function_nodes = model.detect_input_and_output_nodes(alert_exceps=False)
         no_diff_vars = default_nodiff_vars + [s for s in model.initial_abstracts if s in input_nodes]
 
-
-
     tot_bugs = len(err_nodes)
     tot_success = 0
     result_details = dict()
@@ -370,9 +420,20 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
         stime = time.time()
         success = False
 
-        precond_module = PrecondGenModule(model, no_diff_vars)
+        precond_module = PrecondGenModule(model, no_diff_vars, diff_order='1b' if approach != 'gd' else 0,
+                                          expand_abs=False if approach != 'debarusexpand' else True)
         # I only need the zero_grad method from an optimizer, therefore any optimizer works
         optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
+
+
+        # for debarusexpand mode, need to expand initial abstracts first for later range clipping
+        if approach == 'debarusexpand':
+            expand_init_abstracts = dict()
+            for s, abs in precond_module.model.initial_abstracts.items():
+                new_abs = Abstraction()
+                new_abs.lb = expand(abs.lb, abs.shape, abs.splits)
+                new_abs.ub = expand(abs.ub, abs.shape, abs.splits)
+                expand_init_abstracts[s] = new_abs
 
         if debug:
             for kk, vv in precond_module.abstracts.items():
@@ -380,7 +441,7 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
                 print(kk, 'ub     :', vv.ub)
 
         for iter in range(max_iter):
-            print('----------------')
+            # print('----------------')
             optimizer.zero_grad()
             loss, errors = precond_module.forward(err_node, err_excep)
             # for kk, vv in precond_module.abstracts.items():
@@ -390,7 +451,7 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
             #     except:
             #         print(kk, 'cannot retain grad')
 
-            print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
+            print('iter =', iter, 'loss =', loss, '# errors =', len(errors), f'time = {time.time() - stime:.2f} s')
 
             if all([e not in errors for e in err_node]):
                 success = True
@@ -411,8 +472,14 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
                 # failure case
                 break
 
+            if time.time() - stime > time_limit:
+                break
+
         # clip by initial abstracts
-        range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans, freeze_constant_node)
+        if approach != 'debarusexpand':
+            range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans, freeze_constant_node)
+        else:
+            range_clipping(expand_init_abstracts, precond_module.centers, precond_module.scales, precond_module.spans, freeze_constant_node)
 
         if debug:
             for kk, vv in precond_module.abstracts.items():
@@ -431,6 +498,7 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
         if success:
             print('Success!')
             precond_module.precondition_study()
+            torch.save(precond_module.abstracts, dumping_path)
         else:
             print('!!! Not success')
             # raise Exception('failed here :(')
@@ -444,98 +512,98 @@ def precondition_gen(modelpath, goal, variables, max_iter=100, center_lr=0.1, sc
 # ================ # ================
 # below is for individual instance running
 
-parser = argparse.ArgumentParser()
-parser.add_argument('modelpath', type=str, help='model architecture file path')
-
+# parser = argparse.ArgumentParser()
+# parser.add_argument('modelpath', type=str, help='model architecture file path')
+#
 stime = time.time()
 def prompt(msg):
     print(f'[{time.time() - stime:.3f}s] ' + msg)
-
-if __name__ == '__main__':
-    args = parser.parse_args()
-
-    model = load_onnx_from_file(args.modelpath,
-                                customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
-    prompt('model initialized')
-
-    initial_errors = model.analyze(model.gen_abstraction_heuristics(os.path.split(args.modelpath)[-1].split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
-    prompt('analysis done')
-    if len(initial_errors) == 0:
-        print('No numerical bug')
-    else:
-        print(f'{len(initial_errors)} possible numerical bug(s)')
-        for k, v in initial_errors.items():
-            print(f'- On tensor {k} triggered by operator {v[1]}:')
-            for item in v[0]:
-                print(str(item))
-
-    stime = time.time()
-
-    # securing all error points
-    err_nodes, err_exceps = list(), list()
-    for k, v in initial_errors.items():
-        error_entities, root, catastro = v
-        if not catastro:
-            for error_entity in error_entities:
-                err_nodes.append(error_entity.var_name)
-                err_exceps.append(error_entity)
-
-    success = False
-
-    precond_module = PrecondGenModule(model)
-    # I only need the zero_grad method from an optimizer, therefore any optimizer works
-    optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
-
-    for kk, vv in precond_module.abstracts.items():
-        print(kk, 'lb     :', vv.lb)
-        print(kk, 'ub     :', vv.ub)
-
-    for iter in range(100):
-        print('----------------')
-        optimizer.zero_grad()
-        loss, errors = precond_module.forward(err_nodes, err_exceps)
-        # for kk, vv in precond_module.abstracts.items():
-        #     try:
-        #         vv.lb.retain_grad()
-        #         vv.ub.retain_grad()
-        #     except:
-        #         print(kk, 'cannot retain grad')
-
-        print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
-
-        if len(errors) == 0:
-            success = True
-            print('securing condition found!')
-            break
-
-        loss.backward()
-
-        # for kk, vv in precond_module.abstracts.items():
-        #     print(kk, 'lb grad:', vv.lb.grad)
-        #     print(kk, 'ub grad:', vv.ub.grad)
-        #     print(kk, 'lb     :', vv.lb)
-        #     print(kk, 'ub     :', vv.ub)
-
-        precond_module.grad_step(True)
-
-    # clip by initial abstracts
-    range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans)
-
-    for kk, vv in precond_module.abstracts.items():
-        print(kk, 'lb     :', vv.lb)
-        print(kk, 'ub     :', vv.ub)
-    #     print(kk, 'lb grad:', vv.lb.grad)
-    #     print(kk, 'ub grad:', vv.ub.grad)
-
-    print('--------------')
-    if success:
-        print('Success!')
-        precond_module.precondition_study()
-    else:
-        print('!!! Not success')
-        raise Exception('failed here :(')
-    print(f'Time elapsed: {time.time() - stime:.3f} s')
-    print('--------------')
+#
+# if __name__ == '__main__':
+#     args = parser.parse_args()
+#
+#     model = load_onnx_from_file(args.modelpath,
+#                                 customize_shape={'unk__766': 572, 'unk__767': 572, 'unk__763': 572, 'unk__764': 572})
+#     prompt('model initialized')
+#
+#     initial_errors = model.analyze(model.gen_abstraction_heuristics(os.path.split(args.modelpath)[-1].split('.')[0]), {'average_pool_mode': 'coarse', 'diff_order': 1})
+#     prompt('analysis done')
+#     if len(initial_errors) == 0:
+#         print('No numerical bug')
+#     else:
+#         print(f'{len(initial_errors)} possible numerical bug(s)')
+#         for k, v in initial_errors.items():
+#             print(f'- On tensor {k} triggered by operator {v[1]}:')
+#             for item in v[0]:
+#                 print(str(item))
+#
+#     stime = time.time()
+#
+#     # securing all error points
+#     err_nodes, err_exceps = list(), list()
+#     for k, v in initial_errors.items():
+#         error_entities, root, catastro = v
+#         if not catastro:
+#             for error_entity in error_entities:
+#                 err_nodes.append(error_entity.var_name)
+#                 err_exceps.append(error_entity)
+#
+#     success = False
+#
+#     precond_module = PrecondGenModule(model)
+#     # I only need the zero_grad method from an optimizer, therefore any optimizer works
+#     optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
+#
+#     for kk, vv in precond_module.abstracts.items():
+#         print(kk, 'lb     :', vv.lb)
+#         print(kk, 'ub     :', vv.ub)
+#
+#     for iter in range(100):
+#         print('----------------')
+#         optimizer.zero_grad()
+#         loss, errors = precond_module.forward(err_nodes, err_exceps)
+#         # for kk, vv in precond_module.abstracts.items():
+#         #     try:
+#         #         vv.lb.retain_grad()
+#         #         vv.ub.retain_grad()
+#         #     except:
+#         #         print(kk, 'cannot retain grad')
+#
+#         print('iter =', iter, 'loss =', loss, '# errors =', len(errors))
+#
+#         if len(errors) == 0:
+#             success = True
+#             print('securing condition found!')
+#             break
+#
+#         loss.backward()
+#
+#         # for kk, vv in precond_module.abstracts.items():
+#         #     print(kk, 'lb grad:', vv.lb.grad)
+#         #     print(kk, 'ub grad:', vv.ub.grad)
+#         #     print(kk, 'lb     :', vv.lb)
+#         #     print(kk, 'ub     :', vv.ub)
+#
+#         precond_module.grad_step(True)
+#
+#     # clip by initial abstracts
+#     range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans)
+#
+#     for kk, vv in precond_module.abstracts.items():
+#         print(kk, 'lb     :', vv.lb)
+#         print(kk, 'ub     :', vv.ub)
+#     #     print(kk, 'lb grad:', vv.lb.grad)
+#     #     print(kk, 'ub grad:', vv.ub.grad)
+#
+#     print('--------------')
+#     if success:
+#         print('Success!')
+#         precond_module.precondition_study()
+#     else:
+#         print('!!! Not success')
+#         raise Exception('failed here :(')
+#     print(f'Time elapsed: {time.time() - stime:.3f} s')
+#     print('--------------')
 
 
 # securing individual error point

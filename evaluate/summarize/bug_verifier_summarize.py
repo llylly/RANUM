@@ -9,7 +9,7 @@ import json
 benchmarks = ['grist']
 
 # account for different tries
-summary_no = 1
+summary_no = 2
 
 if __name__ == '__main__':
     for bench in benchmarks:
@@ -43,5 +43,5 @@ if __name__ == '__main__':
 
         print('summarize to', output_js_path)
         with open(output_js_path, 'w') as f:
-            json.dump(out, f)
+            json.dump(out, f, indent=2)
 
