@@ -6,7 +6,7 @@ import onnx.numpy_helper
 
 from interp.interp_operator import *
 from interp.interp_utils import AbstractionInitConfig, fine_grain_parameters, forbid_fine_grain_flow, discrete_types, \
-    PossibleNumericalError
+    PossibleNumericalError, EPS
 from interp.specified_ranges import SpecifiedRanges
 
 
@@ -129,9 +129,9 @@ class InterpModule():
                 self.all_nodes.add(v)
 
             node_input = list(node.input)
-            # if len(node_input) == 0:
-            #     node_input.append(InterpModule.SUPER_START_NODE)
-            #     self.start_points.add(InterpModule.SUPER_START_NODE)
+            if len(node_input) == 0 and node.op_type in ['RandomNormal', 'RandomUniform']:
+                node_input.append(InterpModule.SUPER_START_NODE)
+                self.start_points.add(InterpModule.SUPER_START_NODE)
 
             for i, vi in enumerate(node_input):
                 for j, vj in enumerate(list(node.output)):
@@ -234,6 +234,7 @@ class InterpModule():
     def analyze(self, init_config=None, interp_config=dict(),
                 input_config=AbstractionInitConfig(diff=True, stride=-1, from_init=False, from_init_margin=1.),
                 weight_config=AbstractionInitConfig(diff=True, stride=-1, from_init=True, from_init_margin=1.),
+                from_existing_abstract=None,
                 terminate=None):
         """
 
@@ -305,6 +306,12 @@ class InterpModule():
         specified_inputs = set(init_config.keys())
         for s in self.start_points:
             if s == InterpModule.SUPER_START_NODE: continue
+
+            # use pre-determined abstracts
+            if from_existing_abstract is not None and s in from_existing_abstract:
+                self.initial_abstracts[s] = from_existing_abstract[s]
+                continue
+
             if s not in init_config:
                 if s.lower().count('moving_variance') > 0:
                     # looks like a variance
@@ -348,6 +355,16 @@ class InterpModule():
             now_raw_data = self.initializer_dict[s][
                 1] if s in self.initializer_dict and s not in specified_inputs else None
             self.initial_abstracts[s] = Abstraction()
+
+            # heuristic: if we have now_raw_data, but now_raw_data is a tensor with uniform number or we use fine grain abstraction
+            # In this case, if we directly use this now_raw_data to initialize our abstraction, the whole node would be fixed, which is not the case - the input or weight can indeed be changed
+            # Thus, we discard now_raw_data for initialization
+            if now_raw_data is not None:
+                if now_t not in discrete_types and \
+                        ((((np.max(now_raw_data) - np.min(now_raw_data) <= EPS) or (init_config[s].stride == 1)) and np.array(now_raw_data).size > 1) or ((s.count('clip_by_value') > 0) and (interp_config.get('discard_clip', False)))):
+                    print(f'discard the initial data for node {s}')
+                    now_raw_data = None
+
             self.initial_abstracts[s].load(init_config[s], s, now_shape, now_t, now_raw_data)
 
         # whole abstract variables
@@ -411,6 +428,7 @@ class InterpModule():
                                     [self.abstracts[node.input[0]]], None, "Square", vj
                                 )
                             else:
+                                # print(f'on {vj}(type: {node_optype})')
                                 cur_abst, cur_exceps = interpreter.handle(
                                     [self.abstracts[x] for x in node.input], node, node_optype, vj
                                 )
@@ -480,10 +498,6 @@ class InterpModule():
 
         # place to inspect abstraction for debug
         # self.abstracts['dropout/truediv/x:0'].print()
-        # self.abstracts['sub:0'].print()
-        # self.abstracts['keep_prob:0'].print()
-        # self.abstracts['ConstantOfShape__684:0'].print()
-        # self.abstracts['Concat__685:0'].print()
         print('=' * 10, "Summary", '=' * 10)
         print(f"Find {sum(item[1] for item in analyze_result_neg.items())} Negatives: {analyze_result_neg}")
         print(f"Find {sum(item[1] for item in analyze_result_pos.items())} Positives: {analyze_result_pos}")
@@ -505,7 +519,7 @@ class InterpModule():
 
         for i, (node_name, ctx) in enumerate(self.queue):
             if ctx is None:
-                if node_name not in abstracts:
+                if node_name not in abstracts and node_name != InterpModule.SUPER_START_NODE:
                     print(f'! Initial node {node_name} lacks initialized abstracts')
             else:
                 if node_name in abstracts:
@@ -514,7 +528,9 @@ class InterpModule():
                 else:
                     parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
 
-
+                    if any([x not in abstracts for x in node.input]):
+                        print(f'! no abstractions for some input of node {node_name}, skip: they are {[x for x in node.input if x not in abstracts]}')
+                        continue
 
                     node_input_cnt = len(node.input)
                     unique_node_input_cnt = len(set([x for x in node.input]))
@@ -634,6 +650,11 @@ class InterpModule():
                     result[name] = AbstractionInitConfig(diff=False, from_init=True,
                                                          lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
+                elif dtype in discrete_types:
+                    print(f'Parameter or weight {name} corresponds to a discrete node, abstract by {AbstractionInitConfig.INT_CONFIG_DEFAULT}')
+                    result[name] = AbstractionInitConfig(diff=False, from_init=False,
+                                                         lb=AbstractionInitConfig.INT_CONFIG_DEFAULT[0],
+                                                         ub=AbstractionInitConfig.INT_CONFIG_DEFAULT[1])
                 elif data is not None and data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
                         np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
@@ -644,6 +665,38 @@ class InterpModule():
                                                          ub=AbstractionInitConfig.WEIGHT_CONFIG_DEFAULT[1])
 
         return result
+
+    def detect_input_and_output_nodes(self, alert_exceps=True):
+        """
+            Heuristically detect the input and output nodes
+            Require: one pass of analyze has already happened
+        :return: a list of str: names of input nodes, a list of str: names of output nodes
+        """
+        input_nodes = list()
+        loss_function_nodes = list()
+
+        for now_node, now_ctx in self.queue:
+            if self.deg_out[now_node] == 0:
+                loss_function_nodes.append(now_node)
+
+        if len(loss_function_nodes) > 1:
+            loss_function_nodes = [x for x in loss_function_nodes if not x.startswith('obj_function')]
+            print(loss_function_nodes)
+            for name_start in ['loss', 'D_loss', 'cross_entropy']:
+                if any([x.startswith(name_start) for x in loss_function_nodes]):
+                    loss_function_nodes = [x for x in loss_function_nodes if x.startswith(name_start)]
+        if len(loss_function_nodes) == 0:
+            if alert_exceps: raise Exception(f'cannot locate the loss function nodes')
+
+        if any([any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target']) for x in self.queue]):
+            input_nodes = [x[0] for x in self.queue if any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target'])]
+
+        if len(input_nodes) == 0:
+            print('for debug:')
+            print('  possible input nodes:', [now_node for now_node, now_ctx in self.queue if self.deg_in[now_node] == 0])
+            raise Exception(f'cannot locate the input nodes')
+
+        return input_nodes, loss_function_nodes
 
 
 def load_onnx_from_file(path, customize_shape=None):

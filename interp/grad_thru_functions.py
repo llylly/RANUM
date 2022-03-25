@@ -5,6 +5,7 @@
 """
 import torch
 
+from interp.interp_utils import POSTIVE_MINIMUM
 
 class StraightSigmoid(torch.autograd.Function):
 
@@ -43,8 +44,11 @@ class StraightSoftmaxInterval(torch.autograd.Function):
         # inputs: [l1, l2, l3], [u1, u2, u3]
         # softmax_lb = [l1 / (l1 + u2 + u3), ...]
         # softmax_ub = [u1 / (u1 + l2 + l3)]
-        lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+        # lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+        # ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+        lb = exp_lb / torch.maximum((torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb), torch.full_like(exp_lb, POSTIVE_MINIMUM, device=exp_lb.device))
         ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+        ub = torch.where(torch.isnan(ub), torch.ones_like(ub, device=ub.device), ub)
         return lb, ub
 
     @staticmethod
@@ -53,7 +57,9 @@ class StraightSoftmaxInterval(torch.autograd.Function):
         # Gradients of non-Tensor arguments to forward must be None.
         # straightthrough
         # print('work')
-        return grad_lb - grad_ub, -grad_lb + grad_ub, None, None
+        # return grad_lb - grad_ub, -grad_lb + grad_ub, None, None
+        # return grad_lb + grad_ub, grad_lb + grad_ub, None, None
+        return grad_lb, grad_ub, None, None
 
 class StraightSoftmaxIntervalLb(torch.autograd.Function):
 
@@ -113,6 +119,22 @@ class StraightRelu(torch.autograd.Function):
         return torch.where(input >= 0., grad_output, 0.01 * grad_output)
 
 
+class SmoothRelu(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input):
+        ctx.save_for_backward(input)
+        return input.relu()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
+        # straightthrough
+        input, = ctx.saved_tensors
+        return torch.where(input >= 5., (1.-torch.exp(-torch.clip(input, min=5.))) * grad_output,
+                                         (1. - 1. / (1. + torch.exp(torch.clip(input, max=5.+1e-5)))) * grad_output)
+
 
 class StraightExp(torch.autograd.Function):
 
@@ -127,8 +149,35 @@ class StraightExp(torch.autograd.Function):
         # We return as many input gradients as there were arguments.
         # Gradients of non-Tensor arguments to forward must be None.
         # straight-through
-        print('work')
         output, = ctx.saved_tensors
         # gradient clip to avoid vanishing gradients
         cliped_output = torch.clip(output, 0.01, 1e+5)
         return grad_output * cliped_output
+
+
+class StraightMinimum(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input_a, input_b):
+        return torch.minimum(input_a, input_b)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
+        # straightthrough
+        return grad_output, grad_output
+
+
+class StraightMaximum(torch.autograd.Function):
+
+    @staticmethod
+    def forward(ctx, input_a, input_b):
+        return torch.maximum(input_a, input_b)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
+        # straightthrough
+        return grad_output, grad_output

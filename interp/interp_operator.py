@@ -7,12 +7,12 @@ import warnings
 
 import onnx
 from onnx import numpy_helper
-from interp.interp_utils import AbstractionInitConfig, parse_attribute, unsupported_types, datatype_mapping, get_numel, \
-    PossibleNumericalError, index_clip_thres
+from interp.interp_utils import AbstractionInitConfig, parse_attribute, \
+    discrete_types, unsupported_types, datatype_mapping, get_numel, \
+    PossibleNumericalError, index_clip_thres, POSTIVE_MINIMUM
 from interp.grad_thru_functions import StraightSigmoid, StraightTanh, StraightSoftmaxIntervalLb, \
     StraightSoftmaxIntervalUb, \
-    StraightSoftmaxInterval, StraightRelu, StraightExp
-
+    StraightSoftmaxInterval, StraightRelu, StraightExp, SmoothRelu, StraightMinimum, StraightMaximum
 
 class Abstraction(object):
     """
@@ -444,7 +444,8 @@ class Interpreter(object):
 
     def __init__(self, smash_thres=-1, ceil='precise', floor='precise',
                  loop_constant_abst_cfg=AbstractionInitConfig(diff=False, from_init=True, stride=1),
-                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0):
+                 average_pool_mode='precise', onehot_mode='coarse', diff_order=0, concrete_rand=None,
+                 continue_prop=False, **kwargs):
         # default smash threshold
         self.smash = smash_thres
 
@@ -463,8 +464,17 @@ class Interpreter(object):
         self.onehot_mode = onehot_mode
 
         # diff_order = 1: provide first order gradient as much as possible
-        # diff_order = 2: provide second order gradient as much as possible
+        # diff_order = 1b: provide first order gradient as much as possible along with gradient for minimum, maximum
+        # diff_order = 2: provide second order gradient as much as possible, by substituting ReLU to softplus
         self.diff_order = diff_order
+
+        # concrete_rand: whether generate concrete random tensors for tensor-generating ops, like randomUniform etc.
+        # if concrete_rand is none, not applied, otherwise, use the manual_seed for generating ops
+        self.concrete_rand = concrete_rand
+
+        # continue_prop: whether to continue propagation when facing numerical bugs
+        self.continue_prop = continue_prop
+        PossibleNumericalError.continue_prop = continue_prop
 
     def handle(self, abstracts, node, optype, var_name):
         """
@@ -637,15 +647,37 @@ class Interpreter(object):
             abstA.ub = abstA.ub * coeff
 
         ans = Abstraction()
-        ans.lb = torch.minimum(torch.matmul(abstA.lb, abstB.lb),
-                               torch.minimum(torch.matmul(abstA.lb, abstB.ub),
-                                             torch.minimum(torch.matmul(abstA.ub, abstB.lb),
-                                                           torch.matmul(abstA.ub, abstB.ub))))
 
-        ans.ub = torch.maximum(torch.matmul(abstA.lb, abstB.lb),
-                               torch.maximum(torch.matmul(abstA.lb, abstB.ub),
-                                             torch.maximum(torch.matmul(abstA.ub, abstB.lb),
-                                                           torch.matmul(abstA.ub, abstB.ub))))
+        Albneg = abstA.lb * (abstA.ub < 0.)
+        Albneu = abstA.lb * (abstA.lb <= 0.) * (abstA.ub >= 0.)
+        Albpos = abstA.lb * (abstA.lb > 0.)
+        Aubneg = abstA.ub * (abstA.ub < 0.)
+        Aubneu = abstA.ub * (abstA.lb <= 0.) * (abstA.ub >= 0.)
+        Aubpos = abstA.ub * (abstA.lb > 0.)
+        Blbneg = abstB.lb * (abstB.ub < 0.)
+        Blbneu = abstB.lb * (abstB.lb <= 0.) * (abstB.ub >= 0.)
+        Blbpos = abstB.lb * (abstB.lb > 0.)
+        Bubneg = abstB.ub * (abstB.ub < 0.)
+        Bubneu = abstB.ub * (abstB.lb <= 0.) * (abstB.ub >= 0.)
+        Bubpos = abstB.ub * (abstB.lb > 0.)
+
+        # ans.lb = torch.minimum(torch.matmul(abstA.lb, abstB.lb),
+        #                        torch.minimum(torch.matmul(abstA.lb, abstB.ub),
+        #                                      torch.minimum(torch.matmul(abstA.ub, abstB.lb),
+        #                                                    torch.matmul(abstA.ub, abstB.ub))))
+        #
+        # ans.ub = torch.maximum(torch.matmul(abstA.lb, abstB.lb),
+        #                        torch.maximum(torch.matmul(abstA.lb, abstB.ub),
+        #                                      torch.maximum(torch.matmul(abstA.ub, abstB.lb),
+        #                                                    torch.matmul(abstA.ub, abstB.ub))))
+
+        ans.lb = torch.matmul(Aubneg, Bubneg) + torch.matmul(Aubneu, Blbneg) + torch.matmul(Aubpos, Blbneg) + \
+                 torch.matmul(Albneg, Bubneu) + torch.matmul(Aubneu, Blbneu) + torch.matmul(Albneu, Bubneu) + torch.matmul(Aubpos, Blbneu) + \
+                 torch.matmul(Albneg, Bubpos) + torch.matmul(Albneu, Bubpos) + torch.matmul(Albpos, Blbpos)
+        ans.ub = torch.matmul(Albneg, Blbneg) + torch.matmul(Albneu, Blbneg) + torch.matmul(Albpos, Bubneg) + \
+                 torch.matmul(Albneg, Blbneu) + torch.matmul(Albneu, Blbneu) + torch.matmul(Aubneu, Bubneu) + torch.matmul(Aubpos, Bubneu) + \
+                 torch.matmul(Aubneg, Blbpos) + torch.matmul(Aubneu, Bubpos) + torch.matmul(Aubpos, Bubpos)
+
         ans.var_name = var_name
 
         if abstA.get_dim() == 1:
@@ -716,16 +748,38 @@ class Interpreter(object):
         A.lb = A.lb * coeff
         A.ub = A.ub * coeff
 
-        ans = Abstraction()
-        ans.lb = torch.minimum(torch.matmul(A.lb, B.lb),
-                               torch.minimum(torch.matmul(A.lb, B.ub),
-                                             torch.minimum(torch.matmul(A.ub, B.lb),
-                                                           torch.matmul(A.ub, B.ub))))
 
-        ans.ub = torch.maximum(torch.matmul(A.lb, B.lb),
-                               torch.maximum(torch.matmul(A.lb, B.ub),
-                                             torch.maximum(torch.matmul(A.ub, B.lb),
-                                                           torch.matmul(A.ub, B.ub))))
+        Albneg = A.lb * (A.ub < 0.)
+        Albneu = A.lb * (A.lb <= 0.) * (A.ub >= 0.)
+        Albpos = A.lb * (A.lb > 0.)
+        Aubneg = A.ub * (A.ub < 0.)
+        Aubneu = A.ub * (A.lb <= 0.) * (A.ub >= 0.)
+        Aubpos = A.ub * (A.lb > 0.)
+        Blbneg = B.lb * (B.ub < 0.)
+        Blbneu = B.lb * (B.lb <= 0.) * (B.ub >= 0.)
+        Blbpos = B.lb * (B.lb > 0.)
+        Bubneg = B.ub * (B.ub < 0.)
+        Bubneu = B.ub * (B.lb <= 0.) * (B.ub >= 0.)
+        Bubpos = B.ub * (B.lb > 0.)
+
+        # ans = Abstraction()
+        # ans.lb = torch.minimum(torch.matmul(A.lb, B.lb),
+        #                        torch.minimum(torch.matmul(A.lb, B.ub),
+        #                                      torch.minimum(torch.matmul(A.ub, B.lb),
+        #                                                    torch.matmul(A.ub, B.ub))))
+        #
+        # ans.ub = torch.maximum(torch.matmul(A.lb, B.lb),
+        #                        torch.maximum(torch.matmul(A.lb, B.ub),
+        #                                      torch.maximum(torch.matmul(A.ub, B.lb),
+        #                                                    torch.matmul(A.ub, B.ub))))
+
+        ans = Abstraction()
+        ans.lb = torch.matmul(Aubneg, Bubneg) + torch.matmul(Aubneu, Blbneg) + torch.matmul(Aubpos, Blbneg) + \
+                 torch.matmul(Albneg, Bubneu) + torch.matmul(Aubneu, Blbneu) + torch.matmul(Albneu, Bubneu) + torch.matmul(Aubpos, Blbneu) + \
+                 torch.matmul(Albneg, Bubpos) + torch.matmul(Albneu, Bubpos) + torch.matmul(Albpos, Blbpos)
+        ans.ub = torch.matmul(Albneg, Blbneg) + torch.matmul(Albneu, Blbneg) + torch.matmul(Albpos, Bubneg) + \
+                 torch.matmul(Albneg, Blbneu) + torch.matmul(Albneu, Blbneu) + torch.matmul(Aubneu, Bubneu) + torch.matmul(Aubpos, Bubneu) + \
+                 torch.matmul(Aubneg, Blbpos) + torch.matmul(Aubneu, Bubpos) + torch.matmul(Aubpos, Bubpos)
 
         if alpha >= 0.:
             ans.lb, ans.ub = ans.lb * alpha, ans.ub * alpha
@@ -1111,9 +1165,15 @@ class Interpreter(object):
         X.lb = X.lb * torch.tensor(channel_strides, device=X.lb.device)
         X.ub = X.ub * torch.tensor(channel_strides, device=X.ub.device)
 
+        """for finegrain case, we skip computing indices etc"""
+        finegrain = all([x == len(y) for x, y in zip(X.shape[2:], X.splits[2:])])
+
         """compute mapping to abst indices after conv"""
-        new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations,
-                                                                 strides)
+        if finegrain:
+            new_X_lb, new_X_ub = X.lb, X.ub
+        else:
+            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations,
+                                                                     strides)
 
         """core conv operation"""
         if dim_for_conv == 1:
@@ -1125,16 +1185,53 @@ class Interpreter(object):
         else:
             raise NotImplementedError("No convXd for X > 3!")
 
-        C1 = func(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        C2 = func(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
-        Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
+        # C1 = func(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # C2 = func(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
+        # Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
+
+
+        new_X_lbneg = new_X_lb * (new_X_ub < 0.)
+        new_X_lbneu = new_X_lb * (new_X_lb <= 0.) * (new_X_ub >= 0.)
+        new_X_lbpos = new_X_lb * (new_X_lb > 0.)
+        new_X_ubneg = new_X_ub * (new_X_ub < 0.)
+        new_X_ubneu = new_X_ub * (new_X_lb <= 0.) * (new_X_ub >= 0.)
+        new_X_ubpos = new_X_ub * (new_X_lb > 0.)
+        Wlbneg = W.lb * (W.ub < 0.)
+        Wlbneu = W.lb * (W.lb <= 0.) * (W.ub >= 0.)
+        Wlbpos = W.lb * (W.lb > 0.)
+        Wubneg = W.ub * (W.ub < 0.)
+        Wubneu = W.ub * (W.lb <= 0.) * (W.ub >= 0.)
+        Wubpos = W.ub * (W.lb > 0.)
+
+        Cmin = func(new_X_ubneg, Wubneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneg, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneg, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbpos, Wlbpos, None, stride=strides, padding=0, dilation=dilations, groups=group)
+
+        Cmax = func(new_X_lbneg, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbpos, Wubneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneg, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneg, Wlbpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group)
+
         if B is not None:
             Cmin = Cmin + B.lb.reshape(*([-1] + [1] * dim_for_conv))
             Cmax = Cmax + B.ub.reshape(*([-1] + [1] * dim_for_conv))
@@ -1142,22 +1239,25 @@ class Interpreter(object):
         # print('out abst shape - min:', Cmin.shape)
         # print('out abst shape - max:', Cmax.shape)
 
-        """infer splits and shape"""
-        splits = [list() for _ in range(dim_for_conv)]
-        for index in range(dim_for_conv):
-            lpxs = lpses[index]
-            rpxs = rpses[index]
-            for i in range(len(lpxs)):
-                if i == 0 or (lpxs[i] != rpxs[i]) or (lpxs[i] != lpxs[i - 1]):
-                    splits[index].append(i)
+        if finegrain:
+            splits = [list(range(x)) for x in Cmin.shape[2:]]
+        else:
+            """infer splits and shape"""
+            splits = [list() for _ in range(dim_for_conv)]
+            for index in range(dim_for_conv):
+                lpxs = lpses[index]
+                rpxs = rpses[index]
+                for i in range(len(lpxs)):
+                    if i == 0 or (lpxs[i] != rpxs[i]) or (lpxs[i] != lpxs[i - 1]):
+                        splits[index].append(i)
 
-        try:
-            for i in range(dim_for_conv):
-                assert (Cmin.shape[2 + i] == len(splits[i]))
-                assert (Cmax.shape[2 + i] == len(splits[i]))
-        except Exception:
-            print(f'! shape does not match: expected ({[len(x) for x in splits]})')
-            print(f'                        got ({[Cmin.shape[i + 2] for i in range(dim_for_conv)]})')
+            try:
+                for i in range(dim_for_conv):
+                    assert (Cmin.shape[2 + i] == len(splits[i]))
+                    assert (Cmax.shape[2 + i] == len(splits[i]))
+            except Exception:
+                print(f'! shape does not match: expected ({[len(x) for x in splits]})')
+                print(f'                        got ({[Cmin.shape[i + 2] for i in range(dim_for_conv)]})')
 
         ans = Abstraction()
         ans.lb = Cmin
@@ -1245,16 +1345,53 @@ class Interpreter(object):
         else:
             raise NotImplementedError("No conv_transposeXd for X > 3!")
 
-        C1 = func(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        C2 = func(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
-                  groups=group)
-        Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
-        Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
+        # C1 = func(new_X_lb, W.lb, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # C2 = func(new_X_lb, W.ub, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # C3 = func(new_X_ub, W.lb, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
+        #           groups=group)
+        # Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
+        # Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
+
+        new_X_lbneg = new_X_lb * (new_X_ub < 0.)
+        new_X_lbneu = new_X_lb * (new_X_lb <= 0.) * (new_X_ub >= 0.)
+        new_X_lbpos = new_X_lb * (new_X_lb > 0.)
+        new_X_ubneg = new_X_ub * (new_X_ub < 0.)
+        new_X_ubneu = new_X_ub * (new_X_lb <= 0.) * (new_X_ub >= 0.)
+        new_X_ubpos = new_X_ub * (new_X_lb > 0.)
+        Wlbneg = W.lb * (W.ub < 0.)
+        Wlbneu = W.lb * (W.lb <= 0.) * (W.ub >= 0.)
+        Wlbpos = W.lb * (W.lb > 0.)
+        Wubneg = W.ub * (W.ub < 0.)
+        Wubneu = W.ub * (W.lb <= 0.) * (W.ub >= 0.)
+        Wubpos = W.ub * (W.lb > 0.)
+
+        Cmin = func(new_X_ubneg, Wubneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneg, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneg, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbpos, Wlbpos, None, stride=strides, padding=0, dilation=dilations, groups=group)
+
+        Cmax = func(new_X_lbneg, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wlbneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbpos, Wubneg, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneg, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_lbneu, Wlbneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wubneu, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneg, Wlbpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubneu, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
+               func(new_X_ubpos, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group)
+
+
         if B is not None:
             Cmin = Cmin + B.lb.reshape(*([-1] + [1] * dim_for_transconv))
             Cmax = Cmax + B.ub.reshape(*([-1] + [1] * dim_for_transconv))
@@ -1381,10 +1518,13 @@ class Interpreter(object):
         if self.diff_order == 0:
             ans.lb = torch.relu(abst.lb)
             ans.ub = torch.relu(abst.ub)
-        else:
+        elif self.diff_order == 1 or self.diff_order == '1b':
             # use leaky relu's gradient as an approximation to provide necessary gradient feedback for optimization
             ans.lb = StraightRelu.apply(abst.lb)
             ans.ub = StraightRelu.apply(abst.ub)
+        else:
+            ans.lb = SmoothRelu.apply(abst.lb)
+            ans.ub = SmoothRelu.apply(abst.ub)
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1498,12 +1638,14 @@ class Interpreter(object):
             # inputs: [l1, l2, l3], [u1, u2, u3]
             # softmax_lb = [l1 / (l1 + u2 + u3), ...]
             # softmax_ub = [u1 / (u1 + l2 + l3)]
-            ans.lb = exp_lb / (torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb)
+            ans.lb = exp_lb / torch.maximum((torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb), torch.full_like(exp_lb, POSTIVE_MINIMUM, device=exp_lb.device))
             ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
+            ans.ub = torch.where(torch.isnan(ans.ub), torch.ones_like(ans.ub, device=ans.ub.device), ans.ub)
         else:
             # ans.lb = StraightSoftmaxIntervalLb.apply(abst.lb, abst.ub, multiplies, axis)
             # ans.ub = StraightSoftmaxIntervalUb.apply(abst.lb, abst.ub, multiplies, axis)
             ans.lb, ans.ub = StraightSoftmaxInterval.apply(abst.lb, abst.ub, multiplies, axis)
+        assert not torch.any(torch.isnan(ans.lb)) and not torch.any(torch.isnan(ans.ub))
 
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -1594,6 +1736,9 @@ class Interpreter(object):
         numel = 1
         for item in abst_data.shape: numel *= item
         tmp = numel
+        # print(var_name)
+        # print('now_shape', abst_data.shape)
+        # print('desire_shape', desired_shape)
         for ind, item in enumerate(desired_shape):
             if item != -1:
                 if item == 0:
@@ -1602,6 +1747,7 @@ class Interpreter(object):
         desired_shape = [int(tmp) if x == -1 else (abst_data.shape[ind] if x == 0 else x)
                          for ind, x in enumerate(desired_shape)]
 
+        # print(abst_data.var_name)
         # print('prev    shape:', abst_data.shape)
         # print('desired shape:', desired_shape)
 
@@ -1711,8 +1857,8 @@ class Interpreter(object):
             in_tensor_shape = in_tensor_shape[start: end]
 
         ans = Abstraction()
-        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float, device=in_tensor.lb.device)
-        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float, device=in_tensor.ub.device)
+        ans.lb = torch.tensor(in_tensor_shape, dtype=torch.float64, device=in_tensor.lb.device)
+        ans.ub = torch.tensor(in_tensor_shape, dtype=torch.float64, device=in_tensor.ub.device)
         ans.shape = [len(in_tensor_shape)]
         ans.splits = [list(range(len(in_tensor_shape)))]
         ans.var_name = var_name
@@ -1734,7 +1880,16 @@ class Interpreter(object):
             else:
                 ret.var_name = 'null'
         else:
-            ret = abst
+            # stupid torch does not support float64 floor
+            if to_type in discrete_types:
+                ret = Abstraction()
+                ret.lb = abst.lb.type(torch.float32).floor().type(torch.float64)
+                ret.ub = abst.ub.type(torch.float32).floor().type(torch.float64)
+                ret.splits = abst.splits
+                ret.shape = abst.shape
+                ret.var_name = abst.var_name
+            else:
+                ret = abst
 
         return ret, list()
 
@@ -1884,6 +2039,7 @@ class Interpreter(object):
         return now_abst, list()
 
     def interp_Gather(self, abstracts, node, optype, var_name):
+        # print('gather node:', var_name)
         data, indices = abstracts[0], abstracts[1]
         # data.print()
         # indices.print()
@@ -2114,6 +2270,10 @@ class Interpreter(object):
         if axis < 0:
             axis += data.get_dim()
 
+        if indices.is_exact():
+            # when the indices are exact, to avoid precision loss, we split data to make it in fine granularity
+            data = data.split_by([data.splits[i] if i != axis else list(range(data.shape[i])) for i in range(len(data.shape))], inplace=False)
+
         index_map = [0 for _ in range(data.shape[axis])]
         for item in data.splits[axis]:
             index_map[item] += 1
@@ -2164,8 +2324,12 @@ class Interpreter(object):
                 choices = torch.stack([new_lbl, new_lbu, new_ubl, new_ubu], dim=0)
                 new_lb = torch.amin(choices, dim=0)
                 new_ub = torch.amax(choices, dim=0)
-            ans.lb = torch.minimum(old_lb, new_lb)
-            ans.ub = torch.maximum(old_ub, new_ub)
+            if len(data.splits[axis]) != data.shape[axis]:
+                # only need to take min/max when the axis splits are not in finest granularity
+                ans.lb = torch.minimum(old_lb, new_lb)
+                ans.ub = torch.maximum(old_ub, new_ub)
+            else:
+                ans.lb, ans.ub = new_lb, new_ub
         else:
             # This over-approximation causes discontinuities, may need further improvement.
             ref_splits = data.splits.copy()
@@ -2349,10 +2513,16 @@ class Interpreter(object):
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
-        ans.splits = [[0] if item > 0 else [] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, mean - 5. * scale, device=device)
-        ans.ub = torch.full(abs_shape, mean + 5. * scale, device=device)
+        if self.concrete_rand is None:
+            ans.splits = [[0] if item > 0 else [] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, mean - 5. * scale, device=device)
+            ans.ub = torch.full(abs_shape, mean + 5. * scale, device=device)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.randn(ans.shape, device=device) * scale + mean
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         ans.var_name = var_name
         return ans, list()
 
@@ -2363,10 +2533,16 @@ class Interpreter(object):
         device = abstracts[0].lb.device
         ans = Abstraction()
         ans.shape = abstracts[0].shape.copy()
-        ans.splits = [[0] if item > 0 else [] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, low, device=device)
-        ans.ub = torch.full(abs_shape, high, device=device)
+        if self.concrete_rand is None:
+            ans.splits = [[0] if item > 0 else [] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, low, device=device)
+            ans.ub = torch.full(abs_shape, high, device=device)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.rand(ans.shape, device=device) * (high-low) + low
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         ans.var_name = var_name
         return ans, list()
 
@@ -2379,10 +2555,16 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape = shape.copy()
-        ans.splits = [[] if item == 0 else [0] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, mean - 5. * scale)
-        ans.ub = torch.full(abs_shape, mean + 5. * scale)
+        if self.concrete_rand is None:
+            ans.splits = [[] if item == 0 else [0] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, mean - 5. * scale)
+            ans.ub = torch.full(abs_shape, mean + 5. * scale)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.randn(ans.shape, device=device) * scale + mean
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
         ans.var_name = var_name
@@ -2396,10 +2578,16 @@ class Interpreter(object):
 
         ans = Abstraction()
         ans.shape = shape.copy()
-        ans.splits = [[] if item == 0 else [0] for item in ans.shape]
-        abs_shape = [0 if item == 0 else 1 for item in ans.shape]
-        ans.lb = torch.full(abs_shape, low)
-        ans.ub = torch.full(abs_shape, high)
+        if self.concrete_rand is None:
+            ans.splits = [[] if item == 0 else [0] for item in ans.shape]
+            abs_shape = [0 if item == 0 else 1 for item in ans.shape]
+            ans.lb = torch.full(abs_shape, low)
+            ans.ub = torch.full(abs_shape, high)
+        else:
+            torch.manual_seed(self.concrete_rand)
+            ans.splits = [list(range(item)) for item in ans.shape]
+            ans.lb = torch.rand(ans.shape, device=device) * (high-low) + low
+            ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
         ans.var_name = var_name
@@ -2555,8 +2743,12 @@ class Interpreter(object):
 
             ans = Abstraction()
             ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-            ans.lb = torch.minimum(abst0.lb, abst1.lb)
-            ans.ub = torch.minimum(abst0.ub, abst1.ub)
+            if self.diff_order != '1b':
+                ans.lb = torch.minimum(abst0.lb, abst1.lb)
+                ans.ub = torch.minimum(abst0.ub, abst1.ub)
+            else:
+                ans.lb = StraightMinimum.apply(abst0.lb, abst1.lb)
+                ans.ub = StraightMinimum.apply(abst0.ub, abst1.ub)
             ans.var_name = var_name
 
         return ans, list()
@@ -2576,8 +2768,12 @@ class Interpreter(object):
 
             ans = Abstraction()
             ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-            ans.lb = torch.maximum(abst0.lb, abst1.lb)
-            ans.ub = torch.maximum(abst0.ub, abst1.ub)
+            if self.diff_order != '1b':
+                ans.lb = torch.maximum(abst0.lb, abst1.lb)
+                ans.ub = torch.maximum(abst0.ub, abst1.ub)
+            else:
+                ans.lb = StraightMaximum.apply(abst0.lb, abst1.lb)
+                ans.ub = StraightMaximum.apply(abst0.ub, abst1.ub)
             ans.var_name = var_name
 
         return ans, list()
@@ -2859,7 +3055,9 @@ class Interpreter(object):
                                            torch.ones_like(target_value).to(target_value.device).long() * len(
                                                input.splits[1]),
                                            target_value)
-                index_map.append(lb.shape[1])
+                index_map.append(lb.shape[1] - 1)
+
+            target_value = target_value.clamp(min=0, max=len(index_map) - 1)
 
             index_map = torch.tensor(index_map).to(target_value.device)
 
@@ -2911,7 +3109,7 @@ class Interpreter(object):
                                                    torch.ones_like(target_value).to(target_value.device).long() * len(
                                                        input.splits[1]),
                                                    target_value)
-                        index_map.append(lb.shape[1])
+                        index_map.append(lb.shape[1] - 1)
 
                     index_map = torch.tensor(index_map).to(target_value.device)
 
