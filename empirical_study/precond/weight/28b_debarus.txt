@@ -1,0 +1,112 @@
+{
+  "all": {
+    "tot_start_points": 25,
+    "tot_changed_nodes": 7,
+    "average_shrinkage": 0.27987468425035644,
+    "maximum_shrinkage": 1.0,
+    "minimum_shrink": 0.0
+  }
+}
+
+Sum:0 = 612.5420141784668
+
+const_ends__56 = [1.00000000e+00 2.14748365e+09]
+
+-50.0 <= labels:0 <= 50.0
+
+0.15095664481176424 <= bout/read:0 <= 0.15866552372919035
+
+clip_by_value_2/y:0 = -1.0
+
+const_axes__106 = -1.0
+
+-50.0 <= features:0 <= 50.0
+
+const_axes__85 = [0. 1.]
+
+Sum_2:0 = 60.62297439575195
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
+
+0.08253423022674718 <= b1/read:0 <= 0.0918539400155624
+
+8.992869913559617e-05 <= w1/read:0 <= 0.016145230810659297
+
+-0.011982095165328797 <= wout/read:0 <= -0.00016131808582787056
+
+const_starts__83 = [0. 0.]
+
+ConstantFolding/div_9_recip:0 = 0.07715266197919846
+
+-0.031328937410889844 <= div_1:0 <= 0.031328937410889844
+
+G_matmul_2/read:0 = 12.961315155029297
+
+const_fold_opt__119 = 10.0
+
+Sum_1:0 = 128.33401489257812
+
+const_ends__33 = 1.0
+
+clip_by_value_2/Minimum/y:0 = 1.0
+
+G_matmul_1/read:0 = 6.112512588500977
+
+ConstantFolding/div_3_recip:0 = 0.16359885036945343
+
+const_axes__28 = 0.0
+
+const_fold_opt__124 = 128.0
+
+==========initial bounds==========
+
+497.2081298828125 <= Sum:0 <= 763.8633422851562
+
+const_ends__56 = [1.00000000e+00 2.14748365e+09]
+
+-50.0 <= labels:0 <= 50.0
+
+-5.996753215789795 <= bout/read:0 <= 6.3063753843307495
+
+clip_by_value_2/y:0 = -1.0
+
+const_axes__106 = -1.0
+
+-50.0 <= features:0 <= 50.0
+
+const_axes__85 = [0. 1.]
+
+Sum_2:0 = 60.62297439575195
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
+
+-7.349787950515747 <= b1/read:0 <= 7.524176120758057
+
+-12.637662410736084 <= w1/read:0 <= 12.986095428466797
+
+-9.588800430297852 <= wout/read:0 <= 9.276788473129272
+
+const_starts__83 = [0. 0.]
+
+ConstantFolding/div_9_recip:0 = 0.07715266197919846
+
+-50.0 <= div_1:0 <= 50.0
+
+G_matmul_2/read:0 = 12.961315155029297
+
+const_fold_opt__119 = 10.0
+
+60.16966247558594 <= Sum_1:0 <= 128.33401489257812
+
+const_ends__33 = 1.0
+
+clip_by_value_2/Minimum/y:0 = 1.0
+
+G_matmul_1/read:0 = 6.112512588500977
+
+ConstantFolding/div_3_recip:0 = 0.16359885036945343
+
+const_axes__28 = 0.0
+
+const_fold_opt__124 = 128.0
+

@@ -1,0 +1,28 @@
+{
+  "all": {
+    "tot_start_points": 4,
+    "tot_changed_nodes": 2,
+    "average_shrinkage": 0.49646517475492447,
+    "maximum_shrinkage": 0.9929303495098489,
+    "minimum_shrink": 0.0
+  }
+}
+
+-0.3534825245075523 <= x:0 <= 0.3534825245075523
+
+const_fold_opt__9 = 1.0
+
+-0.07069650490151046 <= Variable/read:0 <= 0.07069650490151046
+
+-50.0 <= y_true:0 <= 50.0
+
+==========initial bounds==========
+
+-50.0 <= x:0 <= 50.0
+
+const_fold_opt__9 = 1.0
+
+-10.0 <= Variable/read:0 <= 10.0
+
+-50.0 <= y_true:0 <= 50.0
+

@@ -1,0 +1,32 @@
+{
+  "all": {
+    "tot_start_points": 5,
+    "tot_changed_nodes": 3,
+    "average_shrinkage": 0.5984971591495455,
+    "maximum_shrinkage": 1.0,
+    "minimum_shrink": 0.0
+  }
+}
+
+cost/sub_2/x:0 = 1.0
+
+-0.09918167237506147 <= weights/read:0 <= -0.009311649492215288
+
+0.03301380130022494 <= x-input:0 <= 0.40872401391386104
+
+biases/read:0 = -3.6013019680976868
+
+-50.0 <= y-input:0 <= 50.0
+
+==========initial bounds==========
+
+cost/sub_2/x:0 = 1.0
+
+-12.007176876068115 <= weights/read:0 <= 11.91286039352417
+
+-50.0 <= x-input:0 <= 50.0
+
+-3.6013019680976868 <= biases/read:0 <= 3.200569987297058
+
+-50.0 <= y-input:0 <= 50.0
+

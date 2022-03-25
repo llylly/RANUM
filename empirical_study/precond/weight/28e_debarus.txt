@@ -1,0 +1,112 @@
+{
+  "all": {
+    "tot_start_points": 25,
+    "tot_changed_nodes": 2,
+    "average_shrinkage": 0.05874236,
+    "maximum_shrinkage": 1.0,
+    "minimum_shrink": 0.0
+  }
+}
+
+Sum:0 = 508.86297607421875
+
+const_negative_one__110 = -1.0
+
+const_axes__113 = 1.0
+
+-50.0 <= labels:0 <= 50.0
+
+-1.402865245938301 <= ConstantFolding/mydiv3_1_recip:0 <= 3.0121097341179848
+
+-5.118884086608887 <= bout/read:0 <= 6.4962732791900635
+
+const_axes__106 = -1.0
+
+-50.0 <= features:0 <= 50.0
+
+const_axes__85 = [0. 1.]
+
+6.946991343674 <= ConstantFolding/mydiv3_recip:0 <= 129.89616818602494
+
+const_fold_opt__118 = 128.0
+
+mul_15:0 = 8487.666015625
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
+
+-7.232858896255493 <= b1/read:0 <= 8.083690404891968
+
+-13.29589033126831 <= w1/read:0 <= 13.410964965820312
+
+-9.932331323623657 <= wout/read:0 <= 9.991037130355835
+
+clip_by_value/Minimum/y:0 = 1.0
+
+-13.238025665283203 <= G_matmul_2/read:0 <= 28.423532485961914
+
+const_fold_opt__119 = 10.0
+
+68.24712371826172 <= Sum_1:0 <= 128.9316864013672
+
+const_starts__55 = [0. 0.]
+
+const_starts__20 = 0.0
+
+-15.655405044555664 <= G_matmul_1/read:0 <= 31.349679946899414
+
+-50.0 <= mydiv1:0 <= 50.0
+
+const_ends__84 = [1.00000000e+00 2.14748365e+09]
+
+==========initial bounds==========
+
+508.86297607421875 <= Sum:0 <= 738.2234497070312
+
+const_negative_one__110 = -1.0
+
+const_axes__113 = 1.0
+
+-50.0 <= labels:0 <= 50.0
+
+-1.402865245938301 <= ConstantFolding/mydiv3_1_recip:0 <= 3.0121097341179848
+
+-5.118884086608887 <= bout/read:0 <= 6.4962732791900635
+
+const_axes__106 = -1.0
+
+-50.0 <= features:0 <= 50.0
+
+const_axes__85 = [0. 1.]
+
+-77.05308562517166 <= ConstantFolding/mydiv3_recip:0 <= 154.29748168587685
+
+const_fold_opt__118 = 128.0
+
+mul_15:0 = 8487.666015625
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
+
+-7.232858896255493 <= b1/read:0 <= 8.083690404891968
+
+-13.29589033126831 <= w1/read:0 <= 13.410964965820312
+
+-9.932331323623657 <= wout/read:0 <= 9.991037130355835
+
+clip_by_value/Minimum/y:0 = 1.0
+
+-13.238025665283203 <= G_matmul_2/read:0 <= 28.423532485961914
+
+const_fold_opt__119 = 10.0
+
+68.24712371826172 <= Sum_1:0 <= 128.9316864013672
+
+const_starts__55 = [0. 0.]
+
+const_starts__20 = 0.0
+
+-15.655405044555664 <= G_matmul_1/read:0 <= 31.349679946899414
+
+-50.0 <= mydiv1:0 <= 50.0
+
+const_ends__84 = [1.00000000e+00 2.14748365e+09]
+

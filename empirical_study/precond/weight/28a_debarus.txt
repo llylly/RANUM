@@ -1,0 +1,112 @@
+{
+  "all": {
+    "tot_start_points": 25,
+    "tot_changed_nodes": 7,
+    "average_shrinkage": 0.27987468425035644,
+    "maximum_shrinkage": 1.0,
+    "minimum_shrink": 0.0
+  }
+}
+
+Sum:0 = 694.7385314941406
+
+-50.0 <= labels:0 <= 50.0
+
+-0.22447868623469916 <= bout/read:0 <= -0.2192850466754571
+
+const_starts__81 = [0. 0.]
+
+-50.0 <= features:0 <= 50.0
+
+Sum_2:0 = 61.186073303222656
+
+-0.12498189462190046 <= b1/read:0 <= -0.11502192961210833
+
+const_ends__13 = 1.0
+
+softmax_cross_entropy_with_logits_sg/Reshape_shape__124 = [-1. 10.]
+
+0.0001241800706031082 <= wout/read:0 <= 0.013951751934859773
+
+-0.016587702003210764 <= w1/read:0 <= -8.96595284180686e-05
+
+const_ends__54 = [1.00000000e+00 2.14748365e+09]
+
+const_axes__55 = [0. 1.]
+
+clip_by_value/Minimum/y:0 = 1.0
+
+G_matmul_2/read:0 = 12.658395767211914
+
+const_fold_opt__119 = 10.0
+
+Sum_1:0 = 111.04678344726562
+
+clip_by_value/y:0 = -1.0
+
+-0.031328937410889844 <= div:0 <= 0.031328937410889844
+
+const_axes__104 = -1.0
+
+ConstantFolding/div_2_recip:0 = 0.06259219348430634
+
+ConstantFolding/div_8_recip:0 = 0.07899895310401917
+
+G_matmul_1/read:0 = 15.976432800292969
+
+const_fold_opt__115 = 128.0
+
+const_axes__22 = 0.0
+
+==========initial bounds==========
+
+496.58282470703125 <= Sum:0 <= 771.9317016601562
+
+-50.0 <= labels:0 <= 50.0
+
+-4.3663246631622314 <= bout/read:0 <= 3.922560930252075
+
+const_starts__81 = [0. 0.]
+
+-50.0 <= features:0 <= 50.0
+
+Sum_2:0 = 61.186073303222656
+
+-8.06789755821228 <= b1/read:0 <= 7.8278937339782715
+
+const_ends__13 = 1.0
+
+softmax_cross_entropy_with_logits_sg/Reshape_shape__124 = [-1. 10.]
+
+-10.588428497314453 <= wout/read:0 <= 11.479941844940186
+
+-13.50094747543335 <= w1/read:0 <= 12.829410076141357
+
+const_ends__54 = [1.00000000e+00 2.14748365e+09]
+
+const_axes__55 = [0. 1.]
+
+clip_by_value/Minimum/y:0 = 1.0
+
+G_matmul_2/read:0 = 12.658395767211914
+
+const_fold_opt__119 = 10.0
+
+86.21154022216797 <= Sum_1:0 <= 123.38531494140625
+
+clip_by_value/y:0 = -1.0
+
+-50.0 <= div:0 <= 50.0
+
+const_axes__104 = -1.0
+
+ConstantFolding/div_2_recip:0 = 0.06259219348430634
+
+ConstantFolding/div_8_recip:0 = 0.07899895310401917
+
+G_matmul_1/read:0 = 15.976432800292969
+
+const_fold_opt__115 = 128.0
+
+const_axes__22 = 0.0
+

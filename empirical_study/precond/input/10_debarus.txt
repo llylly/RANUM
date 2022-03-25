@@ -1,0 +1,24 @@
+{
+  "all": {
+    "tot_start_points": 3,
+    "tot_changed_nodes": 1,
+    "average_shrinkage": 0.3333166733473157,
+    "maximum_shrinkage": 0.9999500200419471,
+    "minimum_shrink": 0.0
+  }
+}
+
+-10.0 <= Variable/read:0 <= 10.0
+
+-0.002498997902644645 <= x:0 <= 0.002498997902644645
+
+-50.0 <= y:0 <= 50.0
+
+==========initial bounds==========
+
+-10.0 <= Variable/read:0 <= 10.0
+
+-50.0 <= x:0 <= 50.0
+
+-50.0 <= y:0 <= 50.0
+
