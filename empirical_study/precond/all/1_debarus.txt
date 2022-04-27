@@ -1,34 +1,51 @@
 {
   "all": {
     "tot_start_points": 35,
-    "tot_changed_nodes": 11,
-    "average_shrinkage": 0.3003099443607663,
+    "tot_changed_nodes": 10,
+    "average_shrinkage": 0.28275810912599875,
     "maximum_shrinkage": 1.0,
     "minimum_shrink": 0.0
   }
 }
 
-dropout_1/sub/x:0 = 1.0
-
-SpatialTransformer/_transform/_interpolate/mul__15 = 20.0
-
-Variable_6/read:0 = -0.04346654377877712
-
 SpatialTransformer/_transform/_interpolate/strided_slice_2__9 = 40.0
 
-SpatialTransformer/_transform/_interpolate/_repeat/Cast:0 = [[1. 1. 1. ... 1. 1. 1.]]
+const_fold_opt__142 = [-1.  2.  3.]
 
-0.33999999999999997 <= keep_prob:0 <= 0.66
+0.007482737355131647 <= Variable_10/read:0 <= 0.00832270685936139
 
-const_fold_opt__150 = [-1. 40. 40.  1.]
+SpatialTransformer/_transform/_interpolate/mul_2__10 = 1600.0
+
+const_fold_opt__145 = 0.0
+
+const_fold_opt__149 = -1.0
+
+const_fold_opt__144 = [-1.  1.]
+
+SpatialTransformer/_transform/_interpolate/range__20_cond = 1.0
 
 [-50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50.
  -50. -50. -50. -50. -50. -50.] <= Variable_1/read:0 <= [50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50.
  50. 50.]
 
-const_fold_opt__149 = -1.0
+-50.0 <= y:0 <= 50.0
 
--0.1478088294143459 <= Variable_9/read:0 <= 0.1478088294143459
+-0.32230285210320986 <= Variable_7/read:0 <= -0.0266851932745181
+
+[-0.73904415 -0.73904415 -0.73904415 ... -0.73904415 -0.73904415
+ -0.73904415] <= SpatialTransformer/_transform/Reshape_1:0 <= [0.73904415 0.73904415 0.73904415 ... 0.73904415 0.73904415 0.73904415]
+
+Variable_4/read:0 = -0.055854933336377144
+
+const_fold_opt__162 = 3.0
+
+dropout_1/sub/x:0 = 1.0
+
+const_fold_opt__158 = 40.0
+
+const_fold_opt__150 = [-1. 40. 40.  1.]
+
+Variable_6/read:0 = -0.04346654377877712
 
 [[[[-0.14780883 -0.14780883 -0.14780883]
    [-0.14780883 -0.14780883 -0.14780883]
@@ -36,9 +53,23 @@ const_fold_opt__149 = -1.0
    [0.14780883 0.14780883 0.14780883]
    [0.14780883 0.14780883 0.14780883]]]]
 
-SpatialTransformer/_transform/_interpolate/mul_2__10 = 1600.0
+const_fold_opt__157 = 39.0
 
-const_fold_opt__152 = -1.0
+[[-10. -10. -10. ... -10. -10. -10.]
+ [-10. -10. -10. ... -10. -10. -10.]
+ [-10. -10. -10. ... -10. -10. -10.]
+ ...
+ [-10. -10. -10. ... -10. -10. -10.]
+ [-10. -10. -10. ... -10. -10. -10.]
+ [-10. -10. -10. ... -10. -10. -10.]] <= Variable/read:0 <= [[10. 10. 10. ... 10. 10. 10.]
+ [10. 10. 10. ... 10. 10. 10.]
+ [10. 10. 10. ... 10. 10. 10.]
+ ...
+ [10. 10. 10. ... 10. 10. 10.]
+ [10. 10. 10. ... 10. 10. 10.]
+ [10. 10. 10. ... 10. 10. 10.]]
+
+Variable_8/read:0 = -0.09482252970337868
 
 [[-10. -10. -10. -10. -10. -10.]
  [-10. -10. -10. -10. -10. -10.]
@@ -79,6 +110,11 @@ const_fold_opt__152 = -1.0
  [10. 10. 10. 10. 10. 10.]
  [10. 10. 10. 10. 10. 10.]
  [10. 10. 10. 10. 10. 10.]]
+
+SpatialTransformer/_transform/_interpolate/_repeat/Cast:0 = [[1. 1. 1. ... 1. 1. 1.]]
+
+[[-0.73904415 -0.73904415 -0.73904415 ... -0.73904415 -0.73904415
+  -0.73904415]] <= x:0 <= [[0.73904415 0.73904415 0.73904415 ... 0.73904415 0.73904415 0.73904415]]
 
 [[[[-0.32230285 -0.32230285 -0.32230285]
    [-0.32230285 -0.32230285 -0.32230285]
@@ -86,18 +122,71 @@ const_fold_opt__152 = -1.0
    [-0.02668519 -0.02668519 -0.02668519]
    [-0.02668519 -0.02668519 -0.02668519]]]]
 
-const_fold_opt__158 = 40.0
-
-const_fold_opt__145 = 0.0
+[-50. -50. -50. -50. -50. -50.] <= b_fc_loc2/read:0 <= [50. 50. 50. 50. 50. 50.]
 
 const_fold_opt__146 = [-1.0e+00  1.6e+03]
 
-Variable_4/read:0 = -0.055854933336377144
+const_fold_opt__159 = 1.0
 
-0.00788946269847673 <= Variable_10/read:0 <= 0.007915981516016307
+-0.1478088294143459 <= Variable_9/read:0 <= 0.1478088294143459
 
-[[-0.73904415 -0.73904415 -0.73904415 ... -0.73904415 -0.73904415
-  -0.73904415]] <= x:0 <= [[0.73904415 0.73904415 0.73904415 ... 0.73904415 0.73904415 0.73904415]]
+SpatialTransformer/_transform/_interpolate/mul__15 = 20.0
+
+0.09999999999999998 <= keep_prob:0 <= 0.9
+
+SpatialTransformer/_transform/_interpolate/range/delta:0 = 1.0
+
+SpatialTransformer/_transform/_interpolate/range/start:0 = 0.0
+
+const_fold_opt__152 = -1.0
+
+==========initial bounds==========
+
+SpatialTransformer/_transform/_interpolate/strided_slice_2__9 = 40.0
+
+const_fold_opt__142 = [-1.  2.  3.]
+
+-0.020511328242719173 <= Variable_10/read:0 <= 0.03631677245721221
+
+SpatialTransformer/_transform/_interpolate/mul_2__10 = 1600.0
+
+const_fold_opt__145 = 0.0
+
+const_fold_opt__149 = -1.0
+
+const_fold_opt__144 = [-1.  1.]
+
+SpatialTransformer/_transform/_interpolate/range__20_cond = 1.0
+
+[-50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50.
+ -50. -50. -50. -50. -50. -50.] <= Variable_1/read:0 <= [50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50.
+ 50. 50.]
+
+-50.0 <= y:0 <= 50.0
+
+-10.0 <= Variable_7/read:0 <= 10.0
+
+[-50. -50. -50. ... -50. -50. -50.] <= SpatialTransformer/_transform/Reshape_1:0 <= [50. 50. 50. ... 50. 50. 50.]
+
+-0.055854933336377144 <= Variable_4/read:0 <= 0.061666568741202354
+
+const_fold_opt__162 = 3.0
+
+dropout_1/sub/x:0 = 1.0
+
+const_fold_opt__158 = 40.0
+
+const_fold_opt__150 = [-1. 40. 40.  1.]
+
+-0.04346654377877712 <= Variable_6/read:0 <= 0.03860309533774853
+
+[[[[-10. -10. -10.]
+   [-10. -10. -10.]
+   [-10. -10. -10.]]]] <= Variable_3/read:0 <= [[[[10. 10. 10.]
+   [10. 10. 10.]
+   [10. 10. 10.]]]]
+
+const_fold_opt__157 = 39.0
 
 [[-10. -10. -10. ... -10. -10. -10.]
  [-10. -10. -10. ... -10. -10. -10.]
@@ -113,66 +202,7 @@ Variable_4/read:0 = -0.055854933336377144
  [10. 10. 10. ... 10. 10. 10.]
  [10. 10. 10. ... 10. 10. 10.]]
 
-[-50. -50. -50. -50. -50. -50.] <= b_fc_loc2/read:0 <= [50. 50. 50. 50. 50. 50.]
-
--50.0 <= y:0 <= 50.0
-
-const_fold_opt__157 = 39.0
-
-SpatialTransformer/_transform/_interpolate/range/start:0 = 0.0
-
-const_fold_opt__162 = 3.0
-
-const_fold_opt__159 = 1.0
-
-const_fold_opt__142 = [-1.  2.  3.]
-
-[-0.73904415 -0.73904415 -0.73904415 ... -0.73904415 -0.73904415
- -0.73904415] <= SpatialTransformer/_transform/Reshape_1:0 <= [0.73904415 0.73904415 0.73904415 ... 0.73904415 0.73904415 0.73904415]
-
-const_fold_opt__144 = [-1.  1.]
-
-Variable_8/read:0 = -0.09482252970337868
-
-SpatialTransformer/_transform/_interpolate/range/delta:0 = 1.0
-
--0.32230285210320986 <= Variable_7/read:0 <= -0.0266851932745181
-
-SpatialTransformer/_transform/_interpolate/range__20_cond = 1.0
-
-==========initial bounds==========
-
-dropout_1/sub/x:0 = 1.0
-
-SpatialTransformer/_transform/_interpolate/mul__15 = 20.0
-
--0.04346654377877712 <= Variable_6/read:0 <= 0.03860309533774853
-
-SpatialTransformer/_transform/_interpolate/strided_slice_2__9 = 40.0
-
-SpatialTransformer/_transform/_interpolate/_repeat/Cast:0 = [[1. 1. 1. ... 1. 1. 1.]]
-
-0.1 <= keep_prob:0 <= 0.9
-
-const_fold_opt__150 = [-1. 40. 40.  1.]
-
-[-50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50. -50.
- -50. -50. -50. -50. -50. -50.] <= Variable_1/read:0 <= [50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50. 50.
- 50. 50.]
-
-const_fold_opt__149 = -1.0
-
--10.0 <= Variable_9/read:0 <= 10.0
-
-[[[[-10. -10. -10.]
-   [-10. -10. -10.]
-   [-10. -10. -10.]]]] <= Variable_3/read:0 <= [[[[10. 10. 10.]
-   [10. 10. 10.]
-   [10. 10. 10.]]]]
-
-SpatialTransformer/_transform/_interpolate/mul_2__10 = 1600.0
-
-const_fold_opt__152 = -1.0
+-0.09482252970337868 <= Variable_8/read:0 <= 0.0944194421172142
 
 [[-10. -10. -10. -10. -10. -10.]
  [-10. -10. -10. -10. -10. -10.]
@@ -214,61 +244,31 @@ const_fold_opt__152 = -1.0
  [10. 10. 10. 10. 10. 10.]
  [10. 10. 10. 10. 10. 10.]]
 
+SpatialTransformer/_transform/_interpolate/_repeat/Cast:0 = [[1. 1. 1. ... 1. 1. 1.]]
+
+[[-50. -50. -50. ... -50. -50. -50.]] <= x:0 <= [[50. 50. 50. ... 50. 50. 50.]]
+
 [[[[-10. -10. -10.]
    [-10. -10. -10.]
    [-10. -10. -10.]]]] <= Variable_5/read:0 <= [[[[10. 10. 10.]
    [10. 10. 10.]
    [10. 10. 10.]]]]
 
-const_fold_opt__158 = 40.0
-
-const_fold_opt__145 = 0.0
+[-50. -50. -50. -50. -50. -50.] <= b_fc_loc2/read:0 <= [50. 50. 50. 50. 50. 50.]
 
 const_fold_opt__146 = [-1.0e+00  1.6e+03]
 
--0.055854933336377144 <= Variable_4/read:0 <= 0.061666568741202354
-
--0.020511328242719173 <= Variable_10/read:0 <= 0.03631677245721221
-
-[[-50. -50. -50. ... -50. -50. -50.]] <= x:0 <= [[50. 50. 50. ... 50. 50. 50.]]
-
-[[-10. -10. -10. ... -10. -10. -10.]
- [-10. -10. -10. ... -10. -10. -10.]
- [-10. -10. -10. ... -10. -10. -10.]
- ...
- [-10. -10. -10. ... -10. -10. -10.]
- [-10. -10. -10. ... -10. -10. -10.]
- [-10. -10. -10. ... -10. -10. -10.]] <= Variable/read:0 <= [[10. 10. 10. ... 10. 10. 10.]
- [10. 10. 10. ... 10. 10. 10.]
- [10. 10. 10. ... 10. 10. 10.]
- ...
- [10. 10. 10. ... 10. 10. 10.]
- [10. 10. 10. ... 10. 10. 10.]
- [10. 10. 10. ... 10. 10. 10.]]
-
-[-50. -50. -50. -50. -50. -50.] <= b_fc_loc2/read:0 <= [50. 50. 50. 50. 50. 50.]
-
--50.0 <= y:0 <= 50.0
-
-const_fold_opt__157 = 39.0
-
-SpatialTransformer/_transform/_interpolate/range/start:0 = 0.0
-
-const_fold_opt__162 = 3.0
-
 const_fold_opt__159 = 1.0
 
-const_fold_opt__142 = [-1.  2.  3.]
+-10.0 <= Variable_9/read:0 <= 10.0
 
-[-50. -50. -50. ... -50. -50. -50.] <= SpatialTransformer/_transform/Reshape_1:0 <= [50. 50. 50. ... 50. 50. 50.]
+SpatialTransformer/_transform/_interpolate/mul__15 = 20.0
 
-const_fold_opt__144 = [-1.  1.]
-
--0.09482252970337868 <= Variable_8/read:0 <= 0.0944194421172142
+0.1 <= keep_prob:0 <= 0.9
 
 SpatialTransformer/_transform/_interpolate/range/delta:0 = 1.0
 
--10.0 <= Variable_7/read:0 <= 10.0
+SpatialTransformer/_transform/_interpolate/range/start:0 = 0.0
 
-SpatialTransformer/_transform/_interpolate/range__20_cond = 1.0
+const_fold_opt__152 = -1.0
 

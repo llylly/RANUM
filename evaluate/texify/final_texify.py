@@ -63,6 +63,10 @@ if __name__ == '__main__':
     tot_systest_debar_time = 0.
     tot_systest_random = 0
     tot_systest_random_time = 0.
+    tot_systest_debarus_p_random = 0
+    tot_systest_debarus_p_random_time = 0.
+    tot_systest_random_p_debarus = 0
+    tot_systest_random_p_debarus_time = 0.
 
     tot_precond_debar_weight_input = 0
     tot_precond_debar_weight_input_time = 0.
@@ -222,6 +226,35 @@ if __name__ == '__main__':
         tot_systest_random += num_random
         tot_systest_random_time += time_random
 
+        # 3: random_p_debarus
+        num_random = 0
+        time_random = 0.
+        for seed in seeds:
+            with open(f'results/training_inst_gen/grist/{ver_code}random_p_debarus/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+            for err_node, inference_stat in debarus_inference_status[seed].items():
+                if data[err_node]['success']:
+                    num_random += 1
+                    time_random += data[err_node]['time']
+        ans[i][4] = f'{num_random} ({time_random:.2f})'
+        tot_systest_random_p_debarus += num_random
+        tot_systest_random_p_debarus_time += time_random
+
+        # 4: debarus_p_random
+        num_random = 0
+        time_random = 0.
+        for seed in seeds:
+            with open(f'results/training_inst_gen/grist/{ver_code}debarus_p_random/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+            for err_node, inference_stat in debarus_inference_status[seed].items():
+                if data[err_node]['success']:
+                    num_random += 1
+                    time_random += data[err_node]['time']
+        ans[i][4] = f'{num_random} ({time_random:.2f})'
+        tot_systest_debarus_p_random += num_random
+        tot_systest_debarus_p_random_time += time_random
+
+
         # precondition generation
         # weight + input
 
@@ -343,6 +376,8 @@ if __name__ == '__main__':
     print('unittest: random               ', tot_unittest_random, 'time', tot_unittest_random_time)
     print('systest: debarus               ', tot_systest_debar, 'time', tot_systest_debar_time)
     print('systest: random                ', tot_systest_random, 'time', tot_systest_random_time)
+    print('systest: debarus_p_random      ', tot_systest_debarus_p_random, 'time', tot_systest_debarus_p_random_time)
+    print('systest: random_p_debarus      ', tot_systest_random_p_debarus, 'time', tot_systest_random_p_debarus_time)
     print('precond: debarus weight + input', tot_precond_debar_weight_input, 'time', tot_precond_debar_weight_input_time)
     print('precond: dexpand weight + input', tot_precond_expand_weight_input, 'time', tot_precond_expand_weight_input_time)
     print('precond: gd weight + input     ', tot_precond_gd_weight_input, 'time', tot_precond_gd_weight_input_time)
@@ -551,9 +586,9 @@ if __name__ == '__main__':
         print(' & '.join(item) + ' \\\\')
 
 
-    print('=' * 20, 'precondition generation', '=' * 20)
+    print('=' * 20, 'precondition generation weight + input', '=' * 20)
     col = 3
-    width = 9
+    width = 7
 
     precond_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
 
@@ -577,15 +612,157 @@ if __name__ == '__main__':
         precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
         precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
 
-        # 2: gd
+        # 2: debarusexpand
+        num_expand = 0
+        time_expand = 0.
+        with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+            data = json.load(f)
+            num_expand += data['success_cnt']
+            time_expand += data['time_stat']['all']
+        precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+
+        # 3: gd
         num_gd = 0
         time_gd = 0.
         with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
             data = json.load(f)
             num_gd += data['success_cnt']
             time_gd += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 3] = f'{tof(num_gd)}'
-        precond_ans[row_p][col_p * width + 4] = f'{time_gd:.2f}'
+        precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
+
+
+        # # weight
+        #
+        # # 1: debarus
+        # num_debarus = 0
+        # time_debarus = 0.
+        # with open(f'results/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_debarus += data['success_cnt']
+        #     time_debarus += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
+        #
+        # # 2: debarusexpand
+        # num_expand = 0
+        # time_expand = 0.
+        # with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_expand += data['success_cnt']
+        #     time_expand += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+        #
+        # # 3: gd
+        # num_gd = 0
+        # time_gd = 0.
+        # with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_gd += data['success_cnt']
+        #     time_gd += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
+        #
+        # # input
+        #
+        # # 1: debarus
+        # num_debarus = 0
+        # time_debarus = 0.
+        # with open(f'results/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_debarus += data['success_cnt']
+        #     time_debarus += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
+        #
+        # # 2: debarusexpand
+        # num_expand = 0
+        # time_expand = 0.
+        # with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_expand += data['success_cnt']
+        #     time_expand += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+        #
+        # # 3: gd
+        # num_gd = 0
+        # time_gd = 0.
+        # with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_gd += data['success_cnt']
+        #     time_gd += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
+
+        row_p += 1
+
+        if row_p >= np.ceil(len(ordering) / col):
+            row_p = 0
+            col_p += 1
+
+    precond_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
+    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_weight_input}' + '}'
+    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_weight_input_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_expand_weight_input}' + '}'
+    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_expand_weight_input_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_gd_weight_input}' + '}'
+    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_gd_weight_input_time:.2f}' + '}'
+
+    for i, item in enumerate(precond_ans):
+        if i == row_p:
+            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
+        print(' & '.join(item) + ' \\\\')
+
+
+
+    print('=' * 20, 'precondition generation weight', '=' * 20)
+    col = 3
+    width = 7
+
+    precond_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
+
+    row_p = 0
+    col_p = 0
+
+    for i, mname in enumerate(ordering):
+
+        precond_ans[row_p][col_p * width] = f'{mname}'
+
+        # # precondition generation
+        # # weight + input
+        #
+        # # 1: debarus
+        # num_debarus = 0
+        # time_debarus = 0.
+        # with open(f'results/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_debarus += data['success_cnt']
+        #     time_debarus += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
+        #
+        # # 2: debarusexpand
+        # num_expand = 0
+        # time_expand = 0.
+        # with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_expand += data['success_cnt']
+        #     time_expand += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+        #
+        # # 3: gd
+        # num_gd = 0
+        # time_gd = 0.
+        # with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_gd += data['success_cnt']
+        #     time_gd += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
 
 
         # weight
@@ -597,21 +774,31 @@ if __name__ == '__main__':
             data = json.load(f)
             num_debarus += data['success_cnt']
             time_debarus += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 5] = f'{tof(num_debarus)}'
-        precond_ans[row_p][col_p * width + 6] = f'{time_debarus:.2f}'
+        precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
 
-        # 2: gd
+        # 2: debarusexpand
+        num_expand = 0
+        time_expand = 0.
+        with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+            data = json.load(f)
+            num_expand += data['success_cnt']
+            time_expand += data['time_stat']['all']
+        precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+
+        # 3: gd
         num_gd = 0
         time_gd = 0.
         with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
             data = json.load(f)
             num_gd += data['success_cnt']
             time_gd += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 7] = f'{tof(num_gd)}'
-        precond_ans[row_p][col_p * width + 8] = f'{time_gd:.2f}'
+        precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
 
-        # input
-
+        # # input
+        #
         # # 1: debarus
         # num_debarus = 0
         # time_debarus = 0.
@@ -619,18 +806,28 @@ if __name__ == '__main__':
         #     data = json.load(f)
         #     num_debarus += data['success_cnt']
         #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 9] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 10] = f'{time_debarus:.2f}'
+        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
         #
-        # # 2: gd
+        # # 2: debarusexpand
+        # num_expand = 0
+        # time_expand = 0.
+        # with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_expand += data['success_cnt']
+        #     time_expand += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+        #
+        # # 3: gd
         # num_gd = 0
         # time_gd = 0.
         # with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
         #     data = json.load(f)
         #     num_gd += data['success_cnt']
         #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 11] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 12] = f'{time_gd:.2f}'
+        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
 
         row_p += 1
 
@@ -639,18 +836,144 @@ if __name__ == '__main__':
             col_p += 1
 
     precond_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_weight_input}' + '}'
-    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_weight_input_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_gd_weight_input}' + '}'
-    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_gd_weight_input_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_debar_weight}' + '}'
-    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_debar_weight_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 7] = '\\textbf{' + f'{tot_precond_gd_weight}' + '}'
-    precond_ans[row_p][col_p * width + 8] = '\\textbf{' + f'{tot_precond_gd_weight_time:.2f}' + '}'
-    # precond_ans[row_p][col_p * width + 9] = '\\textbf{' + f'{tot_precond_debar_input}' + '}'
-    # precond_ans[row_p][col_p * width + 10] = '\\textbf{' + f'{tot_precond_debar_input_time:.2f}' + '}'
-    # precond_ans[row_p][col_p * width + 11] = '\\textbf{' + f'{tot_precond_gd_input}' + '}'
-    # precond_ans[row_p][col_p * width + 12] = '\\textbf{' + f'{tot_precond_gd_input_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_weight}' + '}'
+    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_weight_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_expand_weight}' + '}'
+    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_expand_weight_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_gd_weight}' + '}'
+    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_gd_weight_time:.2f}' + '}'
+
+    for i, item in enumerate(precond_ans):
+        if i == row_p:
+            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
+        print(' & '.join(item) + ' \\\\')
+
+
+
+    print('=' * 20, 'precondition generation input', '=' * 20)
+    col = 3
+    width = 7
+
+    precond_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
+
+    row_p = 0
+    col_p = 0
+
+    for i, mname in enumerate(ordering):
+
+        precond_ans[row_p][col_p * width] = f'{mname}'
+
+        # # precondition generation
+        # # weight + input
+        #
+        # # 1: debarus
+        # num_debarus = 0
+        # time_debarus = 0.
+        # with open(f'results/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_debarus += data['success_cnt']
+        #     time_debarus += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
+        #
+        # # 2: debarusexpand
+        # num_expand = 0
+        # time_expand = 0.
+        # with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_expand += data['success_cnt']
+        #     time_expand += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+        #
+        # # 3: gd
+        # num_gd = 0
+        # time_gd = 0.
+        # with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_gd += data['success_cnt']
+        #     time_gd += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
+        #
+        #
+        # # weight
+        #
+        # # 1: debarus
+        # num_debarus = 0
+        # time_debarus = 0.
+        # with open(f'results/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_debarus += data['success_cnt']
+        #     time_debarus += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
+        #
+        # # 2: debarusexpand
+        # num_expand = 0
+        # time_expand = 0.
+        # with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_expand += data['success_cnt']
+        #     time_expand += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+        #
+        # # 3: gd
+        # num_gd = 0
+        # time_gd = 0.
+        # with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
+        #     data = json.load(f)
+        #     num_gd += data['success_cnt']
+        #     time_gd += data['time_stat']['all']
+        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
+
+        # input
+
+        # 1: debarus
+        num_debarus = 0
+        time_debarus = 0.
+        with open(f'results/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
+            data = json.load(f)
+            num_debarus += data['success_cnt']
+            time_debarus += data['time_stat']['all']
+        precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
+        precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
+
+        # 2: debarusexpand
+        num_expand = 0
+        time_expand = 0.
+        with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+            data = json.load(f)
+            num_expand += data['success_cnt']
+            time_expand += data['time_stat']['all']
+        precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
+        precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
+
+        # 3: gd
+        num_gd = 0
+        time_gd = 0.
+        with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
+            data = json.load(f)
+            num_gd += data['success_cnt']
+            time_gd += data['time_stat']['all']
+        precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
+        precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
+
+        row_p += 1
+
+        if row_p >= np.ceil(len(ordering) / col):
+            row_p = 0
+            col_p += 1
+
+    precond_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
+    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_input}' + '}'
+    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_input_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_expand_input}' + '}'
+    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_expand_input_time:.2f}' + '}'
+    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_gd_input}' + '}'
+    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_gd_input_time:.2f}' + '}'
 
     for i, item in enumerate(precond_ans):
         if i == row_p:

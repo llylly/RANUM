@@ -2,39 +2,39 @@
   "all": {
     "tot_start_points": 7,
     "tot_changed_nodes": 3,
-    "average_shrinkage": 0.4055217973056132,
-    "maximum_shrinkage": 0.9463302510266117,
+    "average_shrinkage": 0.40365011271298284,
+    "maximum_shrinkage": 0.94185026299696,
     "minimum_shrink": 0.0
   }
 }
 
-clip_by_value/Minimum/y:0 = 87.0
+-0.0938165811492412 <= dense_2/kernel/read:0 <= -0.006871587812352226
 
--0.08210009797401371 <= dense_1/kernel/read:0 <= -0.001356136786877106
+-0.09409804260712618 <= dense_1/kernel/read:0 <= -0.006884001453551718
+
+-0.04361317353180419 <= dense/kernel/read:0 <= 0.04361061053207885
+
+const_fold_opt__19 = 1.0
 
 -50.0 <= y:0 <= 50.0
 
 -50.0 <= x:0 <= 50.0
 
-const_fold_opt__19 = 1.0
-
--0.040382282717891356 <= dense/kernel/read:0 <= 0.040379719718166014
-
--0.08172995801405206 <= dense_2/kernel/read:0 <= -0.001483404764124334
+clip_by_value/Minimum/y:0 = 87.0
 
 ==========initial bounds==========
 
-clip_by_value/Minimum/y:0 = 87.0
+-0.7475520968437195 <= dense_2/kernel/read:0 <= 0.7476394176483154
 
 -0.7498974800109863 <= dense_1/kernel/read:0 <= 0.7499208450317383
+
+-0.7499942183494568 <= dense/kernel/read:0 <= 0.7499916553497314
+
+const_fold_opt__19 = 1.0
 
 -50.0 <= y:0 <= 50.0
 
 -50.0 <= x:0 <= 50.0
 
-const_fold_opt__19 = 1.0
-
--0.7499942183494568 <= dense/kernel/read:0 <= 0.7499916553497314
-
--0.7475520968437195 <= dense_2/kernel/read:0 <= 0.7476394176483154
+clip_by_value/Minimum/y:0 = 87.0
 

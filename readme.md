@@ -35,6 +35,9 @@ You can use the following script to obtain all results. It takes roughly 2 days.
 
 ~/anaconda3/bin/ipython evaluate/train_inst_generator.py debarus
 ~/anaconda3/bin/ipython evaluate/train_inst_generator.py random
+~/anaconda3/bin/ipython evaluate/train_inst_generator.py debarus_p_random
+~/anaconda3/bin/ipython evaluate/train_inst_generator.py random_p_debarus
+
 ```
 
 Specifically, we show the individual commands for each stage task.
@@ -72,6 +75,14 @@ System test generation relies on the generated unit tests, so please run unit te
 #### Random
 
 `python3 evaluate/train_inst_generator.py random`
+
+#### DEBARUS for inference + Random for system
+
+`python3 evaluate/train_inst_generator.py debarus_p_random`
+
+#### Random for inference + DEBARUS for system
+
+`python3 evaluate/train_inst_generator.py random_p_debarus`
 
 ### 3. Precondition Generation
 

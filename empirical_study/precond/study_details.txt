@@ -1,0 +1,400 @@
+ID 1: 
+[no location]
+ghips - cannot locate in GitHub
+
+ID 2a, ID 2b: 
+[no official fix; our is valid]
+https://github.com/gabrieleangeletti/Deep-Learning-TensorFlow/blob/master/yadlt/models/linear/logistic_regression.py Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 3:
+https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/2_BasicModels/logistic_regression.py
+[no official fix; our is valid]
+Bug not fixed
+Similar issue is reported but not fixed: https://github.com/aymericdamien/TensorFlow-Examples/issues/383
+Our fix is valid
+Issue PR?
+
+ID 4:
+https://github.com/JonasSchult/pytorch_geometric_fork/blob/master/test/nn/models/test_autoencoder.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed weights and inputs just for testing purpose.
+Although our fix is still valid
+
+ID 5:
+https://github.com/NTMC-Community/MatchZoo-py/blob/master/tests/test_losses.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed weights and inputs just for testing purpose.
+Although our fix is still valid, but unnecessary considering the whole system
+
+ID 6:
+[equivalent]
+from the empirical study: https://github.com/ForeverZyh/TensorFlow-Program-Bugs/tree/master/StackOverflow/IPS-1
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+
+
+ID 7:
+[equivalent]
+from the empirical study: https://github.com/ForeverZyh/TensorFlow-Program-Bugs/blob/master/StackOverflow/IPS-2/33699174-fix/mnist.py
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+
+ID 8:
+[equivalent]
+from the empirical study: https://github.com/ForeverZyh/TensorFlow-Program-Bugs/blob/master/StackOverflow/IPS-6/39487825-fix/mnist.py
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+
+ID 9a and ID 9b:
+[equivalent]
+from the empirical study: https://github.com/ForeverZyh/TensorFlow-Program-Bugs/blob/master/StackOverflow/IPS-7/35078027-fix/MLP.py
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+
+ID 10:
+[our is better]
+from the empirical study: https://github.com/ForeverZyh/TensorFlow-Program-Bugs/blob/master/StackOverflow/IPS-14/33641799-fix/mnist.py
+Our current fixes give nontrivial clipped ranges and rigorously eliminates the numerical defect.
+While the developer's fix only reduces the learning rate, which cannot guarantee that the numerical defect is fixed.
+
+ID 11a, 11b, 11c:
+[no need to fix]
+from the NaN demonstration repo in TensorFuzz: https://github.com/brain-research/tensorfuzz/blob/master/examples/nans/nan_model.py
+Our current fixes give nontrivial clipped ranges. But the DNN architecture itself is to demonstrate numerical defects, so no developer's fix available.
+
+ID 12:
+[no location]
+from this repo: https://github.com/skorch-dev/skorch
+However, we could not find corresponding DNN architecture from the repo
+
+ID 13:
+https://github.com/pyg-team/pytorch_geometric/blob/master/test/utils/test_softmax.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed weights and inputs just for testing purpose.
+Although our fix is still valid, but unnecessary considering the whole system
+
+ID 14:
+https://github.com/betasspace/MNIST/blob/master/v3/train.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 15:
+https://github.com/OliverRichter/map-reader/blob/6a346db9912a680527c7eb6c59ccd5fe16aa8d08/lab/mapreader/model/tensorflow-value-iteration-networks-master/train.py
+[no official fix; our is **invalid** - a trigger precondition (magnitude range <= 0.1) on weights, due to large model size]
+Our fix contrains the weight magnitude, which may hurt the model expressivity
+
+ID 16a, 16b, 16c:
+https://github.com/karlxigua/FuzzForTensorFlow/blob/master/tensorfuzz-master/examples/nans/nan_model.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 17:
+https://github.com/jakeret/tf_unet
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed weights and inputs just for testing purpose.
+Although our fix is still valid
+
+ID 18:
+[no location]
+https://github.com/tonanhngo/handon-tensorflow/blob/master/code-10-image.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 19:
+https://github.com/tangsong41/stu_py/blob/d41507cd8dd9e8a54084872dfa15c36da443c02b/python-tensorflow-master/tensorflow_MINIST/__init_MNIST01.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 20:
+https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/2_BasicModels/logistic_regression.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 21:
+[no location]
+The code seems to be from simple MNIST tutorial for Tensorflow, but we failed to locate it on GitHub.
+
+ID 22:
+https://github.com/samparizi/git1_rbm/blob/master/My_pytorch1.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 23:
+[no location]
+The code seems to be a simple Softmax usage tutorial, but we failed to locate it on GitHub.
+
+ID 24:
+https://github.com/Joooey/Tensorflow_gesture/blob/master/Demo/Mnist.py
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 25:
+[no location]
+The code seems to be a simple Softmax usage tutorial, but we failed to locate it on GitHub.
+
+ID 26:
+[no official fix; our is valid]
+https://github.com/HyundongHwang/PyTorchDeepLearningStart/blob/master/0401_logistic_regression.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 27:
+[no official fix; our is valid]
+https://github.com/HyundongHwang/PyTorchDeepLearningStart/blob/master/0503_softmax_regression_cost.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 28a, 28b:
+https://github.com/adamsolomou/SC-DNN/issues/1
+[official fix is better than ours]
+The official fix add eps to the denominator, which ours impose strict preconditions on input and weight nodes, which eliminate gradients for training and hurt model expressivity.
+
+ID 28c, 28d, 28e:
+[impractical numerical defect, no need to fix]
+
+ID 29:
+https://github.com/mevanoff24/MachineLearning/tree/163c1ef64d371ab303783f4f2e48955b849835cf/TensorFlow/NeuralNets
+[no official fix; our is valid]
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 30:
+[no location]
+The code seems to be a simple MNIST classification MLP, but we failed to locate it on GitHub.
+
+ID 31:
+[no location]
+The code seems to be a simple GAN implementation for MNIST image generation, but we failed to locate it on GitHub.
+
+ID 32:
+[no official fix; our is valid]
+https://github.com/HyundongHwang/PyTorchDeepLearningStart/blob/master/0504_softmax_regression.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 33:
+[no location]
+The code seems to be a simple hard-coded logistic regression program, but we failed to locate it on GitHub.
+
+ID 34:
+[no location]
+The code seems to be a simple hard-coded softmax classification program, but we failed to locate it on GitHub.
+
+ID 35a, 35b, 35c:
+[equivalent]
+https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/issues/1
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+
+ID 36a:
+[no official fix; our is valid]
+https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_03_Pic_10_05.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 36b, 36c:
+[no location]
+The code seems to be mutated versions of ID 36a, so they don't exist in the GitHub repository.
+
+ID 37:
+https://github.com/hunkim/DeepLearningZeroToAll/blob/master/lab-05-1-logistic_regression.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed weights and inputs just for testing purpose.
+Although our fix is still valid
+
+ID 38:
+https://github.com/hunkim/DeepLearningZeroToAll/blob/master/lab-09-1-xor.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed weights and inputs just for testing purpose.
+Although our fix is still valid
+
+ID 39a:
+[no official fix; our is valid]
+https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_04_Pic_10_06.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 39b, 39c:
+[no location]
+The code seems to be mutated versions of ID 39a, so they don't exist in the GitHub repository.
+
+ID 40:
+[no official fix; our is valid]
+https://github.com/kaneshirok/ml-plactice/blob/master/src/ch5/bmi.py
+Bug not fixed
+Our fix is valid
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 41:
+[no official fix; our is valid]
+https://github.com/kaneshirok/ml-plactice/blob/master/src/ch5/tb-bmi.py
+Bug not fixed
+Our fix is valid
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 42:
+[no official fix; our is valid]
+https://github.com/kaneshirok/ml-plactice/blob/master/src/ch5/tb-bmi2.py
+Bug not fixed
+Our fix is valid
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 43a:
+[no official fix; our is valid]
+https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_05_Pic_10_07.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 43b, 43c:
+[no location]
+The code seems to be mutated versions of ID 43a, so they don't exist in the GitHub repository.
+
+ID 44:
+[no official fix; our is valid]
+https://github.com/hadyelsahar/CNN-RelationExtraction/issues/8
+Bug not fixed
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 45a, 45b:
+[no location]
+The code seems to be a simple MNIST classification program, but we failed to locate it on GitHub.
+
+ID 46:
+[no location]
+The code seems to be a PyTorch operator test program, but we failed to locate it on GitHub.
+
+ID 47:
+[no location]
+The code seems to be a PyTorch operator test program, but we failed to locate it on GitHub.
+
+ID 48a:
+[no official fix; our is valid]
+https://github.com/MarsTuxz/Dive_python/blob/master/tensorflow_learn/day01.py
+Bug not fixed
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 48b:
+[no official fix; our is valid]
+https://github.com/MarsTuxz/Dive_python/blob/master/tensorflow_learn/day01.py
+Bug not fixed
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+Someone already raises the issue, so we may not issue a duplicated PR
+
+ID 49a:
+[no official fix; our is valid]
+https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_06_Pic_10_08.py
+Bug not fixed
+Our fix is valid
+Issue PR?
+
+ID 49b, 49c:
+[no location]
+The code seems to be mutated versions of ID 49a, so they don't exist in the GitHub repository.
+
+ID 50:
+[no location]
+The code seems to be a simple MNIST classification program, but we failed to locate it on GitHub.
+
+ID 51:
+[no location]
+The code seems to be a simple MNIST classification program, but we failed to locate it on GitHub.
+
+ID 52:
+[no location]
+The code seems to be a simple MNIST classification program, but we failed to locate it on GitHub.
+
+ID 53:
+https://github.com/yannJu/Data-Science/blob/master/DataScience%20HW_2/h02_%EC%9D%B4%EC%97%B0%EC%A3%BC_20191644.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed inputs just for testing purpose.
+Although our fix is still valid, but unnecessary considering the whole system
+
+ID 54:
+https://github.com/yannJu/Data-Science/blob/master/DataScience%20HW_3/h03_%EC%9D%B4%EC%97%B0%EC%A3%BC_20191644.py
+[no need to fix]
+The numerical defect exists but will not be triggered in the project.
+Since the architecture uses the fixed inputs just for testing purpose.
+Although our fix is still valid, but unnecessary considering the whole system
+
+ID 55:
+[no location]
+The code seems to be a simple MNIST classification with logistic regression program, but we failed to locate it on GitHub.
+
+ID 56:
+[no location]
+The code seems to be a simple MNIST classification from Kaggle tutorial, but we failed to locate it on GitHub.
+
+ID 57:
+[no location]
+The code seems to be a simple MNIST classification from Kaggle tutorial, but we failed to locate it on GitHub.
+
+ID 58:
+[no location]
+The code seems to be a DNN MNIST classification program, but we failed to locate it on GitHub.
+
+ID 59:
+[no location]
+The code seems to be a DNN MNIST tutorial program from Tensorflow starter's guide book, so we failed to locate it on GitHub.
+
+ID 60:
+[no location]
+The code seems to be a one-layer MNIST classification program, but we failed to locate it on GitHub.
+
+ID 61:
+[our is better]
+https://github.com/2033329616/tensorflow_project/blob/3c20896ab20fc2d2468c6724156f11d5eb8cdb6d/%E8%87%AA%E7%BC%96%E7%A0%81%E5%99%A8%E5%92%8C%E5%A4%9A%E5%B1%82%E6%84%9F%E7%9F%A5%E6%9C%BA/multi_layer_perceptron.py
+Our current fixes give nontrivial clipped ranges and rigorously eliminates the numerical defect.
+(This fix can be further improved by directly imposing on the defect node itself.)
+While the developer's fix only reduces the learning rate or propose to use reduce_mean empirically, which cannot guarantee that the numerical defect is fixed.
+
+ID 62, 63:
+[no official fix; our is valid]
+https://github.com/samparizi/git1_rbm/issues/1
+Bug not fixed
+Our current fixes are on input and weight nodes, which does not match the proposed fix
+If we impose on the buggy node itself, our fix will be equivalent to the proposed fix
+Someone already raises the issue, so we may not issue a duplicated PR
+
+
+
+
+
+
+
+
+

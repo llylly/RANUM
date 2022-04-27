@@ -258,7 +258,7 @@ def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, see
     print(f'handling the error occurred on node {err_node_name}')
 
     init_pt_path = f'{checkpoint_folder}/{bare_name}/{err_seq_no}_{err_node_name}_init.pt'
-    if approach != 'random':
+    if approach == 'debarus' or approach == 'debarus_p_random':
         gen_inference_pt_path = f'{checkpoint_folder}/{bare_name}/{err_seq_no}_{err_node_name}_gen.pt'
     else:
         gen_inference_pt_path = f'{checkpoint_folder}/{bare_name}/{err_seq_no}_{err_node_name}_random.pt'
@@ -396,7 +396,7 @@ def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, see
                                              seed=seed,
                                              diff_order=(2 if bare_name not in train_gen_special_params else train_gen_special_params[bare_name]['diff_order']) if approach is None else 0)
 
-            if approach == 'random':
+            if approach == 'random' or approach == 'debarus_p_random':
                 # expand to get the sampling range
                 expanded_ranges = dict()
 
@@ -405,6 +405,8 @@ def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, see
                         expanded_lb = expand(abst.lb, abst.shape, abst.splits)
                         expanded_ub = expand(abst.ub, abst.shape, abst.splits)
                         expanded_ranges[s] = (expanded_lb, expanded_ub)
+
+                t0 = time.time()
 
                 # random generate training sample
                 for tries in range(max_iter):

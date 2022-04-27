@@ -8,9 +8,9 @@
   }
 }
 
--10.0 <= Variable/read:0 <= 10.0
-
 -0.002498997902644645 <= x:0 <= 0.002498997902644645
+
+-10.0 <= Variable/read:0 <= 10.0
 
 const_fold_opt__9 = 1.0
 
@@ -18,9 +18,9 @@ const_fold_opt__9 = 1.0
 
 ==========initial bounds==========
 
--10.0 <= Variable/read:0 <= 10.0
-
 -50.0 <= x:0 <= 50.0
+
+-10.0 <= Variable/read:0 <= 10.0
 
 const_fold_opt__9 = 1.0
 

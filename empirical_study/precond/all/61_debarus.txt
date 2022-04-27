@@ -1,32 +1,28 @@
 {
   "all": {
     "tot_start_points": 7,
-    "tot_changed_nodes": 4,
-    "average_shrinkage": 0.5112932785687,
-    "maximum_shrinkage": 0.9947632844034586,
+    "tot_changed_nodes": 3,
+    "average_shrinkage": 0.4255415783613638,
+    "maximum_shrinkage": 0.9929303495098489,
     "minimum_shrink": 0.0
   }
 }
 
--0.0785516721127894 <= Variable_2/read:0 <= 0.0785516721127894
+-0.6935220103691295 <= x:0 <= 0.01344303864597507
 
-const_fold_opt__12 = [0. 1.]
-
--0.7018851658926536 <= x:0 <= 0.08363155523524046
-
-0.0006086703620082397 <= Variable/read:0 <= 0.006892654025580692
+0.00031488438293946625 <= Variable/read:0 <= 0.008798363649336442
 
 dropout/truediv/x:0 = 1.0
 
-0.33999999999999997 <= keep_prob:0 <= 0.66
+0.09999999999999998 <= keep_prob:0 <= 0.9
+
+const_fold_opt__12 = [0. 1.]
+
+-0.07069650490151046 <= Variable_2/read:0 <= 0.07069650490151046
 
 -50.0 <= y_:0 <= 50.0
 
 ==========initial bounds==========
-
--10.0 <= Variable_2/read:0 <= 10.0
-
-const_fold_opt__12 = [0. 1.]
 
 -50.0 <= x:0 <= 50.0
 
@@ -35,6 +31,10 @@ const_fold_opt__12 = [0. 1.]
 dropout/truediv/x:0 = 1.0
 
 0.1 <= keep_prob:0 <= 0.9
+
+const_fold_opt__12 = [0. 1.]
+
+-10.0 <= Variable_2/read:0 <= 10.0
 
 -50.0 <= y_:0 <= 50.0
 

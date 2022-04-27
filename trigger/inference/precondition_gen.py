@@ -169,11 +169,12 @@ class PrecondGenModule(nn.Module):
             if s in self.centers and s in self.scales:
                 v_center = self.centers[s]
                 v_scale = self.scales[s]
-                if torch.any(v_center - v_scale < bounds[0]) or torch.any(v_center + v_scale > bounds[1]):
-                    clipped_lb = torch.clamp(v_center - v_scale, min=bounds[0], max=bounds[1])
-                    clipped_ub = torch.clamp(v_center + v_scale, min=bounds[0], max=bounds[1])
+                v_span = self.spans[s]
+                if torch.any(v_center - v_scale * v_span < bounds[0]) or torch.any(v_center + v_scale * v_span > bounds[1]):
+                    clipped_lb = torch.clamp(v_center - v_scale * v_span, min=bounds[0], max=bounds[1])
+                    clipped_ub = torch.clamp(v_center + v_scale * v_span, min=bounds[0], max=bounds[1])
                     new_center = (clipped_lb + clipped_ub) / 2.0
-                    new_scale = new_center - clipped_lb
+                    new_scale = torch.clamp((new_center - clipped_lb) / torch.clamp(v_span, min=1e-4), max=1)
                     self.centers[s].data = new_center.detach()
                     self.scales[s].data = new_scale.detach()
             elif s in self.centers and freeze_constant_node:

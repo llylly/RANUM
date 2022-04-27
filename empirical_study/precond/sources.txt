@@ -1,0 +1,2 @@
+ID1: ghips - cannot locate in GitHub
+ID2: https://github.com/gabrieleangeletti/Deep-Learning-TensorFlow/blob/master/yadlt/models/linear/logistic_regression.py Bug not fixed

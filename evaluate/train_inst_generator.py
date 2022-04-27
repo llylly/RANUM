@@ -54,7 +54,7 @@ iter_stats = dict()
 approach = 'random'
 
 parser = argparse.ArgumentParser()
-parser.add_argument('method', type=str, choices=['debarus', 'random'], default='debarus')
+parser.add_argument('method', type=str, choices=['debarus', 'random', 'random_p_debarus', 'debarus_p_random'], default='debarus')
 if __name__ == '__main__':
 
     args = parser.parse_args()
@@ -91,14 +91,14 @@ if __name__ == '__main__':
                 tread_s = time.time()
                 with open(f'{infer_inst_dir}/stats/{file}/data.json', 'r') as f:
                     stats = json.load(f)
-                if approach == 'random':
+                if approach == 'random' or approach == 'random_p_debarus':
                     with open(f'results/endtoend/unittest/random/{infer_inst_seed}/{benchmark}/{file}.json', 'r') as f:
                         random_stats = json.load(f)
                 tread_t = time.time()
                 for err_node in stats:
                     detail_status = stats[err_node]
 
-                    if approach == 'random':
+                    if approach == 'random' or approach == 'random_p_debarus':
                         detail_random_status = random_stats[err_node]
                         if detail_status['success'] and detail_random_status['success_num'] > 0:
                             tot_worked_items += 1
@@ -137,7 +137,7 @@ if __name__ == '__main__':
                                 'detail': 'failed on inference generation',
                             }
 
-                    if approach != 'random':
+                    if approach == 'debarus' or approach == 'debarus_p_random':
                         if detail_status['success']:
                             now_category = detail_status['category']
                             if now_category == 'spec-input-spec-weight':

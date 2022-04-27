@@ -2,47 +2,47 @@
   "all": {
     "tot_start_points": 9,
     "tot_changed_nodes": 3,
-    "average_shrinkage": 0.31542152490379965,
-    "maximum_shrinkage": 0.9464742823501979,
+    "average_shrinkage": 0.31395008766565335,
+    "maximum_shrinkage": 0.94185026299696,
     "minimum_shrink": 0.0
   }
 }
 
-clip_by_value/Minimum/y:0 = 87.0
+clip_by_value_1/Minimum/y:0 = 1.0
 
--0.0821107335732119 <= dense_1/kernel/read:0 <= -0.0013559132204886831
-
--50.0 <= x:0 <= 50.0
-
--50.0 <= y:0 <= 50.0
+-0.09317241956014045 <= dense_2/kernel/read:0 <= -0.006460756967461054
 
 clip_by_value/y:0 = -87.0
 
+-0.09410727411825359 <= dense_1/kernel/read:0 <= -0.006887368502124125
+
+-0.04360888535878266 <= dense/kernel/read:0 <= 0.04361371333500947
+
+-50.0 <= y:0 <= 50.0
+
+-50.0 <= x:0 <= 50.0
+
+clip_by_value/Minimum/y:0 = 87.0
+
 clip_by_value_1/y:0 = 9.999999974752427e-07
-
-clip_by_value_1/Minimum/y:0 = 1.0
-
--0.040377489682810526 <= dense/kernel/read:0 <= 0.04038231765903733
-
--0.08107894528337314 <= dense_2/kernel/read:0 <= -0.0012625229212561984
 
 ==========initial bounds==========
 
-clip_by_value/Minimum/y:0 = 87.0
+clip_by_value_1/Minimum/y:0 = 1.0
 
--0.7499492764472961 <= dense_1/kernel/read:0 <= 0.7499698996543884
-
--50.0 <= x:0 <= 50.0
-
--50.0 <= y:0 <= 50.0
+-0.7454310059547424 <= dense_2/kernel/read:0 <= 0.7457479238510132
 
 clip_by_value/y:0 = -87.0
 
-clip_by_value_1/y:0 = 9.999999974752427e-07
-
-clip_by_value_1/Minimum/y:0 = 1.0
+-0.7499492764472961 <= dense_1/kernel/read:0 <= 0.7499698996543884
 
 -0.7499803304672241 <= dense/kernel/read:0 <= 0.7499851584434509
 
--0.7454310059547424 <= dense_2/kernel/read:0 <= 0.7457479238510132
+-50.0 <= y:0 <= 50.0
+
+-50.0 <= x:0 <= 50.0
+
+clip_by_value/Minimum/y:0 = 87.0
+
+clip_by_value_1/y:0 = 9.999999974752427e-07
 
