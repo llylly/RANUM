@@ -8,45 +8,45 @@
   }
 }
 
-clip_by_value_1/Minimum/y:0 = 1.0
+clip_by_value_1/y:0 = 9.999999974752427e-07
 
--0.09329131351236145 <= dense_2/kernel/read:0 <= -0.006202183331611828
+clip_by_value/Minimum/y:0 = 87.0
+
+-0.043611209361781346 <= dense/kernel/read:0 <= 0.04361269947790073
+
+-50.0 <= x:0 <= 50.0
 
 clip_by_value/y:0 = -87.0
 
--0.0941929983544498 <= dense_1/kernel/read:0 <= -0.006976846410274858
-
--0.04360752280171707 <= dense/kernel/read:0 <= 0.0436154502194722
+clip_by_value_1/Minimum/y:0 = 1.0
 
 -50.0 <= y:0 <= 50.0
 
 const_fold_opt__18 = 1.0
 
--50.0 <= x:0 <= 50.0
+-0.0940252551005541 <= dense_2/kernel/read:0 <= -0.0068880446452400795
 
-clip_by_value/Minimum/y:0 = 87.0
-
-clip_by_value_1/y:0 = 9.999999974752427e-07
+-0.09411203147371588 <= dense_1/kernel/read:0 <= -0.006898770168885439
 
 ==========initial bounds==========
 
-clip_by_value_1/Minimum/y:0 = 1.0
+clip_by_value_1/y:0 = 9.999999974752427e-07
 
--0.748661458492279 <= dense_2/kernel/read:0 <= 0.7490087747573853
+clip_by_value/Minimum/y:0 = 87.0
+
+-0.7499932646751404 <= dense/kernel/read:0 <= 0.7499947547912598
+
+-50.0 <= x:0 <= 50.0
 
 clip_by_value/y:0 = -87.0
 
--0.7499352693557739 <= dense_1/kernel/read:0 <= 0.7499193549156189
-
--0.7499819993972778 <= dense/kernel/read:0 <= 0.749989926815033
+clip_by_value_1/Minimum/y:0 = 1.0
 
 -50.0 <= y:0 <= 50.0
 
 const_fold_opt__18 = 1.0
 
--50.0 <= x:0 <= 50.0
+-0.749229371547699 <= dense_2/kernel/read:0 <= 0.7492676973342896
 
-clip_by_value/Minimum/y:0 = 87.0
-
-clip_by_value_1/y:0 = 9.999999974752427e-07
+-0.7498939037322998 <= dense_1/kernel/read:0 <= 0.7499110102653503
 

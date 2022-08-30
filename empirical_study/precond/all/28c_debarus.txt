@@ -1,116 +1,112 @@
 {
   "all": {
-    "tot_start_points": 26,
-    "tot_changed_nodes": 2,
-    "average_shrinkage": 0.076002114216726,
-    "maximum_shrinkage": 0.988027484817438,
+    "tot_start_points": 25,
+    "tot_changed_nodes": 8,
+    "average_shrinkage": 0.3190982954897273,
+    "maximum_shrinkage": 1.0,
     "minimum_shrink": 0.0
   }
 }
 
-const_axes__106 = -1.0
+-0.08102407710558315 <= wout/read:0 <= -0.0035233653275003954
 
--50.0 <= labels:0 <= 50.0
-
--10.0 <= w1/read:0 <= 10.0
-
-const_axes__85 = [0. 1.]
-
--3.2503316551446915 <= ConstantFolding/div_9_recip:0 <= 6.714861996471882
-
-add_4/y:0 = 1.0000000116860974e-07
+G_matmul_1/read:0 = 5.384328842163086
 
 clip_by_value_2/y:0 = -1.0
 
-const_axes__113 = 1.0
+Sum_2:0 = 61.24787139892578
 
-const_fold_opt__123 = 128.0
+-0.18785510630681806 <= features:0 <= 0.18785510630681806
 
-const_fold_opt__118 = 10.0
+-0.18785510630681806 <= div_1:0 <= 0.18785510630681806
 
-const_starts__55 = [0. 0.]
+const_axes__106 = -1.0
 
--50.0 <= div_1:0 <= 50.0
+const_ends__63 = 1.0
 
--7.624030590057373 <= b1/read:0 <= 7.948195457458496
+Sum_1:0 = 121.00947613652802
 
--13.416261732578278 <= G_matmul_2/read:0 <= 27.71666243672371
+const_starts__83 = [0. 0.]
 
-const_ends__56 = [1.00000000e+00 2.14748365e+09]
+const_fold_opt__119 = 10.0
+
+ConstantFolding/div_3_recip:0 = 0.1857241690158844
+
+-0.16021755717513417 <= b1/read:0 <= -0.10483380772354747
+
+ConstantFolding/div_9_recip:0 = 0.09148554503917694
+
+-0.6106523019055965 <= bout/read:0 <= -0.544195081593549
+
+const_fold_opt__117 = 0.0
 
 clip_by_value_3/Minimum/y:0 = 1.0
 
-0.02161500655235972 <= add_1:0 <= 0.2610653102036001
+Sum:0 = 742.0933227539062
 
--50.0 <= features:0 <= 50.0
+const_ends__84 = [1.00000000e+00 2.14748365e+09]
 
-softmax_cross_entropy_with_logits_sg/Reshape_shape__126 = [-1. 10.]
+const_axes__57 = [0. 1.]
 
-mul_15:0 = 89.390869140625
+0.001957852772168256 <= w1/read:0 <= 0.10450979907185641
 
-56.38190460205078 <= add_5:0 <= 130.38551330566406
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
 
--15.82127571105957 <= G_matmul_1/read:0 <= 31.75670051574707
+const_fold_opt__124 = 128.0
 
-const_axes__18 = 0.0
+-50.0 <= labels:0 <= 50.0
 
--9.21229362487793 <= wout/read:0 <= 9.41333270072937
-
-0.05485416565267964 <= ConstantFolding/div_3_recip:0 <= 0.996556315421557
-
--6.426303148269653 <= bout/read:0 <= 6.679753303527832
+G_matmul_2/read:0 = 10.930688858032227
 
 ==========initial bounds==========
 
-const_axes__106 = -1.0
+-10.843863487243652 <= wout/read:0 <= 9.783926010131836
 
--50.0 <= labels:0 <= 50.0
-
--10.0 <= w1/read:0 <= 10.0
-
-const_axes__85 = [0. 1.]
-
--3.2503316551446915 <= ConstantFolding/div_9_recip:0 <= 6.714861996471882
-
-add_4/y:0 = 1.0000000116860974e-07
+G_matmul_1/read:0 = 5.384328842163086
 
 clip_by_value_2/y:0 = -1.0
 
-const_axes__113 = 1.0
-
-const_fold_opt__123 = 128.0
-
-const_fold_opt__118 = 10.0
-
-const_starts__55 = [0. 0.]
-
--50.0 <= div_1:0 <= 50.0
-
--7.624030590057373 <= b1/read:0 <= 7.948195457458496
-
--13.416261732578278 <= G_matmul_2/read:0 <= 27.71666243672371
-
-const_ends__56 = [1.00000000e+00 2.14748365e+09]
-
-clip_by_value_3/Minimum/y:0 = 1.0
-
--10.0 <= add_1:0 <= 10.0
+Sum_2:0 = 61.24787139892578
 
 -50.0 <= features:0 <= 50.0
 
-softmax_cross_entropy_with_logits_sg/Reshape_shape__126 = [-1. 10.]
+-50.0 <= div_1:0 <= 50.0
 
-mul_15:0 = 89.390869140625
+const_axes__106 = -1.0
 
-56.38190460205078 <= add_5:0 <= 130.38551330566406
+const_ends__63 = 1.0
 
--15.82127571105957 <= G_matmul_1/read:0 <= 31.75670051574707
+50.92799377441406 <= Sum_1:0 <= 152.42772674560547
 
-const_axes__18 = 0.0
+const_starts__83 = [0. 0.]
 
--9.21229362487793 <= wout/read:0 <= 9.41333270072937
+const_fold_opt__119 = 10.0
 
--26.155540347099304 <= ConstantFolding/div_3_recip:0 <= 52.49979108572006
+ConstantFolding/div_3_recip:0 = 0.1857241690158844
 
--6.426303148269653 <= bout/read:0 <= 6.679753303527832
+-7.503066539764404 <= b1/read:0 <= 7.238015174865723
+
+ConstantFolding/div_9_recip:0 = 0.09148554503917694
+
+-9.42163634300232 <= bout/read:0 <= 8.266788959503174
+
+const_fold_opt__117 = 0.0
+
+clip_by_value_3/Minimum/y:0 = 1.0
+
+517.3438110351562 <= Sum:0 <= 742.0933227539062
+
+const_ends__84 = [1.00000000e+00 2.14748365e+09]
+
+const_axes__57 = [0. 1.]
+
+-13.574722290039062 <= w1/read:0 <= 13.720768451690674
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
+
+const_fold_opt__124 = 128.0
+
+-50.0 <= labels:0 <= 50.0
+
+G_matmul_2/read:0 = 10.930688858032227
 

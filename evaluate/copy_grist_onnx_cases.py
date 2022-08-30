@@ -2,6 +2,9 @@
     This script copies all .onnx files from model_zoo/grist_protobufs to model_zoo/girst_protobufs_onnx
 """
 
+import sys
+sys.path.append('.')
+sys.path.append('..')
 import shutil
 
 from graphparser.grist_adaptor import current_new_scripts

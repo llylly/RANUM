@@ -422,13 +422,13 @@ def precondition_gen(modelpath, goal, variables, max_iter=1000, center_lr=0.1, s
         success = False
 
         precond_module = PrecondGenModule(model, no_diff_vars, diff_order='1b' if approach != 'gd' else 0,
-                                          expand_abs=False if approach != 'debarusexpand' else True)
+                                          expand_abs=False if approach != 'ranumexpand' else True)
         # I only need the zero_grad method from an optimizer, therefore any optimizer works
         optimizer = torch.optim.Adam(precond_module.parameters(), lr=0.1)
 
 
-        # for debarusexpand mode, need to expand initial abstracts first for later range clipping
-        if approach == 'debarusexpand':
+        # for ranumexpand mode, need to expand initial abstracts first for later range clipping
+        if approach == 'ranumexpand':
             expand_init_abstracts = dict()
             for s, abs in precond_module.model.initial_abstracts.items():
                 new_abs = Abstraction()
@@ -477,7 +477,7 @@ def precondition_gen(modelpath, goal, variables, max_iter=1000, center_lr=0.1, s
                 break
 
         # clip by initial abstracts
-        if approach != 'debarusexpand':
+        if approach != 'ranumexpand':
             range_clipping(precond_module.model.initial_abstracts, precond_module.centers, precond_module.scales, precond_module.spans, freeze_constant_node)
         else:
             range_clipping(expand_init_abstracts, precond_module.centers, precond_module.scales, precond_module.spans, freeze_constant_node)
@@ -499,6 +499,8 @@ def precondition_gen(modelpath, goal, variables, max_iter=1000, center_lr=0.1, s
         if success:
             print('Success!')
             precond_module.precondition_study()
+            if not os.path.exists(os.path.dirname(dumping_path)):
+                os.makedirs(os.path.dirname(dumping_path))
             torch.save(precond_module.abstracts, dumping_path)
         else:
             print('!!! Not success')

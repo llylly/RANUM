@@ -3,12 +3,7 @@
 """
 
 
-
-DEFAULT_LR = 1
-DEFAULT_LR_DECAY = 0.1
-DEFAULT_ITERS = 100
-DEFAULT_STEP = 70
-# DEFAULT_SPAN = 1e-4
+from config import DEFAULT_LR, DEFAULT_LR_DECAY, DEFAULT_ITERS, DEFAULT_STEP
 
 
 # should be grist and/or debar
@@ -36,9 +31,9 @@ run_benchmarks = ['grist']
  debarus = ver_code 'v5xxxx' + annotation ''
 '''
 
-N = 1000
+N = 5000
 batch_size = 100
-abst_gen_time_limit = 180
+abst_gen_time_limit = 18000
 
 import argparse
 import os
@@ -128,7 +123,10 @@ def err_trigger(modelpath, barefilename, ver_code, seed, annotation, ref_ver_cod
     gen_time = 0.
     infer_time = 0.
 
+    global_stime = time.time()
+
     for err_node in initial_errors:
+        if err_node not in gen_st_dict: continue
         print(f'now on error node {err_node}')
         now_stats = dict()
         local_st = gen_st_dict[err_node]
@@ -200,6 +198,8 @@ def err_trigger(modelpath, barefilename, ver_code, seed, annotation, ref_ver_cod
                         for s in data:
                             success_sample[s] = data[s][i]
                         torch.save(success_sample, os.path.join(ref_data_dir, barefilename, f'{err_seq_no}_{err_node}_random.pt'))
+                        if is_random_approach:
+                            break
                 tot_num += 1
                 print(f'    {barefilename} {err_node} {success_num} / {tot_num}')
             t2 = time.time()
@@ -209,11 +209,15 @@ def err_trigger(modelpath, barefilename, ver_code, seed, annotation, ref_ver_cod
             if time.time() - t0 > abst_gen_time_limit:
                 # TLE
                 break
+            # all we need to do is to generate one witness example now, so we skip
+            if is_random_approach and success_num > 0:
+                break
 
         now_stats['success_num'] = success_num
         now_stats['tot_num'] = tot_num
         now_stats['infer_time'] = infer_time
         now_stats['gen_time'] = gen_time
+        now_stats['tot_time'] = time.time() - global_stime
 
         overall_stat[err_node] = now_stats
 

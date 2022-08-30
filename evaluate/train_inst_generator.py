@@ -8,11 +8,7 @@
 # should be grist and/or debar
 run_benchmarks = ['grist']
 
-
-DEFAULT_LR = 1
-DEFAULT_LR_DECAY = 0.1
-DEFAULT_ITERS = 100
-DEFAULT_STEP = 70
+from config import DEFAULT_LR, DEFAULT_LR_DECAY, DEFAULT_ITERS, DEFAULT_STEP
 
 # v5: corresponding robsut inducing inst version
 infer_inst_ver_code = f'v5_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
@@ -59,7 +55,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     approach = args.method
-    if approach == 'debarus': approach = ''
+    # if approach == 'debarus': approach = ''
 
     output_str = ''
 
@@ -75,7 +71,7 @@ if __name__ == '__main__':
                 modeldir = 'model_zoo/tf_protobufs_onnx'
 
             infer_inst_dir = f'results/inference_inst_gen/{benchmark}/{infer_inst_ver_code}/{infer_inst_seed}'
-            train_inst_dir = f'results/training_inst_gen/{benchmark}/{infer_inst_ver_code}{approach}/{infer_inst_seed}'
+            train_inst_dir = f'results/training_inst_gen/{benchmark}/{infer_inst_ver_code}{approach if approach != "debarus" else ""}/{infer_inst_seed}'
 
             files = os.listdir(f'{infer_inst_dir}/stats')
 

@@ -227,7 +227,7 @@ stime = time.time()
 def prompt(msg):
     print(f'[{time.time() - stime:.3f}s] ' + msg)
 
-def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, seed, learning_rate=1., max_iter=300, approach=None, max_time=180):
+def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, seed, learning_rate=1., max_iter=300, approach=None, max_time=1800):
     """
         The wrapper function for training input generation
         When the numerical error can only be triggered by specified weight, we need this function to check the realizability
@@ -409,7 +409,9 @@ def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, see
                 t0 = time.time()
 
                 # random generate training sample
-                for tries in range(max_iter):
+                tries = 0
+                while True:
+                    tries += 1
                     for k, v in traingen_module.inputs.items():
                         if k in input_nodes:
                             l, u = expanded_ranges[k]
@@ -424,6 +426,8 @@ def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, see
                     print('tries =', tries, 'num bug =', num_errors, 'success =', success)
                     final_iters = tries
                     if success:
+                        break
+                    if time.time() - t0 > max_time:
                         break
 
             else:

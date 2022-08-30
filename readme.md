@@ -21,26 +21,26 @@ Data in all experiment tables from the manuscript are automatically generated fr
 2.
 
 To evaluate the RANUM and other baseline approaches from scratch, we create a few scripts to run all GRIST dataset cases for 10 random seeds with one command.
-You can use the following script to obtain all results. **It takes roughly 2 days.**
+You can use the following script to obtain all results. **It takes roughly 10 hours.**
 
 ```
 ~/anaconda3/bin/ipython evaluate/bug_verifier.py
 
-~/anaconda3/bin/ipython evaluate/precond_generator.py debarus all
-~/anaconda3/bin/ipython evaluate/precond_generator.py debarus weight
-~/anaconda3/bin/ipython evaluate/precond_generator.py debarus input
+~/anaconda3/bin/ipython evaluate/precond_generator.py ranum all
+~/anaconda3/bin/ipython evaluate/precond_generator.py ranum weight
+~/anaconda3/bin/ipython evaluate/precond_generator.py ranum input
 ~/anaconda3/bin/ipython evaluate/precond_generator.py gd all
 ~/anaconda3/bin/ipython evaluate/precond_generator.py gd weight
 ~/anaconda3/bin/ipython evaluate/precond_generator.py gd input
-~/anaconda3/bin/ipython evaluate/precond_generator.py debarusexpand all
-~/anaconda3/bin/ipython evaluate/precond_generator.py debarusexpand weight
-~/anaconda3/bin/ipython evaluate/precond_generator.py debarusexpand input
+~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand all
+~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand weight
+~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand input
 
 ~/anaconda3/bin/ipython evaluate/robust_inducing_inst_generator.py
-~/anaconda3/bin/ipython experiments/unittest/onestep_gd.py
+# ~/anaconda3/bin/ipython experiments/unittest/onestep_gd.py # deprecated
 
-~/anaconda3/bin/ipython experiments/unittest/err_trigger.py debarus
-~/anaconda3/bin/ipython experiments/unittest/err_trigger.py gd
+# ~/anaconda3/bin/ipython experiments/unittest/err_trigger.py debarus # deprecated
+# ~/anaconda3/bin/ipython experiments/unittest/err_trigger.py gd # deprecated
 ~/anaconda3/bin/ipython experiments/unittest/err_trigger.py random
 
 ~/anaconda3/bin/ipython evaluate/train_inst_generator.py debarus
@@ -73,14 +73,8 @@ The running results of DEBAR are from GRIST (Yan et al) paper and DEBAR (Zhang e
 
 #### RANUM
     
-1. `python3 evaluate/robust_inducing_inst_generator.py` - generate failure-inducing intervals
-2. `python3 experiments/unittest/err_trigger.py debarus` - generate 1000 distinct unit tests from these intervals
+`python3 evaluate/robust_inducing_inst_generator.py` - generate failure-inducing intervals
 
-#### Gradient Descent
-    
-1. `python3 experiments/unittest/onestep_gd.py` - generate failure-inducing intervals
-2. `python3 experiments/unittest/err_trigger.py gd` - generate 1000 distinct unit tests from these intervals
-    
 ##### Random
     
 `python3 experiments/unittest/err_trigger.py random` - generate 1000 distinct unit tests from these intervals

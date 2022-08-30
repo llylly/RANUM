@@ -6,26 +6,30 @@ import os
 import json
 import numpy as np
 
+from dateutil import parser
 from evaluate.seeds import seeds
 
-DEFAULT_LR = 1
-DEFAULT_LR_DECAY = 0.1
-DEFAULT_ITERS = 100
-DEFAULT_STEP = 70
+from config import DEFAULT_LR, DEFAULT_LR_DECAY, DEFAULT_ITERS, DEFAULT_STEP
+from evaluate.precond_generator import max_iter, center_lr, scale_lr, min_step
+
 ver_code = f'v5_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
-
-max_iter = 1000
-center_lr = 0.1
-scale_lr = 0.1
-min_step = 0.01
-
 precond_code = f'iter_{max_iter}_lr_{center_lr}_{scale_lr}_minstep_{min_step}'
+
+# max_iter = 1000
+# center_lr = 0.1
+# scale_lr = 0.1
+# min_step = 0.01
+
 
 unit_test_gen_time_limit = 180
 
 
-debar_supports = ['1', '2a', '2b', '3', '6', '7', '8', '9a', '9b', '10', '11a', '11b', '11c', '14', '15', '16a', '16b', '16c', '18', '19','20','21','24','25','28a','28b','28c','28d','29','30', '31', '35a', '36a', '39a', '43a', '44', '45a', '45b', '48a', '48b', '49a', '50', '52', '55', '58', '59', '60', '61']
-debar_unknown = ['28e', '35c', '36c', '39c', '43c', '49c']
+debar_supports = ['1', '2a', '2b', '3', '6', '7', '8', '9a', '9b', '10',
+                  '11a', '11b', '11c', '14', '15', '16a', '16b', '16c', '18', '19', '20',
+                  '21', '24', '25','28a', '28b', '28c', '28d', '29', '30',
+                  '31', '35a', '36a', '39a',
+                  '43a', '44', '45a', '45b', '48a', '48b', '49a', '50',
+                  '52', '55', '58', '59', '60', '61']
 
 def tof(x):
     if x > 0: return '$\\checkmark$'
@@ -45,28 +49,297 @@ if __name__ == '__main__':
 
     # print(ordering)
 
-    tot_defects = 0
-    tot_debar_ub = 0
-    tot_debar_lb = 0
+    # =============== Defect Detection Table =================
+    print('=' * 20, 'detection', '=' * 20)
+    tot_ranum = 0
+    tot_debar = 0
+    tot_detect_time = 0.
 
-    tot_unittest_debar = 0
-    tot_unittest_debar_time = 0.
-    # tot_unittest_debar_time_proj10 = 0.
-    tot_unittest_gd = 0
-    tot_unittest_gd_time = 0.
-    # tot_unittest_gd_time_proj10 = 0.
-    tot_unittest_random = 0
-    tot_unittest_random_time = 0.
-    # tot_unittest_random_time_proj10 = 0.
+    col = 5
+    width = 3
 
-    tot_systest_debar = 0
-    tot_systest_debar_time = 0.
+    det_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)))]
+
+    row_p = 0
+    col_p = 0
+
+    for i, mname in enumerate(ordering):
+
+        det_ans[row_p][col_p * width] = f'{mname}'
+
+        with open(f'results/endtoend/detection/{mname}.json', 'r') as f:
+            data = json.load(f)
+        tot_detect_time += data['time_stat']['all']
+        det_ans[row_p][col_p * width + 1] = '$\checkmark$' if data['numerical_bugs'] > 0 else '$\\times$'
+        tot_ranum += bool(data['numerical_bugs'] > 0)
+        det_ans[row_p][col_p * width + 2] = '$\checkmark$' if mname in debar_supports else '$\\times$'
+        tot_debar += bool(mname in debar_supports)
+        row_p += 1
+
+        if row_p >= np.ceil((len(ordering) + 1) / col):
+            row_p = 0
+            col_p += 1
+
+    det_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
+    det_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_ranum}' + '}'
+    det_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_debar}' + '}'
+
+    for i, item in enumerate(det_ans):
+        if i == row_p:
+            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
+        print(' & '.join(item) + ' \\\\')
+
+    print('RANUM detection time:', tot_detect_time, 'avg time =', tot_detect_time / tot_ranum)
+
+    # =============== Failure-Exhibiting Unit Test Table =================
+    print('=' * 20, 'Failure-Exhibiting Unit Test', '=' * 20)
+
+    "Read running time and success statistics of RANUM"
+    grist_unit_test = {}
+    for i, mname in enumerate(ordering):
+        grist_unit_test[mname] = []
+        if '0' <= mname[-1] <= '9':
+            attach_name = '0'
+            logmname = mname
+        else:
+            attach_name = str(ord(mname[-1]) - ord('a'))
+            logmname = mname[:-1]
+        for run in range(3):
+            find = False
+            with open(f'../GRIST/log_{logmname}_{attach_name}_run{run}.txt', 'r') as f:
+                lines = f.readlines()
+            for line in lines[-5:]:
+                if line.startswith('FINAL RESULTS:'):
+                    find = True
+                    time_cost = line[line.find('Time cost:') + 10:]
+                    time_cost = time_cost[time_cost.find('<')+1 :time_cost.find('>')]
+                    time_obj = parser.parse(time_cost)
+                    time_cost = time_obj.hour * 3600. + time_obj.minute * 60. + time_obj.second + time_obj.microsecond / 1000000.
+                    success = line.count('Success') > 0
+                    grist_unit_test[mname].append([success, time_cost])
+                    break
+            assert find or mname == '14'
+    for i, mname in enumerate(ordering):
+        run_records = grist_unit_test[mname]
+        if len(run_records) > 2:
+            grist_unit_test[mname] = [run_records[0][0] + run_records[1][0] + run_records[2][0],
+                                      (run_records[0][1] + run_records[1][1] + run_records[2][1]) / 3.]
+        else:
+            assert mname == '14' # failed to run case ID using GRIST original code, so we directly use the running statistics from the GRIST paper
+            grist_unit_test[mname] = [3, 86.23]
+    grist_unit_test_fails = {
+        '17': 0, '31': 3, '51': 3
+    } # digested from GRIST paper since our reproduced failures are strictly more, and GRIST paper's number may be the better run
+    grist_unit_test_gt_runtime = {
+        '5': 0.34, '16c': 4.43, '28b': 176.02, '28d': 176.02, '49b': 307.24
+        # digested these running time from GRIST paper because our reproduced running time is much longer than GRIST reported ones
+    }
+    for mname, dataitem in grist_unit_test.items():
+        if mname not in grist_unit_test_fails:
+            dataitem[0] = 10
+        else:
+            dataitem[0] = grist_unit_test_fails[mname]
+        if mname in grist_unit_test_gt_runtime:
+            dataitem[1] = grist_unit_test_gt_runtime[mname]
+
+    ranum_unit_test = {}
+    ranum_inference_status = dict([(seed, {}) for seed in seeds])
+    for i, mname in enumerate(ordering):
+        ranum_unit_test[mname] = [0, 0.]
+        for seed in seeds:
+            with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+                ranum_inference_status[seed][mname] = data
+                assert len(data) == 1
+                for k, v in data.items():
+                    ranum_unit_test[mname][0] += int(v['success'])
+                    ranum_unit_test[mname][1] += v['time']
+        ranum_unit_test[mname][1] /= ranum_unit_test[mname][0]
+
+
+    tot_ranum_unit_test = 0
+    tot_grist_unit_test = 0
+    tot_ranum_unit_test_time = 0.
+    tot_grist_unit_test_time = 0.
+
+    col = 4
+    width = 6
+
+    unit_test_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)))]
+
+    row_p = 0
+    col_p = 0
+
+    for i, mname in enumerate(ordering):
+
+        unit_test_ans[row_p][col_p * width] = f'{mname}'
+
+        unit_test_ans[row_p][col_p * width + 1] = f'{ranum_unit_test[mname][0]}'
+        unit_test_ans[row_p][col_p * width + 2] = f'{ranum_unit_test[mname][1]:.2f}'
+        if grist_unit_test[mname][0] == 0:
+            unit_test_ans[row_p][col_p * width + 3] = f'$+\\infty$'
+        elif ranum_unit_test[mname][1] <= grist_unit_test[mname][1]:
+            unit_test_ans[row_p][col_p * width + 3] = f'{grist_unit_test[mname][1] / ranum_unit_test[mname][1]:.2f} X'
+        else:
+            unit_test_ans[row_p][col_p * width + 3] = f'{- ranum_unit_test[mname][1] / grist_unit_test[mname][1]:.2f} X'
+        unit_test_ans[row_p][col_p * width + 4] = f'{grist_unit_test[mname][0]}'
+        unit_test_ans[row_p][col_p * width + 5] = f'{grist_unit_test[mname][1]:.2f}' if grist_unit_test[mname][0] > 0 else '-'
+
+        tot_ranum_unit_test += ranum_unit_test[mname][0]
+        tot_ranum_unit_test_time += ranum_unit_test[mname][1]
+        tot_grist_unit_test += grist_unit_test[mname][0]
+        tot_grist_unit_test_time += grist_unit_test[mname][1] if grist_unit_test[mname][0] > 0 else 0.
+
+        row_p += 1
+        if row_p >= np.ceil((len(ordering) + 1) / col):
+            row_p = 0
+            col_p += 1
+
+    unit_test_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
+    unit_test_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_ranum_unit_test}' + '}'
+    unit_test_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_ranum_unit_test_time / len(ordering):.2f}' + '}'
+    unit_test_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_grist_unit_test_time / tot_ranum_unit_test_time:.2f} X' + '}'
+    unit_test_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_grist_unit_test}' + '}'
+    unit_test_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_grist_unit_test_time / len(ordering):.2f}' + '}'
+
+    for i, item in enumerate(unit_test_ans):
+        if i == row_p:
+            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
+        print(' & '.join(item) + ' \\\\')
+
+
+    # =============== Failure-Exhibiting System Test Table =================
+    print('=' * 20, 'Failure-Exhibiting System Test', '=' * 20)
+
+    random_inference_status = dict([(seed, {}) for seed in seeds])
+    for i, mname in enumerate(ordering):
+        ranum_unit_test[mname] = [0, 0.]
+        for seed in seeds:
+            with open(f'results/endtoend/unittest/random/{seed}/grist/{mname}.json', 'r') as f:
+                data = json.load(f)
+                random_inference_status[seed][mname] = data
+                assert len(data) == 1
+
+    tot_systest_ranum = 0
     tot_systest_random = 0
+    tot_systest_ranum_time = 0.
     tot_systest_random_time = 0.
-    tot_systest_debarus_p_random = 0
-    tot_systest_debarus_p_random_time = 0.
-    tot_systest_random_p_debarus = 0
-    tot_systest_random_p_debarus_time = 0.
+
+    tot_systest_ranum_p_random = 0
+    tot_systest_ranum_p_random_time = 0.
+    tot_systest_random_p_ranum = 0
+    tot_systest_random_p_ranum_time = 0.
+
+    col = 5
+    width = 5
+
+    systest_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)))]
+
+    row_p = 0
+    col_p = 0
+
+    # then, print out systest
+    for i, mname in enumerate(ordering):
+
+        systest_ans[row_p][col_p * width] = f'{mname}'
+
+        err_node = list(ranum_inference_status[seed][mname].keys())[0]
+
+        # 1: debarus
+        num_debarus = 0
+        time_debarus = 0.
+        for seed in seeds:
+            with open(f'results/training_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+            inference_stat = ranum_inference_status[seed][mname][err_node]
+            time_debarus += inference_stat['time']
+            if not inference_stat['success']:
+                continue
+            if data[err_node]['success']:
+                num_debarus += 1
+                time_debarus += data[err_node]['time']
+        systest_ans[row_p][col_p * width + 1] = f'{num_debarus}'
+        systest_ans[row_p][col_p * width + 2] = f'{time_debarus / len(seeds):.2f}'
+
+        # 2: random
+        num_random = 0
+        time_random = 0.
+        for seed in seeds:
+            with open(f'results/training_inst_gen/grist/{ver_code}random/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+            inference_stat = random_inference_status[seed][mname][err_node]
+            time_random += inference_stat['tot_time']
+            if data[err_node]['success']:
+                num_random += 1
+                time_random += data[err_node]['time']
+            else:
+                time_random += 1800. # time limit is 1800, actually the random approach will always run until reaching 1800 time limit
+        systest_ans[row_p][col_p * width + 3] = f'{num_random}'
+        systest_ans[row_p][col_p * width + 4] = f'{time_random / len(seeds):.2f}'
+
+        tot_systest_ranum += num_debarus
+        tot_systest_random += num_random
+        tot_systest_ranum_time += time_debarus / len(seeds)
+        tot_systest_random_time += time_random / len(seeds)
+
+
+        # 3: random_p_ranum
+        num_random_p_ranum = 0
+        time_random_p_ranum = 0.
+        for seed in seeds:
+            with open(f'results/training_inst_gen/grist/{ver_code}random_p_debarus/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+            inference_stat = random_inference_status[seed][mname][err_node]
+            time_random_p_ranum += inference_stat['tot_time']
+            if data[err_node]['success']:
+                num_random_p_ranum += 1
+                time_random_p_ranum += data[err_node]['time']
+        tot_systest_random_p_ranum += num_random_p_ranum
+        tot_systest_random_p_ranum_time += time_random_p_ranum / len(seeds)
+
+        # 4: ranum_p_random
+        num_ranum_p_random = 0
+        time_ranum_p_random = 0.
+        for seed in seeds:
+            with open(f'results/training_inst_gen/grist/{ver_code}debarus_p_random/{seed}/stats/{mname}/data.json', 'r') as f:
+                data = json.load(f)
+            inference_stat = ranum_inference_status[seed][mname][err_node]
+            time_ranum_p_random += inference_stat['time']
+            if data[err_node]['success']:
+                num_ranum_p_random += 1
+                time_ranum_p_random += data[err_node]['time']
+            else:
+                time_ranum_p_random += 1800. # time limit is 1800, actually the random approach will always run until reaching 1800 time limit
+        tot_systest_ranum_p_random += num_ranum_p_random
+        tot_systest_ranum_p_random_time += time_ranum_p_random / len(seeds)
+
+        row_p += 1
+
+        if row_p >= np.ceil((len(ordering) + 1) / col):
+            row_p = 0
+            col_p += 1
+
+    systest_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
+    systest_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_systest_ranum}' + '}'
+    systest_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_systest_ranum_time / len(ordering):.2f}' + '}'
+    systest_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_systest_random}' + '}'
+    systest_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_systest_random_time / len(ordering):.2f}' + '}'
+
+    for i, item in enumerate(systest_ans):
+        if i == row_p:
+            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
+        print(' & '.join(item) + ' \\\\')
+
+
+    print('')
+    print('RANUM:', tot_systest_ranum, 'time=', tot_systest_ranum_time / len(ordering))
+    print('Random:', tot_systest_random, 'time=', tot_systest_random_time / len(ordering))
+    print('Random + RANUM:', tot_systest_random_p_ranum, 'time=', tot_systest_random_p_ranum_time / len(ordering))
+    print('RANUM + random:', tot_systest_ranum_p_random, 'time=', tot_systest_ranum_p_random_time / len(ordering))
+
+
+    # =============== Precondition-Fix Table =================
+    print('=' * 20, 'Precondition-Fix', '=' * 20)
 
     tot_precond_debar_weight_input = 0
     tot_precond_debar_weight_input_time = 0.
@@ -87,173 +360,8 @@ if __name__ == '__main__':
     tot_precond_expand_input = 0
     tot_precond_expand_input_time = 0.
 
-    # add number of nodes and number of defect nodes
+
     for i, mname in enumerate(ordering):
-        # detection results
-        with open(f'results/endtoend/detection/{mname}.json', 'r') as f:
-            data = json.load(f)
-        ans[i][1] = str(data['nodes'])
-        sizes.append(data['nodes'])
-        ans[i][2] = str(data['numerical_bugs'])
-        # print(data)
-        tot_defects += data['numerical_bugs']
-        ans[i][12] = '$\checkmark$'
-        ans[i][13] = '$\checkmark$' if mname in debar_supports else '?' if mname in debar_unknown else '$\\times$'
-        if mname in debar_supports:
-            tot_debar_ub += 1
-            tot_debar_lb += 1
-        if mname in debar_unknown:
-            tot_debar_ub += 1
-
-        # unit test generation results
-
-        # # 1: DEBARUS
-        num_debarus = 0
-        time_debarus = 0.
-        # time_debarus_proj = 0.
-        time1_debarus = 0.
-        time2_debarus = 0.
-        debarus_inference_status = dict()
-        for seed in seeds:
-            with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            with open(f'results/endtoend/unittest/{ver_code}/{seed}/grist/{mname}.json', 'r') as f:
-                data2 = json.load(f)
-            for err_node in data:
-                time1 = min(data[err_node]['time'], unit_test_gen_time_limit)
-                if data[err_node]['success'] and data[err_node]['time'] <= unit_test_gen_time_limit:
-                    time2 = data2[err_node]['gen_time']
-                    if time1 + time2 <= unit_test_gen_time_limit:
-                        num_debarus += data2[err_node]['success_num']
-                        time_debarus += time1 + time2
-                        # time_debarus_proj += time1 + time2 * 10.
-                        time1_debarus += time1
-                        time2_debarus += time2
-                else:
-                    time_debarus += time1
-                    # time_debarus_proj += time1
-                    time1_debarus += time1
-            debarus_inference_status[seed] = data
-        ans[i][5] = f'{num_debarus} ({time_debarus:.2f})'
-        tot_unittest_debar += num_debarus
-        tot_unittest_debar_time += time_debarus
-        # tot_unittest_debar_time_proj10 += time_debarus_proj
-
-        # 2: Gradient Descent
-        num_gd = 0
-        time_gd = 0.
-        # time_gd_proj = 0.
-        time1_gd = 0.
-        time2_gd = 0.
-        for seed in seeds:
-            with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/baseline/gradient_descent/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            with open(f'results/endtoend/unittest/{ver_code}baseline/gradient_descent/{seed}/grist/{mname}.json', 'r') as f:
-                data2 = json.load(f)
-            for err_node in data:
-                time1 = min(data[err_node]['time'], unit_test_gen_time_limit)
-                if data[err_node]['success'] and data[err_node]['time'] <= unit_test_gen_time_limit:
-                    time2 = data2[err_node]['gen_time']
-                    if time1 + time2 <= unit_test_gen_time_limit:
-                        num_gd += data2[err_node]['success_num']
-                        time_gd += time1 + time2
-                        # time_gd_proj += time1 + time2 * 10.
-                        time1_gd += time1
-                        time2_gd += time2
-                else:
-                    time_gd += time1
-                    # time_gd_proj += time1
-                    time1_gd += time1
-        ans[i][6] = f'{num_gd} ({time_gd:.2f})'
-        tot_unittest_gd += num_gd
-        tot_unittest_gd_time += time_gd
-        # tot_unittest_gd_time_proj10 += time_gd_proj
-
-        # # 3: random
-        num_random = 0
-        time_random = 0.
-        time1_random = 0.
-        time2_random = 0.
-        failed_random_inference_dict = dict()
-        for seed in seeds:
-            with open(f'results/endtoend/unittest/random/{seed}/grist/{mname}.json', 'r') as f:
-                data2 = json.load(f)
-            failed_random_inference_dict[seed] = list()
-            for err_node in data2:
-                if data2[err_node]['infer_time'] + data2[err_node]['gen_time'] <= unit_test_gen_time_limit:
-                    time1 = data2[err_node]['infer_time']
-                    time2 = data2[err_node]['gen_time']
-                    if data2[err_node]['success_num'] == 0:
-                        failed_random_inference_dict[seed].append(err_node)
-                    if time1 + time2 <= unit_test_gen_time_limit:
-                        num_random += data2[err_node]['success_num']
-                        time_random += time1 + time2
-                        time1_random += time1
-                        time2_random += time2
-        ans[i][7] = f'{num_random} ({time_random:.2f})'
-        tot_unittest_random += num_random
-        tot_unittest_random_time += time_random
-
-        # system test generation results
-
-        # 1: debarus
-        num_debarus = 0
-        time_debarus = 0.
-        for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            for err_node, inference_stat in debarus_inference_status[seed].items():
-                if not inference_stat['success']:
-                    continue
-                if data[err_node]['success']:
-                    num_debarus += 1
-                    time_debarus += data[err_node]['time']
-        ans[i][3] = f'{num_debarus} ({time_debarus:.2f})'
-        tot_systest_debar += num_debarus
-        tot_systest_debar_time += time_debarus
-
-        # 2: random
-        num_random = 0
-        time_random = 0.
-        for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}random/{seed}/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            for err_node, inference_stat in debarus_inference_status[seed].items():
-                if data[err_node]['success']:
-                    num_random += 1
-                    time_random += data[err_node]['time']
-        ans[i][4] = f'{num_random} ({time_random:.2f})'
-        tot_systest_random += num_random
-        tot_systest_random_time += time_random
-
-        # 3: random_p_debarus
-        num_random = 0
-        time_random = 0.
-        for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}random_p_debarus/{seed}/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            for err_node, inference_stat in debarus_inference_status[seed].items():
-                if data[err_node]['success']:
-                    num_random += 1
-                    time_random += data[err_node]['time']
-        ans[i][4] = f'{num_random} ({time_random:.2f})'
-        tot_systest_random_p_debarus += num_random
-        tot_systest_random_p_debarus_time += time_random
-
-        # 4: debarus_p_random
-        num_random = 0
-        time_random = 0.
-        for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}debarus_p_random/{seed}/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            for err_node, inference_stat in debarus_inference_status[seed].items():
-                if data[err_node]['success']:
-                    num_random += 1
-                    time_random += data[err_node]['time']
-        ans[i][4] = f'{num_random} ({time_random:.2f})'
-        tot_systest_debarus_p_random += num_random
-        tot_systest_debarus_p_random_time += time_random
-
 
         # precondition generation
         # weight + input
@@ -283,7 +391,7 @@ if __name__ == '__main__':
         # 3: debarusexpand
         num_debarusexpand = 0
         time_debarusexpand = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        with open(f'results/precond_gen/grist/all/all/{precond_code}ranumexpand/{mname}.json', 'r') as f:
             data = json.load(f)
             num_debarusexpand += data['success_cnt']
             time_debarusexpand += data['time_stat']['all']
@@ -320,7 +428,7 @@ if __name__ == '__main__':
         # 3: debarusexpand
         num_debarusexpand = 0
         time_debarusexpand = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        with open(f'results/precond_gen/grist/all/weight/{precond_code}ranumexpand/{mname}.json', 'r') as f:
             data = json.load(f)
             num_debarusexpand += data['success_cnt']
             time_debarusexpand += data['time_stat']['all']
@@ -355,7 +463,7 @@ if __name__ == '__main__':
         # 3: debarusexpand
         num_debarusexpand = 0
         time_debarusexpand = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
+        with open(f'results/precond_gen/grist/all/input/{precond_code}ranumexpand/{mname}.json', 'r') as f:
             data = json.load(f)
             num_debarusexpand += data['success_cnt']
             time_debarusexpand += data['time_stat']['all']
@@ -363,21 +471,6 @@ if __name__ == '__main__':
         tot_precond_expand_input += num_debarusexpand
         tot_precond_expand_input_time += time_debarusexpand
 
-
-
-
-    for item in ans:
-        print(' & '.join(item) + ' \\\\')
-
-    print('tot defects:                   ', tot_defects)
-    print('tot debar:                     ', tot_debar_lb, '-', tot_debar_ub)
-    print('unittest: debarus              ', tot_unittest_debar, 'time', tot_unittest_debar_time)
-    print('unittest: gd                   ', tot_unittest_gd, 'time', tot_unittest_gd_time)
-    print('unittest: random               ', tot_unittest_random, 'time', tot_unittest_random_time)
-    print('systest: debarus               ', tot_systest_debar, 'time', tot_systest_debar_time)
-    print('systest: random                ', tot_systest_random, 'time', tot_systest_random_time)
-    print('systest: debarus_p_random      ', tot_systest_debarus_p_random, 'time', tot_systest_debarus_p_random_time)
-    print('systest: random_p_debarus      ', tot_systest_random_p_debarus, 'time', tot_systest_random_p_debarus_time)
     print('precond: debarus weight + input', tot_precond_debar_weight_input, 'time', tot_precond_debar_weight_input_time)
     print('precond: dexpand weight + input', tot_precond_expand_weight_input, 'time', tot_precond_expand_weight_input_time)
     print('precond: gd weight + input     ', tot_precond_gd_weight_input, 'time', tot_precond_gd_weight_input_time)
@@ -388,634 +481,5 @@ if __name__ == '__main__':
     print('precond: dexpand input         ', tot_precond_expand_input, 'time', tot_precond_expand_input_time)
     print('precond: gd input              ', tot_precond_gd_input, 'time', tot_precond_gd_input_time)
 
-    print('=' * 20, 'systest generation', '=' * 20)
-    col = 5
-    width = 6
 
-    systest_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(tot_defects / col)) + 3)]
-
-    row_p = 0
-    col_p = 0
-    defect_ordering = dict()
-
-    # first, we need inference data to determine the defect ordering
-    debarus_inference_status = dict()
-    for i, mname in enumerate(ordering):
-        for seed in seeds:
-            with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
-                data = json.load(f)
-            if seed not in defect_ordering: defect_ordering[seed] = dict()
-            if seed not in debarus_inference_status: debarus_inference_status[seed] = dict()
-            defect_ordering[seed][mname] = list(data.keys())
-            debarus_inference_status[seed][mname] = data
-
-    # then, print out systest
-    defect_no = 0
-    for i, mname in enumerate(ordering):
-
-        if len(defect_ordering[seeds[0]][mname]) <= 1:
-            systest_ans[row_p][col_p * width] = f'{mname}'
-        else:
-            systest_ans[row_p][col_p * width] = f'\\multirow{{{len(defect_ordering[seeds[0]][mname])}}}{{*}}{{' + mname + '}'
-
-        for err_node in defect_ordering[seeds[0]][mname]:
-
-            defect_no += 1
-            systest_ans[row_p][col_p * width + 1] = f'{defect_no}'
-
-            # 1: debarus
-            num_debarus = 0
-            time_debarus = 0.
-            for seed in seeds:
-                with open(f'results/training_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
-                    data = json.load(f)
-                inference_stat = debarus_inference_status[seed][mname][err_node]
-                if not inference_stat['success']:
-                    continue
-                if data[err_node]['success']:
-                    num_debarus += 1
-                    time_debarus += data[err_node]['time']
-            systest_ans[row_p][col_p * width + 2] = f'{num_debarus}'
-            systest_ans[row_p][col_p * width + 3] = f'{time_debarus / 10.:.2f}'
-
-            # 2: random
-            num_random = 0
-            time_random = 0.
-            for seed in seeds:
-                with open(f'results/training_inst_gen/grist/{ver_code}random/{seed}/stats/{mname}/data.json', 'r') as f:
-                    data = json.load(f)
-                inference_stat = debarus_inference_status[seed][mname][err_node]
-                if data[err_node]['success']:
-                    num_random += 1
-                    time_random += data[err_node]['time']
-            systest_ans[row_p][col_p * width + 4] = f'{num_random}'
-            systest_ans[row_p][col_p * width + 5] = f'{time_random / 10.:.2f}'
-
-            row_p += 1
-
-        if row_p >= np.ceil((tot_defects + 1) / col):
-            row_p = 0
-            col_p += 1
-
-
-    systest_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    systest_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_systest_debar}' + '}'
-    systest_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_systest_debar_time / 10.:.2f}' + '}'
-    systest_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_systest_random}' + '}'
-    systest_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_systest_random_time / 10.:.2f}' + '}'
-
-    for i, item in enumerate(systest_ans):
-        if i == row_p:
-            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
-        print(' & '.join(item) + ' \\\\')
-
-    print('=' * 20, 'unit generation', '=' * 20)
-    col = 3
-    width = 8
-
-    unittest_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(tot_defects / col)) + 3)]
-
-    row_p = 0
-    col_p = 0
-
-    defect_no = 0
-    for i, mname in enumerate(ordering):
-
-        if len(defect_ordering[seeds[0]][mname]) <= 1:
-            unittest_ans[row_p][col_p * width] = f'{mname}'
-        else:
-            unittest_ans[row_p][col_p * width] = f'\\multirow{{{len(defect_ordering[seeds[0]][mname])}}}{{*}}{{' + mname + '}'
-
-        for err_node in defect_ordering[seeds[0]][mname]:
-
-            defect_no += 1
-            unittest_ans[row_p][col_p * width + 1] = f'{defect_no}'
-
-            # unit test generation results
-
-            # # 1: DEBARUS
-            num_debarus = 0
-            time_debarus = 0.
-            # time_debarus_proj = 0.
-            time1_debarus = 0.
-            time2_debarus = 0.
-            for seed in seeds:
-                with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
-                    data = json.load(f)
-                with open(f'results/endtoend/unittest/{ver_code}/{seed}/grist/{mname}.json', 'r') as f:
-                    data2 = json.load(f)
-                time1 = min(data[err_node]['time'], unit_test_gen_time_limit)
-                if data[err_node]['success'] and data[err_node]['time'] <= unit_test_gen_time_limit:
-                    time2 = data2[err_node]['gen_time']
-                    if time1 + time2 <= unit_test_gen_time_limit:
-                        num_debarus += data2[err_node]['success_num']
-                        time_debarus += time1 + time2
-                        time1_debarus += time1
-                        time2_debarus += time2
-                else:
-                    time_debarus += time1
-                    time1_debarus += time1
-            unittest_ans[row_p][col_p * width + 2] = f'{num_debarus / 10.:.1f}'
-            unittest_ans[row_p][col_p * width + 3] = f'{time_debarus / 10.:.2f}'
-
-            # 2: Gradient Descent
-            num_gd = 0
-            time_gd = 0.
-            # time_gd_proj = 0.
-            time1_gd = 0.
-            time2_gd = 0.
-            for seed in seeds:
-                with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/baseline/gradient_descent/stats/{mname}/data.json', 'r') as f:
-                    data = json.load(f)
-                with open(f'results/endtoend/unittest/{ver_code}baseline/gradient_descent/{seed}/grist/{mname}.json', 'r') as f:
-                    data2 = json.load(f)
-                time1 = min(data[err_node]['time'], unit_test_gen_time_limit)
-                if data[err_node]['success'] and data[err_node]['time'] <= unit_test_gen_time_limit:
-                    time2 = data2[err_node]['gen_time']
-                    if time1 + time2 <= unit_test_gen_time_limit:
-                        num_gd += data2[err_node]['success_num']
-                        time_gd += time1 + time2
-                        time1_gd += time1
-                        time2_gd += time2
-                else:
-                    time_gd += time1
-                    time1_gd += time1
-            unittest_ans[row_p][col_p * width + 4] = f'{num_gd / 10.:.1f}'
-            unittest_ans[row_p][col_p * width + 5] = f'{time_gd / 10.:.2f}'
-
-            # # 3: random
-            num_random = 0
-            time_random = 0.
-            time1_random = 0.
-            time2_random = 0.
-            failed_random_inference_dict = dict()
-            for seed in seeds:
-                with open(f'results/endtoend/unittest/random/{seed}/grist/{mname}.json', 'r') as f:
-                    data2 = json.load(f)
-                failed_random_inference_dict[seed] = list()
-                if data2[err_node]['infer_time'] + data2[err_node]['gen_time'] <= unit_test_gen_time_limit:
-                    time1 = data2[err_node]['infer_time']
-                    time2 = data2[err_node]['gen_time']
-                    if data2[err_node]['success_num'] == 0:
-                        failed_random_inference_dict[seed].append(err_node)
-                    if time1 + time2 <= unit_test_gen_time_limit:
-                        num_random += data2[err_node]['success_num']
-                        time_random += time1 + time2
-                        time1_random += time1
-                        time2_random += time2
-            unittest_ans[row_p][col_p * width + 6] = f'{num_random / 10.:.1f}'
-            unittest_ans[row_p][col_p * width + 7] = f'{time_random / 10.:.2f}'
-
-            row_p += 1
-
-        if row_p >= np.ceil((tot_defects + 1) / col):
-            row_p = 0
-            col_p += 1
-
-    unittest_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    unittest_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_unittest_debar / 10.:.1f}' + '}'
-    unittest_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_unittest_debar_time / 10.:.2f}' + '}'
-    unittest_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_unittest_gd / 10.:.1f}' + '}'
-    unittest_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_unittest_gd_time / 10.:.2f}' + '}'
-    unittest_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_unittest_random / 10.:.1f}' + '}'
-    unittest_ans[row_p][col_p * width + 7] = '\\textbf{' + f'{tot_unittest_random_time / 10.:.2f}' + '}'
-
-    for i, item in enumerate(unittest_ans):
-        if i == row_p:
-            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
-        print(' & '.join(item) + ' \\\\')
-
-
-    print('=' * 20, 'precondition generation weight + input', '=' * 20)
-    col = 3
-    width = 7
-
-    precond_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
-
-    row_p = 0
-    col_p = 0
-
-    for i, mname in enumerate(ordering):
-
-        precond_ans[row_p][col_p * width] = f'{mname}'
-
-        # precondition generation
-        # weight + input
-
-        # 1: debarus
-        num_debarus = 0
-        time_debarus = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_debarus += data['success_cnt']
-            time_debarus += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-
-        # 2: debarusexpand
-        num_expand = 0
-        time_expand = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_expand += data['success_cnt']
-            time_expand += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-
-        # 3: gd
-        num_gd = 0
-        time_gd = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_gd += data['success_cnt']
-            time_gd += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-
-        # # weight
-        #
-        # # 1: debarus
-        # num_debarus = 0
-        # time_debarus = 0.
-        # with open(f'results/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_debarus += data['success_cnt']
-        #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-        #
-        # # 2: debarusexpand
-        # num_expand = 0
-        # time_expand = 0.
-        # with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_expand += data['success_cnt']
-        #     time_expand += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-        #
-        # # 3: gd
-        # num_gd = 0
-        # time_gd = 0.
-        # with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_gd += data['success_cnt']
-        #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-        #
-        # # input
-        #
-        # # 1: debarus
-        # num_debarus = 0
-        # time_debarus = 0.
-        # with open(f'results/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_debarus += data['success_cnt']
-        #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-        #
-        # # 2: debarusexpand
-        # num_expand = 0
-        # time_expand = 0.
-        # with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_expand += data['success_cnt']
-        #     time_expand += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-        #
-        # # 3: gd
-        # num_gd = 0
-        # time_gd = 0.
-        # with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_gd += data['success_cnt']
-        #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-        row_p += 1
-
-        if row_p >= np.ceil(len(ordering) / col):
-            row_p = 0
-            col_p += 1
-
-    precond_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_weight_input}' + '}'
-    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_weight_input_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_expand_weight_input}' + '}'
-    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_expand_weight_input_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_gd_weight_input}' + '}'
-    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_gd_weight_input_time:.2f}' + '}'
-
-    for i, item in enumerate(precond_ans):
-        if i == row_p:
-            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
-        print(' & '.join(item) + ' \\\\')
-
-
-
-    print('=' * 20, 'precondition generation weight', '=' * 20)
-    col = 3
-    width = 7
-
-    precond_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
-
-    row_p = 0
-    col_p = 0
-
-    for i, mname in enumerate(ordering):
-
-        precond_ans[row_p][col_p * width] = f'{mname}'
-
-        # # precondition generation
-        # # weight + input
-        #
-        # # 1: debarus
-        # num_debarus = 0
-        # time_debarus = 0.
-        # with open(f'results/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_debarus += data['success_cnt']
-        #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-        #
-        # # 2: debarusexpand
-        # num_expand = 0
-        # time_expand = 0.
-        # with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_expand += data['success_cnt']
-        #     time_expand += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-        #
-        # # 3: gd
-        # num_gd = 0
-        # time_gd = 0.
-        # with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_gd += data['success_cnt']
-        #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-
-        # weight
-
-        # 1: debarus
-        num_debarus = 0
-        time_debarus = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_debarus += data['success_cnt']
-            time_debarus += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-
-        # 2: debarusexpand
-        num_expand = 0
-        time_expand = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_expand += data['success_cnt']
-            time_expand += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-
-        # 3: gd
-        num_gd = 0
-        time_gd = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_gd += data['success_cnt']
-            time_gd += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-        # # input
-        #
-        # # 1: debarus
-        # num_debarus = 0
-        # time_debarus = 0.
-        # with open(f'results/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_debarus += data['success_cnt']
-        #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-        #
-        # # 2: debarusexpand
-        # num_expand = 0
-        # time_expand = 0.
-        # with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_expand += data['success_cnt']
-        #     time_expand += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-        #
-        # # 3: gd
-        # num_gd = 0
-        # time_gd = 0.
-        # with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_gd += data['success_cnt']
-        #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-        row_p += 1
-
-        if row_p >= np.ceil(len(ordering) / col):
-            row_p = 0
-            col_p += 1
-
-    precond_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_weight}' + '}'
-    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_weight_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_expand_weight}' + '}'
-    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_expand_weight_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_gd_weight}' + '}'
-    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_gd_weight_time:.2f}' + '}'
-
-    for i, item in enumerate(precond_ans):
-        if i == row_p:
-            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
-        print(' & '.join(item) + ' \\\\')
-
-
-
-    print('=' * 20, 'precondition generation input', '=' * 20)
-    col = 3
-    width = 7
-
-    precond_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
-
-    row_p = 0
-    col_p = 0
-
-    for i, mname in enumerate(ordering):
-
-        precond_ans[row_p][col_p * width] = f'{mname}'
-
-        # # precondition generation
-        # # weight + input
-        #
-        # # 1: debarus
-        # num_debarus = 0
-        # time_debarus = 0.
-        # with open(f'results/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_debarus += data['success_cnt']
-        #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-        #
-        # # 2: debarusexpand
-        # num_expand = 0
-        # time_expand = 0.
-        # with open(f'results/precond_gen/grist/all/all/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_expand += data['success_cnt']
-        #     time_expand += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-        #
-        # # 3: gd
-        # num_gd = 0
-        # time_gd = 0.
-        # with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_gd += data['success_cnt']
-        #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-        #
-        #
-        # # weight
-        #
-        # # 1: debarus
-        # num_debarus = 0
-        # time_debarus = 0.
-        # with open(f'results/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_debarus += data['success_cnt']
-        #     time_debarus += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        # precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-        #
-        # # 2: debarusexpand
-        # num_expand = 0
-        # time_expand = 0.
-        # with open(f'results/precond_gen/grist/all/weight/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_expand += data['success_cnt']
-        #     time_expand += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        # precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-        #
-        # # 3: gd
-        # num_gd = 0
-        # time_gd = 0.
-        # with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
-        #     data = json.load(f)
-        #     num_gd += data['success_cnt']
-        #     time_gd += data['time_stat']['all']
-        # precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        # precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-        # input
-
-        # 1: debarus
-        num_debarus = 0
-        time_debarus = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_debarus += data['success_cnt']
-            time_debarus += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 1] = f'{tof(num_debarus)}'
-        precond_ans[row_p][col_p * width + 2] = f'{time_debarus:.2f}'
-
-        # 2: debarusexpand
-        num_expand = 0
-        time_expand = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}debarusexpand/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_expand += data['success_cnt']
-            time_expand += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 3] = f'{tof(num_expand)}'
-        precond_ans[row_p][col_p * width + 4] = f'{time_expand:.2f}'
-
-        # 3: gd
-        num_gd = 0
-        time_gd = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
-            data = json.load(f)
-            num_gd += data['success_cnt']
-            time_gd += data['time_stat']['all']
-        precond_ans[row_p][col_p * width + 5] = f'{tof(num_gd)}'
-        precond_ans[row_p][col_p * width + 6] = f'{time_gd:.2f}'
-
-        row_p += 1
-
-        if row_p >= np.ceil(len(ordering) / col):
-            row_p = 0
-            col_p += 1
-
-    precond_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    precond_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{tot_precond_debar_input}' + '}'
-    precond_ans[row_p][col_p * width + 2] = '\\textbf{' + f'{tot_precond_debar_input_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 3] = '\\textbf{' + f'{tot_precond_expand_input}' + '}'
-    precond_ans[row_p][col_p * width + 4] = '\\textbf{' + f'{tot_precond_expand_input_time:.2f}' + '}'
-    precond_ans[row_p][col_p * width + 5] = '\\textbf{' + f'{tot_precond_gd_input}' + '}'
-    precond_ans[row_p][col_p * width + 6] = '\\textbf{' + f'{tot_precond_gd_input_time:.2f}' + '}'
-
-    for i, item in enumerate(precond_ans):
-        if i == row_p:
-            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
-        print(' & '.join(item) + ' \\\\')
-
-    print('=' * 20, 'detection', '=' * 20)
-    col = 5
-    width = 3
-
-    det_ans = [['' for _ in range(col * width)] for _ in range(int(np.ceil(len(ordering) / col)) + 3)]
-
-    row_p = 0
-    col_p = 0
-
-    for i, mname in enumerate(ordering):
-
-        det_ans[row_p][col_p * width] = f'{mname}'
-
-        with open(f'results/endtoend/detection/{mname}.json', 'r') as f:
-            data = json.load(f)
-        det_ans[row_p][col_p * width + 1] = '$\checkmark$'
-        det_ans[row_p][col_p * width + 2] = '$\checkmark$' if mname in debar_supports else '?' if mname in debar_unknown else '$\\times$'
-        row_p += 1
-
-        if row_p >= np.ceil((len(ordering) + 1) / col):
-            row_p = 0
-            col_p += 1
-
-    det_ans[row_p][col_p * width] = f'\\textbf{{Tot}}'
-    det_ans[row_p][col_p * width + 1] = '\\textbf{' + f'{len(ordering)}' + '}'
-    det_ans[row_p][col_p * width + 2] = '\\textbf{' + f'[{tot_debar_lb}, {tot_debar_ub}]' + '}'
-
-    for i, item in enumerate(det_ans):
-        if i == row_p:
-            print(f'\\cline{{{col_p * width + 1}-{col_p * width + width}}}')
-        print(' & '.join(item) + ' \\\\')
-
-    print('=' * 20, 'size stats', '=' * 20)
-
-    sizes = np.array(sizes)
-    print('max size =', np.max(sizes))
-    print('min size =', np.min(sizes))
-    print('avg size =', np.mean(sizes))
-    print('median size =', np.median(sizes))
+    exit(0)

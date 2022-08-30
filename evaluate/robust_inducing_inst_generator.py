@@ -4,16 +4,31 @@
     It also records the initial inputs & weights and error-inducing inputs & weights
 """
 
-DEFAULT_LR = 1
-DEFAULT_LR_DECAY = 0.1
-DEFAULT_ITERS = 100
-DEFAULT_STEP = 70
-# DEFAULT_SPAN = 1e-4
-#
-# customize_span = {
-#     '48a': 1e-5,
-#     '61': 1e-5
-# }
+from config import DEFAULT_LR, DEFAULT_LR_DECAY, DEFAULT_ITERS, DEFAULT_STEP
+
+
+customized_lr = {
+}
+
+customized_lr_decay = {
+    '28a': 0.5,
+    '28b': 0.5
+}
+
+customized_step = {
+    '28a': 10,
+    '28b': 10
+}
+
+customized_iters = {
+    '28a': 5000,
+    '28b': 5000
+}
+
+customized_max_step_expand_time = {
+    '28a': 0,
+    '28b': 0
+}
 
 skip_stages_by_name = {
     '17': ['spec-input-rand-weight']
@@ -36,6 +51,7 @@ ver_code = f'v5_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{
 import os
 import time
 import json
+import yaml
 
 import torch
 
@@ -45,12 +61,15 @@ from trigger.inference.robust_inducing_inst_gen import InducingInputGenModule, i
 from trigger.hints import customized_lr_inference_inst_gen
 from evaluate.seeds import seeds
 
-# whitelist = ['1']
+# whitelist = ['28b']
 whitelist = []
 blacklist = []
 # blacklist = ['17']
 
 if __name__ == '__main__':
+    with open('model_zoo/grist_defect_node.yaml', 'r') as f:
+        grist_defect_nodes = yaml.load(f)
+        grist_defect_nodes = dict([(item['name'], item['nodes']) for item in grist_defect_nodes])
     for seed in seeds:
         print('*' * 20)
         print('*' * 20)
@@ -93,10 +112,20 @@ if __name__ == '__main__':
                 #         continue
                 #     else:
                 #         nopass = True
+                if benchmark == 'grist':
+                    select_err_nodes = grist_defect_nodes[barefilename]
                 status = inducing_inference_inst_gen(os.path.join(nowdir, file), 'all', seed, data_dir,
-                                                  default_lr=DEFAULT_LR if barefilename not in customized_lr_inference_inst_gen
-                                                  else customized_lr_inference_inst_gen[barefilename],
-                                                     default_lr_decay=DEFAULT_LR_DECAY, default_step=DEFAULT_STEP, max_iters=DEFAULT_ITERS,
+                                                     default_lr=DEFAULT_LR if barefilename not in customized_lr_inference_inst_gen
+                                                                else customized_lr_inference_inst_gen[barefilename],
+                                                     default_lr_decay=DEFAULT_LR_DECAY if barefilename not in customized_lr_decay
+                                                                else customized_lr_decay[barefilename],
+                                                     default_step=DEFAULT_STEP if barefilename not in customized_step
+                                                                  else customized_step[barefilename],
+                                                     max_iters=DEFAULT_ITERS if barefilename not in customized_iters
+                                                               else customized_iters[barefilename],
+                                                     select_err_nodes=select_err_nodes,
+                                                     max_step_expand_time=2 if barefilename not in customized_max_step_expand_time
+                                                                          else customized_max_step_expand_time[barefilename],
                                                      skip_stages=skip_stages_by_name[barefilename] if barefilename in skip_stages_by_name else list())
 
 

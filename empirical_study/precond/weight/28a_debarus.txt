@@ -1,112 +1,112 @@
 {
   "all": {
     "tot_start_points": 25,
-    "tot_changed_nodes": 7,
-    "average_shrinkage": 0.27987468425035644,
+    "tot_changed_nodes": 2,
+    "average_shrinkage": 0.05874236,
     "maximum_shrinkage": 1.0,
     "minimum_shrink": 0.0
   }
 }
 
--0.22447868623469916 <= bout/read:0 <= -0.2192850466754571
+-0.6304418742656708 <= ConstantFolding/div_8_recip:0 <= 1.4524326771497726
 
-Sum_2:0 = 61.186073303222656
-
--0.12498189462190046 <= b1/read:0 <= -0.11502192961210833
-
-Sum_1:0 = 111.04678344726562
-
-0.0001241800706031082 <= wout/read:0 <= 0.013951751934859773
-
-G_matmul_2/read:0 = 12.658395767211914
-
-const_starts__81 = [0. 0.]
-
-G_matmul_1/read:0 = 15.976432800292969
-
-softmax_cross_entropy_with_logits_sg/Reshape_shape__124 = [-1. 10.]
-
-ConstantFolding/div_8_recip:0 = 0.07899895310401917
-
--50.0 <= features:0 <= 50.0
-
-const_axes__104 = -1.0
-
--50.0 <= labels:0 <= 50.0
-
-const_ends__13 = 1.0
-
-const_fold_opt__115 = 128.0
-
-Sum:0 = 694.7385314941406
-
-clip_by_value/y:0 = -1.0
-
-const_axes__22 = 0.0
-
-ConstantFolding/div_2_recip:0 = 0.06259219348430634
-
-const_ends__54 = [1.00000000e+00 2.14748365e+09]
-
-const_fold_opt__119 = 10.0
-
--0.031328937410889844 <= div:0 <= 0.031328937410889844
-
--0.016587702003210764 <= w1/read:0 <= -8.96595284180686e-05
-
-const_axes__55 = [0. 1.]
-
-clip_by_value/Minimum/y:0 = 1.0
-
-==========initial bounds==========
-
--4.3663246631622314 <= bout/read:0 <= 3.922560930252075
-
-Sum_2:0 = 61.186073303222656
-
--8.06789755821228 <= b1/read:0 <= 7.8278937339782715
-
-86.21154022216797 <= Sum_1:0 <= 123.38531494140625
-
--10.588428497314453 <= wout/read:0 <= 11.479941844940186
-
-G_matmul_2/read:0 = 12.658395767211914
-
-const_starts__81 = [0. 0.]
-
-G_matmul_1/read:0 = 15.976432800292969
-
-softmax_cross_entropy_with_logits_sg/Reshape_shape__124 = [-1. 10.]
-
-ConstantFolding/div_8_recip:0 = 0.07899895310401917
-
--50.0 <= features:0 <= 50.0
-
-const_axes__104 = -1.0
-
--50.0 <= labels:0 <= 50.0
-
-const_ends__13 = 1.0
-
-const_fold_opt__115 = 128.0
-
-496.58282470703125 <= Sum:0 <= 771.9317016601562
-
-clip_by_value/y:0 = -1.0
-
-const_axes__22 = 0.0
-
-ConstantFolding/div_2_recip:0 = 0.06259219348430634
-
-const_ends__54 = [1.00000000e+00 2.14748365e+09]
-
-const_fold_opt__119 = 10.0
+const_fold_opt__124 = 10.0
 
 -50.0 <= div:0 <= 50.0
 
--13.50094747543335 <= w1/read:0 <= 12.829410076141357
+const_starts__32 = 0.0
 
-const_axes__55 = [0. 1.]
+clip_by_value_1/Minimum/y:0 = 1.0
 
-clip_by_value/Minimum/y:0 = 1.0
+-13.023763418197632 <= G_matmul_2/read:0 <= 30.004573702812195
+
+const_starts__55 = [0. 0.]
+
+64.03466796875 <= Sum_1:0 <= 132.0572509765625
+
+const_ends__74 = 1.0
+
+-9.06857419013977 <= wout/read:0 <= 9.525025129318237
+
+clip_by_value_2/y:0 = -1.0
+
+const_axes__106 = -1.0
+
+-50.0 <= labels:0 <= 50.0
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__126 = [-1. 10.]
+
+const_axes__85 = [0. 1.]
+
+-15.937820434570312 <= G_matmul_1/read:0 <= 31.90074348449707
+
+Sum:0 = 493.98284912109375
+
+-50.0 <= features:0 <= 50.0
+
+-12.13961935043335 <= w1/read:0 <= 11.997373580932617
+
+10.696292354906689 <= ConstantFolding/div_2_recip:0 <= 201.13304485115327
+
+mul_15:0 = 6978.82275390625
+
+const_ends__56 = [1.00000000e+00 2.14748365e+09]
+
+-7.73840856552124 <= b1/read:0 <= 8.252956628799438
+
+-7.436375737190247 <= bout/read:0 <= 5.786569595336914
+
+const_fold_opt__122 = 128.0
+
+==========initial bounds==========
+
+-0.6304418742656708 <= ConstantFolding/div_8_recip:0 <= 1.4524326771497726
+
+const_fold_opt__124 = 10.0
+
+-50.0 <= div:0 <= 50.0
+
+const_starts__32 = 0.0
+
+clip_by_value_1/Minimum/y:0 = 1.0
+
+-13.023763418197632 <= G_matmul_2/read:0 <= 30.004573702812195
+
+const_starts__55 = [0. 0.]
+
+64.03466796875 <= Sum_1:0 <= 132.0572509765625
+
+const_ends__74 = 1.0
+
+-9.06857419013977 <= wout/read:0 <= 9.525025129318237
+
+clip_by_value_2/y:0 = -1.0
+
+const_axes__106 = -1.0
+
+-50.0 <= labels:0 <= 50.0
+
+softmax_cross_entropy_with_logits_sg/Reshape_1_shape__126 = [-1. 10.]
+
+const_axes__85 = [0. 1.]
+
+-15.937820434570312 <= G_matmul_1/read:0 <= 31.90074348449707
+
+493.98284912109375 <= Sum:0 <= 718.3165283203125
+
+-50.0 <= features:0 <= 50.0
+
+-12.13961935043335 <= w1/read:0 <= 11.997373580932617
+
+-119.38410440087318 <= ConstantFolding/div_2_recip:0 <= 238.95624287426472
+
+mul_15:0 = 6978.82275390625
+
+const_ends__56 = [1.00000000e+00 2.14748365e+09]
+
+-7.73840856552124 <= b1/read:0 <= 8.252956628799438
+
+-7.436375737190247 <= bout/read:0 <= 5.786569595336914
+
+const_fold_opt__122 = 128.0
 

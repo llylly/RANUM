@@ -6,7 +6,7 @@ ID 2a, ID 2b:
 [no official fix; our is valid]
 https://github.com/gabrieleangeletti/Deep-Learning-TensorFlow/blob/master/yadlt/models/linear/logistic_regression.py Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? (Issued)
 
 ID 3:
 https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/2_BasicModels/logistic_regression.py
@@ -14,7 +14,7 @@ https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/2_Basi
 Bug not fixed
 Similar issue is reported but not fixed: https://github.com/aymericdamien/TensorFlow-Examples/issues/383
 Our fix is valid
-Issue PR?
+* Issue PR?
 
 ID 4:
 https://github.com/JonasSchult/pytorch_geometric_fork/blob/master/test/nn/models/test_autoencoder.py
@@ -83,7 +83,7 @@ https://github.com/betasspace/MNIST/blob/master/v3/train.py
 [no official fix; our is valid]
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? -> bug already fixed
 
 ID 15:
 https://github.com/OliverRichter/map-reader/blob/6a346db9912a680527c7eb6c59ccd5fe16aa8d08/lab/mapreader/model/tensorflow-value-iteration-networks-master/train.py
@@ -96,6 +96,7 @@ https://github.com/karlxigua/FuzzForTensorFlow/blob/master/tensorfuzz-master/exa
 Bug not fixed
 Our fix is valid
 Issue PR?
+The author knows the bug, no need to issue PR
 
 ID 17:
 https://github.com/jakeret/tf_unet
@@ -117,14 +118,14 @@ https://github.com/tangsong41/stu_py/blob/d41507cd8dd9e8a54084872dfa15c36da443c0
 [no official fix; our is valid]
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? Issued
 
 ID 20:
 https://github.com/aymericdamien/TensorFlow-Examples/blob/master/examples/2_BasicModels/logistic_regression.py
 [no official fix; our is valid]
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? Someone has issued this PR but no response
 
 ID 21:
 [no location]
@@ -157,21 +158,21 @@ ID 26:
 https://github.com/HyundongHwang/PyTorchDeepLearningStart/blob/master/0401_logistic_regression.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
 ID 27:
 [no official fix; our is valid]
 https://github.com/HyundongHwang/PyTorchDeepLearningStart/blob/master/0503_softmax_regression_cost.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
-ID 28a, 28b:
+ID 28c, 28d:
 https://github.com/adamsolomou/SC-DNN/issues/1
 [official fix is better than ours]
 The official fix add eps to the denominator, which ours impose strict preconditions on input and weight nodes, which eliminate gradients for training and hurt model expressivity.
 
-ID 28c, 28d, 28e:
+ID 28a, 28b:
 [impractical numerical defect, no need to fix]
 
 ID 29:
@@ -179,7 +180,7 @@ https://github.com/mevanoff24/MachineLearning/tree/163c1ef64d371ab303783f4f2e489
 [no official fix; our is valid]
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? Someone has issued the PR.
 
 ID 30:
 [no location]
@@ -194,7 +195,7 @@ ID 32:
 https://github.com/HyundongHwang/PyTorchDeepLearningStart/blob/master/0504_softmax_regression.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
 ID 33:
 [no location]
@@ -204,7 +205,7 @@ ID 34:
 [no location]
 The code seems to be a simple hard-coded softmax classification program, but we failed to locate it on GitHub.
 
-ID 35a, 35b, 35c:
+ID 35b, 35a:
 [equivalent]
 https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/issues/1
 Our current fixes are on input and weight nodes, which does not match the proposed fix
@@ -215,9 +216,9 @@ ID 36a:
 https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_03_Pic_10_05.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
-ID 36b, 36c:
+ID 36b:
 [no location]
 The code seems to be mutated versions of ID 36a, so they don't exist in the GitHub repository.
 
@@ -240,9 +241,9 @@ ID 39a:
 https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_04_Pic_10_06.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
-ID 39b, 39c:
+ID 39b:
 [no location]
 The code seems to be mutated versions of ID 39a, so they don't exist in the GitHub repository.
 
@@ -272,9 +273,9 @@ ID 43a:
 https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_05_Pic_10_07.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
-ID 43b, 43c:
+ID 43b:
 [no location]
 The code seems to be mutated versions of ID 43a, so they don't exist in the GitHub repository.
 
@@ -319,7 +320,7 @@ ID 49a:
 https://github.com/iusaspb/deep_learning_Nikolenko_and_Co/blob/master/ch10_04_06_Pic_10_08.py
 Bug not fixed
 Our fix is valid
-Issue PR?
+Issue PR? issued
 
 ID 49b, 49c:
 [no location]

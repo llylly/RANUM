@@ -1,112 +1,112 @@
 {
   "all": {
     "tot_start_points": 25,
-    "tot_changed_nodes": 2,
-    "average_shrinkage": 0.05874236,
+    "tot_changed_nodes": 8,
+    "average_shrinkage": 0.318998106099697,
     "maximum_shrinkage": 1.0,
     "minimum_shrink": 0.0
   }
 }
 
-const_axes__106 = -1.0
+const_ends__19 = 1.0
+
+0.0035635791153706964 <= wout/read:0 <= 0.08361173621886392
+
+G_matmul_1/read:0 = 1.6422004699707031
+
+Sum_2:0 = 61.320743560791016
+
+ConstantFolding/div_8_recip:0 = 0.07407886534929276
+
+-0.2087278958964645 <= features:0 <= 0.2087278958964645
+
+const_starts__81 = [0. 0.]
+
+const_axes__104 = -1.0
+
+const_fold_opt__122 = 0.0
+
+Sum_1:0 = 116.89507781982422
+
+-0.2087278958964645 <= div:0 <= 0.2087278958964645
+
+const_fold_opt__119 = 10.0
+
+const_axes__83 = [0. 1.]
+
+const_fold_opt__120 = 128.0
+
+-0.3677745875868259 <= b1/read:0 <= -0.30438079266219753
+
+0.27016767969578276 <= bout/read:0 <= 0.3048425007775449
+
+const_ends__54 = [1.00000000e+00 2.14748365e+09]
+
+ConstantFolding/div_2_recip:0 = 0.6089390516281128
+
+softmax_cross_entropy_with_logits_sg/Reshape_shape__124 = [-1. 10.]
+
+Sum:0 = 563.4609008789063
+
+0.004169159769054222 <= w1/read:0 <= 0.10692101706944676
+
+clip_by_value/y:0 = -1.0
 
 -50.0 <= labels:0 <= 50.0
 
-const_starts__83 = [0. 0.]
-
--13.102320671081543 <= w1/read:0 <= 13.291892051696777
-
-const_axes__85 = [0. 1.]
-
-softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
-
-Sum:0 = 475.06207275390625
-
-77.3105239868164 <= Sum_1:0 <= 115.62861633300781
-
-const_fold_opt__123 = 128.0
-
-const_fold_opt__124 = 10.0
-
--8.432379245758057 <= b1/read:0 <= 7.973365783691406
-
--14.729113787412643 <= G_matmul_2/read:0 <= 29.4458776563406
-
-const_ends__56 = [1.00000000e+00 2.14748365e+09]
-
-1.119283487223548 <= ConstantFolding/div_2_recip:0 <= 19.24182389352434
-
--50.0 <= features:0 <= 50.0
+G_matmul_2/read:0 = 13.499126434326172
 
 clip_by_value_1/Minimum/y:0 = 1.0
-
-mul_15:0 = 7034.00341796875
-
-const_ends__27 = 1.0
-
--487.31403267383575 <= ConstantFolding/div_8_recip:0 <= 245.87832474708557
-
--50.0 <= div:0 <= 50.0
-
--15.648397445678711 <= G_matmul_1/read:0 <= 31.55925941467285
-
-const_axes__22 = 0.0
-
-clip_by_value_3/y:0 = -1.0
-
--9.130822658538818 <= wout/read:0 <= 9.349496603012085
-
--4.46206259727478 <= bout/read:0 <= 5.120524644851685
 
 ==========initial bounds==========
 
-const_axes__106 = -1.0
+const_ends__19 = 1.0
 
--50.0 <= labels:0 <= 50.0
+-9.433289766311646 <= wout/read:0 <= 9.741951942443848
 
-const_starts__83 = [0. 0.]
+G_matmul_1/read:0 = 1.6422004699707031
 
--13.102320671081543 <= w1/read:0 <= 13.291892051696777
+Sum_2:0 = 61.320743560791016
 
-const_axes__85 = [0. 1.]
-
-softmax_cross_entropy_with_logits_sg/Reshape_1_shape__125 = [-1. 10.]
-
-475.06207275390625 <= Sum:0 <= 739.186767578125
-
-77.3105239868164 <= Sum_1:0 <= 115.62861633300781
-
-const_fold_opt__123 = 128.0
-
-const_fold_opt__124 = 10.0
-
--8.432379245758057 <= b1/read:0 <= 7.973365783691406
-
--14.729113787412643 <= G_matmul_2/read:0 <= 29.4458776563406
-
-const_ends__56 = [1.00000000e+00 2.14748365e+09]
-
--11.303721353411674 <= ConstantFolding/div_2_recip:0 <= 22.79703565686941
+ConstantFolding/div_8_recip:0 = 0.07407886534929276
 
 -50.0 <= features:0 <= 50.0
 
-clip_by_value_1/Minimum/y:0 = 1.0
+const_starts__81 = [0. 0.]
 
-mul_15:0 = 7034.00341796875
+const_axes__104 = -1.0
 
-const_ends__27 = 1.0
+const_fold_opt__122 = 0.0
 
--487.31403267383575 <= ConstantFolding/div_8_recip:0 <= 245.87832474708557
+63.43316650390625 <= Sum_1:0 <= 131.19537353515625
 
 -50.0 <= div:0 <= 50.0
 
--15.648397445678711 <= G_matmul_1/read:0 <= 31.55925941467285
+const_fold_opt__119 = 10.0
 
-const_axes__22 = 0.0
+const_axes__83 = [0. 1.]
 
-clip_by_value_3/y:0 = -1.0
+const_fold_opt__120 = 128.0
 
--9.130822658538818 <= wout/read:0 <= 9.349496603012085
+-7.928952932357788 <= b1/read:0 <= 7.256797552108765
 
--4.46206259727478 <= bout/read:0 <= 5.120524644851685
+-3.8656078577041626 <= bout/read:0 <= 4.44061803817749
+
+const_ends__54 = [1.00000000e+00 2.14748365e+09]
+
+ConstantFolding/div_2_recip:0 = 0.6089390516281128
+
+softmax_cross_entropy_with_logits_sg/Reshape_shape__124 = [-1. 10.]
+
+512.2371826171875 <= Sum:0 <= 739.7173461914062
+
+-12.129912853240967 <= w1/read:0 <= 12.483916759490967
+
+clip_by_value/y:0 = -1.0
+
+-50.0 <= labels:0 <= 50.0
+
+G_matmul_2/read:0 = 13.499126434326172
+
+clip_by_value_1/Minimum/y:0 = 1.0
 

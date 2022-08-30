@@ -48,6 +48,8 @@ if __name__ == '__main__':
 
             pkl_package = {'time_stat': runningtime_stat, 'numerical_bugs': bugs, 'unspported_ops': unsupported_ops, 'model': model}
             pkl_path = f'results/bug_verifier/{bench_type}/{file[:-5]}.pkl'
+            if not os.path.exists(os.path.dirname(pkl_path)):
+                os.makedirs(os.path.dirname(pkl_path))
             with open(pkl_path, 'wb') as f:
                 pickle.dump(pkl_package, f)
             print(f'saved to {pkl_path}')

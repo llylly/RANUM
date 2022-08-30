@@ -8,45 +8,45 @@
   }
 }
 
--0.006668168144184604 <= dense/kernel/read:0 <= 0.09024624632380346
+-0.006682133146584238 <= dense/kernel/read:0 <= 0.09023332111972919
+
+clip_by_value_1/y:0 = 9.999999974752427e-07
+
+-0.09427924306669706 <= dense_2/kernel/read:0 <= 0.002539879661429628
+
+-0.09436581258265389 <= dense_1/kernel/read:0 <= 0.002537811089379949
+
+const_fold_opt__18 = 1.0
+
+clip_by_value/Minimum/y:0 = 87.0
+
+-50.0 <= y:0 <= 50.0
+
+clip_by_value/y:0 = -87.0
 
 -3.276490674476908 <= x:0 <= 3.184591214749764
 
-const_fold_opt__18 = 1.0
-
-clip_by_value/Minimum/y:0 = 87.0
-
--0.0944397108216387 <= dense_1/kernel/read:0 <= 0.0024671246718890177
-
--50.0 <= y:0 <= 50.0
-
 clip_by_value_1/Minimum/y:0 = 1.0
-
-clip_by_value_1/y:0 = 9.999999974752427e-07
-
--0.09360716684767703 <= dense_2/kernel/read:0 <= 0.0031585333531558776
-
-clip_by_value/y:0 = -87.0
 
 ==========initial bounds==========
 
--0.7499819993972778 <= dense/kernel/read:0 <= 0.749989926815033
+-0.7499932646751404 <= dense/kernel/read:0 <= 0.7499947547912598
 
--50.0 <= x:0 <= 50.0
+clip_by_value_1/y:0 = 9.999999974752427e-07
+
+-0.749229371547699 <= dense_2/kernel/read:0 <= 0.7492676973342896
+
+-0.7498939037322998 <= dense_1/kernel/read:0 <= 0.7499110102653503
 
 const_fold_opt__18 = 1.0
 
 clip_by_value/Minimum/y:0 = 87.0
 
--0.7499352693557739 <= dense_1/kernel/read:0 <= 0.7499193549156189
-
 -50.0 <= y:0 <= 50.0
 
-clip_by_value_1/Minimum/y:0 = 1.0
-
-clip_by_value_1/y:0 = 9.999999974752427e-07
-
--0.748661458492279 <= dense_2/kernel/read:0 <= 0.7490087747573853
-
 clip_by_value/y:0 = -87.0
+
+-50.0 <= x:0 <= 50.0
+
+clip_by_value_1/Minimum/y:0 = 1.0
 

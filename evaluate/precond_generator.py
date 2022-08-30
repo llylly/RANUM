@@ -51,17 +51,17 @@ success_cases = list()
 failed_cases = list()
 
 parser = argparse.ArgumentParser()
-parser.add_argument('method', choices=['debarus', 'gd', 'debarusexpand'])
+parser.add_argument('method', choices=['ranum', 'gd', 'ranumexpand'])
 parser.add_argument('var', choices=['all', 'input', 'weight'], default='all')
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    if args.method == 'debarus':
+    if args.method == 'ranum':
         approach = ''
     elif args.method == 'gd':
         approach = 'gd'
-    elif args.method == 'debarusexpand':
-        approach = 'debarusexpand'
+    elif args.method == 'ranumexpand':
+        approach = 'ranumexpand'
     variables = args.var
 
     global_unsupported_ops = dict()

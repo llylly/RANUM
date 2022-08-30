@@ -66,3 +66,23 @@ exp
 softmax
 sigmoid
 tanh
+
+
+New operators in RANUM:
+gemm
+maxpool
+globalmaxpool
+reciprocal
+softsign
+gather
+gatherND
+scatterelements
+negativeloglikelihoodloss
+loop
+nonzero
+pad
+randomnormalike
+randomuniformlike
+randomnormal
+randomuniform
+resize

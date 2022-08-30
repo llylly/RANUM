@@ -4,3 +4,4 @@ result/
 *.pyc
 results/
 tmp.txt
+model_zoo_backup

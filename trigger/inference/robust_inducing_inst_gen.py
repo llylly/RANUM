@@ -4,7 +4,7 @@
 
 EPS = 1e-5
 
-TLE = 180
+TLE = 180000
 
 import time
 import argparse
@@ -183,6 +183,7 @@ class InducingInputGenModule(nn.Module):
                 divisor = [item for item in prev_nodes if item[3] == 1][0]
                 divisor_abs = self.abstracts[divisor[0]]
                 loss += torch.sum((torch.abs(divisor_abs.lb) + torch.abs(divisor_abs.ub)))
+                # loss += torch.sum(torch.log(torch.maximum(torch.abs(divisor_abs.lb), torch.abs(divisor_abs.ub))))
             else:
                 raise Exception(f'excep type {excep.optype} not supported yet, you can follow above template to extend the support')
         return loss, errors
@@ -396,7 +397,10 @@ def prompt(msg):
     print(f'[{time.time() - stime:.3f}s] ' + msg)
 
 def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, default_lr=1., default_lr_decay=0.1, default_step=500,
+                                beta1=0.9, beta2=0.999,
                                 max_iters=100, span_len_step=np.sqrt(10), span_len_start=1e-10/2.0,
+                                max_step_expand_time=2,
+                                select_err_nodes=None,
                                 skip_stages=list()):
     """
         The wrapped function for inference time input generation
@@ -436,8 +440,9 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
         error_entities, root, catastro = v
         if not catastro:
             for error_entity in error_entities:
-                err_nodes.append(error_entity.var_name)
-                err_exceps.append(error_entity)
+                if select_err_nodes is None or (error_entity.var_name in select_err_nodes):
+                    err_nodes.append(error_entity.var_name)
+                    err_exceps.append(error_entity)
 
     if not os.path.exists(os.path.join(dumping_folder, bare_name)):
         os.makedirs(os.path.join(dumping_folder, bare_name))
@@ -466,8 +471,10 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
                 # try to maximize span length
                 span_len = 0.
                 try_span_len = span_len_start
+                expand_time = 0
                 while try_span_len < 0.5:
                     print('try span len =', try_span_len)
+                    if expand_time > max_step_expand_time: break
                     inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
                     inputgen_module.clip_to_valid_range(vanilla_lb_ub)
                     loss, errors = inputgen_module.forward([err_node], [err_excep])
@@ -477,6 +484,7 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
                     else:
                         span_len = try_span_len
                         try_span_len *= span_len_step
+                    expand_time += 1
                 now_stats_item['span_len'] = span_len
 
                 if dumping_folder is not None:
@@ -509,14 +517,17 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
             # try to maximize span length
             span_len = -1.
             try_span_len = 0.
+            expand_time = 0
 
             while try_span_len < 0.5:
                 print('try span len =', try_span_len)
+                if expand_time > max_step_expand_time: break
                 now_span_len_success = False
 
                 inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
-                optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=default_lr if bare_name not in customized_lr_inference_inst_gen else customized_lr_inference_inst_gen[bare_name])
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=default_step)
+                optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=default_lr if bare_name not in customized_lr_inference_inst_gen else customized_lr_inference_inst_gen[bare_name],
+                                             betas=(beta1, beta2))
+                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=default_step, gamma=default_lr_decay)
 
                 for iter in range(max_iters):
                     # print('----------------')
@@ -561,6 +572,7 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
                 else:
                     break
 
+                expand_time += 1
             lt_time = time.time()
             now_stats_item['spec-input-rand-weight-time'] = lt_time - ls_time
             now_stats_item['spec-input-rand-weight-iters'] = iters_log
@@ -578,61 +590,134 @@ def inducing_inference_inst_gen(modelpath, mode, seed, dumping_folder=None, defa
             # try to maximize span length
             span_len = -1.
             try_span_len = 0.
+            expand_time = 0
 
-            while try_span_len < 0.5:
-                print('try span len =', try_span_len)
+            # a heuristic to distinguish a time-costly model
+            # if one infrence pass takes over 50 seconds, we think it's difficult to apply gradient-based method
+            # so we fall back to random trial
+            costly_case = time.time() - stime > 50
+
+            if costly_case:
                 now_span_len_success = False
+                range_for_sampling = dict()
 
-                inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
-                optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=default_lr if bare_name not in customized_lr_inference_inst_gen else customized_lr_inference_inst_gen[bare_name])
-                scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=default_step)
+                # obtain the expanded initial abstracts
+                for s, abst in model.initial_abstracts.items():
+                    expanded_lb = expand(abst.lb, abst.shape, abst.splits)
+                    expanded_ub = expand(abst.ub, abst.shape, abst.splits)
+                    now_abst = Abstraction()
+                    now_abst.lb = expanded_lb
+                    now_abst.ub = expanded_ub
+                    now_abst.shape = abst.shape.copy()
+                    now_abst.splits = [list(range(n)) for n in abst.shape]
+                    now_abst.var_name = s
+                    range_for_sampling[s] = now_abst
 
-                for iter in range(max_iters):
-                    # print('----------------')
+                # start the generation process
+                success_num = 0
 
-                    optimizer.zero_grad()
-                    loss, errors = inputgen_module.forward([err_node], [err_excep])
-                    trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
-
-                    print(f'[{bare_name},err{err_seq_no},{err_node}] iter =', iter, 'loss =', loss, 'has robust error =', len(robust_errors))
-
-                    if err_node in trigger_nodes:
-                        now_span_len_success = True
-                        print('robust error found!')
-                        break
-
-                    try:
-                        loss.backward()
-                    except:
-                        break
-                    optimizer.step()
-                    scheduler.step()
-
-                    inputgen_module.clip_to_valid_range(vanilla_lb_ub)
-
-                    if time.time() - stime > TLE: break
-
-                iters_log[try_span_len] = iter
+                data = dict()
+                for s, abst in range_for_sampling.items():
+                    thing = torch.rand([max_iters] + range_for_sampling[s].shape).type(abst.lb.dtype)
+                    scaled_thing = abst.lb + thing * (abst.ub - abst.lb)
+                    data[s] = scaled_thing.detach()
+                batch_abst = list()
+                for i in range(max_iters):
+                    sample = dict()
+                    for s, orig_abst in range_for_sampling.items():
+                        a = Abstraction()
+                        a.lb = data[s][i]
+                        a.ub = data[s][i]
+                        a.splits = orig_abst.splits
+                        a.shape = orig_abst.shape
+                        a.var_name = orig_abst.var_name
+                        sample[s] = a
+                    batch_abst.append(sample)
+                for i in range(max_iters):
+                    iters_log[try_span_len] = i + 1
+                    print('Random sampling based try #', i+1)
+                    _, errors = model.forward(batch_abst[i], {'diff_order': 0, 'concrete_rand': seed, 'continue_prop': False})
+                    if err_node in errors:
+                        success_num += 1
+                        if success_num == 1:
+                            # first data, saved as random.pt
+                            success_sample = dict()
+                            for s in data:
+                                success_sample[s] = data[s][i]
+                            inputgen_module.centers = success_sample
+                            now_span_len_success = True
+                            break
 
                 if now_span_len_success:
                     success = True
                     category = 'spec-input-spec-weight'
-                    span_len = try_span_len
                     now_stats_item['span_len'] = span_len
-
-                    if try_span_len == 0.:
-                        try_span_len = span_len_start
-                    else:
-                        try_span_len *= span_len_step
 
                     if dumping_folder is not None:
                         if not os.path.exists(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))):
                             os.makedirs(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt')))
                         torch.save(inputgen_module.dump_init_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))
                         torch.save(inputgen_module.dump_gen_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_gen.pt'))
-                else:
-                    break
 
+            else:
+                # normal gradient descent case
+                while try_span_len < 0.5:
+                    print('try span len =', try_span_len)
+                    if expand_time > max_step_expand_time: break
+                    now_span_len_success = False
+
+                    inputgen_module.set_span_len(try_span_len, no_span_vars=nospan_vars)
+                    optimizer = torch.optim.Adam(inputgen_module.parameters(), lr=default_lr if bare_name not in customized_lr_inference_inst_gen else customized_lr_inference_inst_gen[bare_name],
+                                                 betas=(beta1, beta2))
+                    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=default_step, gamma=default_lr_decay)
+
+                    for iter in range(max_iters):
+                        # print('----------------')
+
+                        optimizer.zero_grad()
+                        loss, errors = inputgen_module.forward([err_node], [err_excep])
+                        trigger_nodes, robust_errors = inputgen_module.robust_error_check(err_nodes, err_exceps)
+
+                        print(f'[{bare_name},err{err_seq_no},{err_node}] iter =', iter, 'loss =', loss, 'has robust error =', len(robust_errors))
+
+                        if err_node in trigger_nodes:
+                            now_span_len_success = True
+                            print('robust error found!')
+                            break
+
+                        try:
+                            loss.backward()
+                        except:
+                            break
+                        optimizer.step()
+                        scheduler.step()
+
+                        inputgen_module.clip_to_valid_range(vanilla_lb_ub)
+
+                        if time.time() - stime > TLE: break
+
+                    iters_log[try_span_len] = iter
+
+                    if now_span_len_success:
+                        success = True
+                        category = 'spec-input-spec-weight'
+                        span_len = try_span_len
+                        now_stats_item['span_len'] = span_len
+
+                        if try_span_len == 0.:
+                            try_span_len = span_len_start
+                        else:
+                            try_span_len *= span_len_step
+
+                        if dumping_folder is not None:
+                            if not os.path.exists(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))):
+                                os.makedirs(os.path.dirname(os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt')))
+                            torch.save(inputgen_module.dump_init_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_init.pt'))
+                            torch.save(inputgen_module.dump_gen_weights(), os.path.join(dumping_folder, bare_name, f'{err_seq_no}_{err_node}_gen.pt'))
+                    else:
+                        break
+
+                    expand_time += 1
             lt_time = time.time()
             now_stats_item['spec-input-spec-weight-time'] = lt_time - ls_time
             now_stats_item['spec-input-spec-weight-iters'] = iters_log
