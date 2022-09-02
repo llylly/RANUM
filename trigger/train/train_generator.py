@@ -454,6 +454,12 @@ def train_input_gen(modelpath, err_node_name, err_seq_no, checkpoint_folder, see
 
                     def closure():
                         optimizer.zero_grad()
+                        # for k, v in traingen_module.inputs.items():
+                        #     if k in input_nodes:
+                        #         v.data.clamp_(min=vanilla_lb_ub[k][0], max=vanilla_lb_ub[k][1])
+                        # for k, v in traingen_module.inputs.items():
+                        #     if k in input_nodes:
+                        #         print('iter =', iters, k, '=', traingen_module.inputs['input'])
                         grad_diff, _, _ = traingen_module.forward(learning_rate=learning_rate)
                         print('iter =', iters, 'loss =', grad_diff)
                         if grad_diff.requires_grad:

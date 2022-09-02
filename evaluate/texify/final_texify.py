@@ -104,9 +104,9 @@ if __name__ == '__main__':
         else:
             attach_name = str(ord(mname[-1]) - ord('a'))
             logmname = mname[:-1]
-        for run in range(3):
+        for run in range(10):
             find = False
-            with open(f'../GRIST/log_{logmname}_{attach_name}_run{run}.txt', 'r') as f:
+            with open(f'results/GRIST_log/log_{logmname}_{attach_name}_run{run}.txt', 'r') as f:
                 lines = f.readlines()
             for line in lines[-5:]:
                 if line.startswith('FINAL RESULTS:'):
@@ -121,12 +121,12 @@ if __name__ == '__main__':
             assert find or mname == '14'
     for i, mname in enumerate(ordering):
         run_records = grist_unit_test[mname]
-        if len(run_records) > 2:
-            grist_unit_test[mname] = [run_records[0][0] + run_records[1][0] + run_records[2][0],
-                                      (run_records[0][1] + run_records[1][1] + run_records[2][1]) / 3.]
+        if len(run_records) > 9:
+            grist_unit_test[mname] = [sum([run_records[j][0] for j in range(10)]),
+                                      sum([run_records[j][1] for j in range(10)]) / 10.]
         else:
             assert mname == '14' # failed to run case ID using GRIST original code, so we directly use the running statistics from the GRIST paper
-            grist_unit_test[mname] = [3, 86.23]
+            grist_unit_test[mname] = [10, 86.23]
     grist_unit_test_fails = {
         '17': 0, '31': 3, '51': 3
     } # digested from GRIST paper since our reproduced failures are strictly more, and GRIST paper's number may be the better run
@@ -471,14 +471,14 @@ if __name__ == '__main__':
         tot_precond_expand_input += num_debarusexpand
         tot_precond_expand_input_time += time_debarusexpand
 
-    print('precond: debarus weight + input', tot_precond_debar_weight_input, 'time', tot_precond_debar_weight_input_time)
-    print('precond: dexpand weight + input', tot_precond_expand_weight_input, 'time', tot_precond_expand_weight_input_time)
+    print('precond: RANUM weight + input  ', tot_precond_debar_weight_input, 'time', tot_precond_debar_weight_input_time)
+    print('precond: RANUM-E weight + input', tot_precond_expand_weight_input, 'time', tot_precond_expand_weight_input_time)
     print('precond: gd weight + input     ', tot_precond_gd_weight_input, 'time', tot_precond_gd_weight_input_time)
-    print('precond: debarus weight        ', tot_precond_debar_weight, 'time', tot_precond_debar_weight_time)
-    print('precond: dexpand weight        ', tot_precond_expand_weight, 'time', tot_precond_expand_weight_time)
+    print('precond: RANUM weight          ', tot_precond_debar_weight, 'time', tot_precond_debar_weight_time)
+    print('precond: RANUM-E weight        ', tot_precond_expand_weight, 'time', tot_precond_expand_weight_time)
     print('precond: gd weight             ', tot_precond_gd_weight, 'time', tot_precond_gd_weight_time)
-    print('precond: debarus input         ', tot_precond_debar_input, 'time', tot_precond_debar_input_time)
-    print('precond: dexpand input         ', tot_precond_expand_input, 'time', tot_precond_expand_input_time)
+    print('precond: RANUM input           ', tot_precond_debar_input, 'time', tot_precond_debar_input_time)
+    print('precond: RANUM-E input         ', tot_precond_expand_input, 'time', tot_precond_expand_input_time)
     print('precond: gd input              ', tot_precond_gd_input, 'time', tot_precond_gd_input_time)
 
 

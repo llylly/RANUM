@@ -489,6 +489,8 @@ current_new_scripts = {
     "ID_36b": "model_zoo/grist_models/ID_36/ch10_04_03_Pic_10_05_sqrt_DEBARUS.py",
     "ID_37": "model_zoo/grist_models/ID_37/lab-05-1-logistic_regression_DEBARUS.py",
     "ID_38": "model_zoo/grist_models/ID_38/lab-09-1-xor_DEBARUS.py",
+    "ID_37z": "model_zoo/grist_models/ID_37/lab-05-1-logistic_regression_DEBARUS_fix.py",
+    "ID_38z": "model_zoo/grist_models/ID_38/lab-09-1-xor_DEBARUS_fix.py",
     "ID_39a": "model_zoo/grist_models/ID_39/ch10_04_04_Pic_10_06_DEBARUS.py",
     # "ID_39b": "model_zoo/grist_models/ID_39/ch10_04_04_Pic_10_06_exp_DEBARUS.py",
     "ID_39b": "model_zoo/grist_models/ID_39/ch10_04_04_Pic_10_06_sqrt_DEBARUS.py",
@@ -576,7 +578,11 @@ package_info = {
     # "ID_36b": "tensorflow",
     "ID_36b": "tensorflow",
     "ID_37": "torch",
+    # for ablation study, we construct 37z
+    "ID_37z": "torch",
     "ID_38": "torch",
+    # for ablation study, we construct 38z
+    "ID_38z": "torch",
     "ID_39a": "tensorflow",
     # "ID_39b": "tensorflow",
     "ID_39b": "tensorflow",
