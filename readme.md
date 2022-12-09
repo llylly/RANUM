@@ -1,6 +1,18 @@
-# Readme: RANUM
+# RANUM
 
-RANUM is a tool for testing and debugging the numerical failures in DNN architectures.
+RANUM is a tool for detecting, testing and fixing the numerical defects in DNN architectures.
+
+If you find the tool useful, please consider citing our accompanying paper at ICSE 2023:
+
+```
+@inproceedings{li2023raliability,
+    author={Linyi Li and Yuhao Zhang and Luyao Ren and Yingfei Xiong and Tao Xie},
+    title = {Reliability Assurance for Deep Neural Network Architectures Against Numerical Defects},
+    booktitle = {45th International Conference on Software Engineering, {ICSE} 2023, Melbourne, Australia, 14-20 May 2023},
+    publisher = {{IEEE/ACM}},
+    year = {2023},
+}
+```
 
 ## Usage
 
