@@ -361,6 +361,8 @@ if __name__ == '__main__':
     tot_precond_expand_input_time = 0.
 
 
+    iters_cnt = {}
+
     for i, mname in enumerate(ordering):
 
         # precondition generation
@@ -373,6 +375,7 @@ if __name__ == '__main__':
             data = json.load(f)
             num_debarus += data['success_cnt']
             time_debarus += data['time_stat']['all']
+            iters_cnt[mname] = data['iter_stat']['all']
         ans[i][8] = f'{tof(num_debarus)} ({time_debarus:.2f})'
         tot_precond_debar_weight_input += num_debarus
         tot_precond_debar_weight_input_time += time_debarus
@@ -481,5 +484,7 @@ if __name__ == '__main__':
     print('precond: RANUM-E input         ', tot_precond_expand_input, 'time', tot_precond_expand_input_time)
     print('precond: gd input              ', tot_precond_gd_input, 'time', tot_precond_gd_input_time)
 
+    print(json.dumps(iters_cnt, indent=2))
+    print(np.mean(list(iters_cnt.values())), np.std(list(iters_cnt.values())), np.max(list(iters_cnt.values())), np.min(list(iters_cnt.values())))
 
     exit(0)
