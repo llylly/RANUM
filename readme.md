@@ -49,16 +49,13 @@ You can use the following script to obtain all results. **It takes roughly 10 ho
 ~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand input
 
 ~/anaconda3/bin/ipython evaluate/robust_inducing_inst_generator.py
-# ~/anaconda3/bin/ipython experiments/unittest/onestep_gd.py # deprecated
 
-# ~/anaconda3/bin/ipython experiments/unittest/err_trigger.py debarus # deprecated
-# ~/anaconda3/bin/ipython experiments/unittest/err_trigger.py gd # deprecated
 ~/anaconda3/bin/ipython experiments/unittest/err_trigger.py random
 
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py debarus
+~/anaconda3/bin/ipython evaluate/train_inst_generator.py ranum
 ~/anaconda3/bin/ipython evaluate/train_inst_generator.py random
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py debarus_p_random
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py random_p_debarus
+~/anaconda3/bin/ipython evaluate/train_inst_generator.py ranum_p_random
+~/anaconda3/bin/ipython evaluate/train_inst_generator.py random_p_ranum
 
 ```
 
@@ -98,7 +95,7 @@ System test generation relies on the generated unit tests, so please run unit te
 
 #### RANUM
 
-`python3 evaluate/train_inst_generator.py debarus`
+`python3 evaluate/train_inst_generator.py ranum`
 
 #### Random
 
@@ -106,11 +103,11 @@ System test generation relies on the generated unit tests, so please run unit te
 
 #### RANUM for inference + Random for system
 
-`python3 evaluate/train_inst_generator.py debarus_p_random`
+`python3 evaluate/train_inst_generator.py ranum_p_random`
 
 #### Random for inference + RANUM for system
 
-`python3 evaluate/train_inst_generator.py random_p_debarus`
+`python3 evaluate/train_inst_generator.py random_p_ranum`
 
 ### 3. Precondition-Fix Generation
 
@@ -118,11 +115,11 @@ System test generation relies on the generated unit tests, so please run unit te
 
 ##### RANUM
 
-`python3 evaluate/precond_generator.py debarus all`
+`python3 evaluate/precond_generator.py ranum all`
 
 ##### RANUM Expand
 
-`python3 evaluate/precond_generator.py debarusexpand all`
+`python3 evaluate/precond_generator.py ranumexpand all`
 
 ##### Gradient Descent
 
@@ -132,11 +129,11 @@ System test generation relies on the generated unit tests, so please run unit te
 
 ##### RANUM
 
-`python3 evaluate/precond_generator.py debarus weight`
+`python3 evaluate/precond_generator.py ranum weight`
 
 ##### RANUM Expand (RANUM-E)
 
-`python3 evaluate/precond_generator.py debarusexpand weight`
+`python3 evaluate/precond_generator.py ranumexpand weight`
 
 ##### Gradient Descent
 
@@ -146,11 +143,11 @@ System test generation relies on the generated unit tests, so please run unit te
 
 ##### RANUM
 
-`python3 evaluate/precond_generator.py debarus input`
+`python3 evaluate/precond_generator.py ranum input`
 
 ##### RANUM Expand (RANUM-E)
 
-`python3 evaluate/precond_generator.py debarusexpand input`
+`python3 evaluate/precond_generator.py ranumexpand input`
 
 ##### Gradient Descent
 

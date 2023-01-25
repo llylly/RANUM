@@ -1,0 +1,3 @@
+Impose fix on node Log:0 with optype Log:
+Log:0.input >= 1e-37
+

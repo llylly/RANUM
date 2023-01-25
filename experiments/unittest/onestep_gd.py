@@ -1,6 +1,6 @@
 """
     Baseline approach: gradient descent
-    This approach reads in the final span of applying DEBARUS.
+    This approach reads in the final span of applying RANUM.
     Directly using this span and try to leverage gradient descent to generate failure-exhibiting intervals
 """
 

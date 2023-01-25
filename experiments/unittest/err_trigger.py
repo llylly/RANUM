@@ -28,7 +28,7 @@ run_benchmarks = ['grist']
 '''
  random = ver_code '' + annotation ''
  gd = ver_code 'v5xxxx' + annotation 'baseline/gradient_gradient'
- debarus = ver_code 'v5xxxx' + annotation ''
+ ranum = ver_code 'v5xxxx' + annotation ''
 '''
 
 N = 5000
@@ -224,13 +224,13 @@ def err_trigger(modelpath, barefilename, ver_code, seed, annotation, ref_ver_cod
     return overall_stat
 
 parser = argparse.ArgumentParser()
-parser.add_argument('method', choices=['debarus', 'gd', 'random'])
+parser.add_argument('method', choices=['ranum', 'gd', 'random'])
 
 if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.method == 'debarus':
+    if args.method == 'ranum':
         ver_code = f'v5_lr{DEFAULT_LR}_decay_{DEFAULT_LR_DECAY}_step{DEFAULT_STEP}_iter{DEFAULT_ITERS}'
         annotation = ''
     elif args.method == 'gd':

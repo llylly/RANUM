@@ -1,0 +1,3 @@
+Impose fix on node LogSoftmax__96:0 with optype LogSoftMax:
+1e-17 <= LogSoftmax__96:0.input <= 1e+18
+

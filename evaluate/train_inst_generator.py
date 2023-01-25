@@ -42,7 +42,7 @@ mode_stats = dict()
 time_stats = dict()
 iter_stats = dict()
 
-# DEBARUS
+# RANUM
 # approach = ''
 # Gradient Descent
 # approach = 'gd'
@@ -50,12 +50,12 @@ iter_stats = dict()
 approach = 'random'
 
 parser = argparse.ArgumentParser()
-parser.add_argument('method', type=str, choices=['debarus', 'random', 'random_p_debarus', 'debarus_p_random'], default='debarus')
+parser.add_argument('method', type=str, choices=['ranum', 'random', 'random_p_ranum', 'ranum_p_random'], default='ranum')
 if __name__ == '__main__':
 
     args = parser.parse_args()
     approach = args.method
-    # if approach == 'debarus': approach = ''
+    # if approach == 'ranum': approach = ''
 
     output_str = ''
 
@@ -71,7 +71,7 @@ if __name__ == '__main__':
                 modeldir = 'model_zoo/tf_protobufs_onnx'
 
             infer_inst_dir = f'results/inference_inst_gen/{benchmark}/{infer_inst_ver_code}/{infer_inst_seed}'
-            train_inst_dir = f'results/training_inst_gen/{benchmark}/{infer_inst_ver_code}{approach if approach != "debarus" else ""}/{infer_inst_seed}'
+            train_inst_dir = f'results/training_inst_gen/{benchmark}/{infer_inst_ver_code}{approach if approach != "ranum" else ""}/{infer_inst_seed}'
 
             files = os.listdir(f'{infer_inst_dir}/stats')
 
@@ -87,14 +87,14 @@ if __name__ == '__main__':
                 tread_s = time.time()
                 with open(f'{infer_inst_dir}/stats/{file}/data.json', 'r') as f:
                     stats = json.load(f)
-                if approach == 'random' or approach == 'random_p_debarus':
+                if approach == 'random' or approach == 'random_p_ranum':
                     with open(f'results/endtoend/unittest/random/{infer_inst_seed}/{benchmark}/{file}.json', 'r') as f:
                         random_stats = json.load(f)
                 tread_t = time.time()
                 for err_node in stats:
                     detail_status = stats[err_node]
 
-                    if approach == 'random' or approach == 'random_p_debarus':
+                    if approach == 'random' or approach == 'random_p_ranum':
                         detail_random_status = random_stats[err_node]
                         if detail_status['success'] and detail_random_status['success_num'] > 0:
                             tot_worked_items += 1
@@ -133,7 +133,7 @@ if __name__ == '__main__':
                                 'detail': 'failed on inference generation',
                             }
 
-                    if approach == 'debarus' or approach == 'debarus_p_random':
+                    if approach == 'ranum' or approach == 'ranum_p_random':
                         if detail_status['success']:
                             now_category = detail_status['category']
                             if now_category == 'spec-input-spec-weight':

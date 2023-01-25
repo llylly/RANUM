@@ -47,7 +47,7 @@ if __name__ == '__main__':
                     out_path = f'empirical_study/precond/{mode}'
                     if not os.path.exists(out_path):
                         os.makedirs(out_path)
-                    with open(os.path.join(out_path, f'{mname}_debarus.txt'), 'w') as f:
+                    with open(os.path.join(out_path, f'{mname}_ranum.txt'), 'w') as f:
                         f.write(json.dumps(data['precond_stat'], indent=2) + '\n\n')
                         for node, bounds in results.items():
                             if node not in model.initial_abstracts: continue

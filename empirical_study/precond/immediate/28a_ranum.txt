@@ -1,0 +1,6 @@
+Impose fix on node div_3:0 with optype Div:
+div_3:0.input <= -1e-37 or div_3:0.input >= 1e-37
+
+Impose fix on node div_6:0 with optype Div:
+div_6:0.input <= -1e-37 or div_6:0.input >= 1e-37
+

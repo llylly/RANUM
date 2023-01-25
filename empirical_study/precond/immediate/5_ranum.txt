@@ -1,0 +1,3 @@
+Impose fix on node 37 with optype Sqrt:
+37.input >= 1e-37
+

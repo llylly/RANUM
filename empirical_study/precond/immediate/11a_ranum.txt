@@ -1,0 +1,3 @@
+Impose fix on node Exp_1:0 with optype Exp:
+Exp_1:0.input <= 38.0
+

@@ -1,0 +1,3 @@
+Impose fix on node 12 with optype Log:
+12.input >= 1e-37
+
