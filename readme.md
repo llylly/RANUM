@@ -14,56 +14,81 @@ If you find the tool useful, please consider citing our accompanying paper at IC
 }
 ```
 
-## Usage
+## Installation
 
-All scripts run on Python 3.6.9 + PyTorch 1.8.1 with CPU environment. GPU support only requires minor changes in the code (place `tensor.cuda()` at necessary places).
+The tool is expected to run on Linux + Python + PyTorch platform with around 500 GB storage space.
+Reference installation commands:
+
+```shell
+apt-get install -y python3.6 python3-pip cmake
+pip3 install --upgrade pip
+pip install -r requirements.txt
+```
+
+GPU support only requires minor changes in the code (place `tensor.cuda()` at necessary places). With GPU and these minor changes, times of speed-ups are expected but we haven't tested yet.
+
 For following commands, the working directory is the root directory of this project.
 All results are output to `results/` folder.
 
 ## Result Reproduction
 
-1. To generate all tables presented in the manuscript from included execution logs, please execute:
+This code base contains (1) the official implementation of the RANUM framework for assuring the numerical reliability of deep neural networks; (2) the reference running logs; and (3) detail case-level results for the empirical study.
+
+How to replicate and reproduce the results?
+
+**(1) From the official RANUM framework, users can reproduce all technical experimental results in the RANUM paper.**
+
+**Hardware requirements:**
+To replicate the results from scratch, we need a CPU server with **around 500G** storage space, to save all raw experimental data.
+
+**Hardware requirements:**
+A Linux environment, Python, and PyTorch are required.
+We also provide a Dockerfile, so you can run these commands to get results from scratch.
 
 ```
-~/anaconda3/bin/ipython evaluate/texify/final_texify.py
+docker build -t ranum:v1
+docker run -it ranum:v1
+sh runall.sh
 ```
 
-Data in all experiment tables from the manuscript are automatically generated from the above command.
+Then, all tables in the experimental section can be found in `/srv/results/results.txt`.
+**It may take 4-5 days to finish runing.**
 
-2.
+**(2) From the reference running logs, users can reproduce all technical experimental results in the RANUM paper without running from scratch.**
 
-To evaluate the RANUM and other baseline approaches from scratch, we create a few scripts to run all GRIST dataset cases for 10 random seeds with one command.
-You can use the following script to obtain all results. **It takes roughly 10 hours.**
 
+**Hardware requirements:**
+We need a CPU server without extra storage space, to save all raw experimental data.
+
+**Hardware requirements:**
+A Linux environment, Python, and PyTorch are required.
 ```
-~/anaconda3/bin/ipython evaluate/bug_verifier.py
-
-~/anaconda3/bin/ipython evaluate/precond_generator.py ranum all
-~/anaconda3/bin/ipython evaluate/precond_generator.py ranum weight
-~/anaconda3/bin/ipython evaluate/precond_generator.py ranum input
-~/anaconda3/bin/ipython evaluate/precond_generator.py gd all
-~/anaconda3/bin/ipython evaluate/precond_generator.py gd weight
-~/anaconda3/bin/ipython evaluate/precond_generator.py gd input
-~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand all
-~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand weight
-~/anaconda3/bin/ipython evaluate/precond_generator.py ranumexpand input
-
-~/anaconda3/bin/ipython evaluate/robust_inducing_inst_generator.py
-
-~/anaconda3/bin/ipython experiments/unittest/err_trigger.py random
-
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py ranum
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py random
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py ranum_p_random
-~/anaconda3/bin/ipython evaluate/train_inst_generator.py random_p_ranum
-
+docker build -t ranum:v1
+docker run -it ranum:v1
+ipython evaluate/texify/final_texify.py --result_folder results_digest
 ```
 
+All results will be printed in console in seconds.
 
-#### 3. Empirical Study
+#### How to parse the output results?
+
+Both results in `/srv/results/results.txt` and results in console after running `final_texify.py` have the same format.
+1. `==================== detection ====================`  leads the detail results for static defect detection. This table is no longer shown in the paper, but it answers RQ1 and the statistics (total detection time and average detection time per case) are described in the paper.
+
+2. `==================== Failure-Exhibiting Unit Test ====================` leads the detail results for unit test generation (Table 1) in the paper.
+
+3. `==================== Failure-Exhibiting System Test ====================` leads the detail results for system test generation (Table 2) in the paper. 
+The statistics in the end are number of successful cases and total used time, which are described in the paper for RQ2.
+
+4. `==================== Precondition-Fix ====================` leads the overview results for precondition-fix suggestion in Table 3. 
+   The statistics are used to answer RQ3.
+   In addition, we report the number of iterations in solving the optimization problem.
+   These statistics are not reported in the paper, but they are mainly for diagnosis.
+
+**(3) Detail case-level log for the empirical study**
 
 The detail empirical study log (along with the repository URLs) is in `empirical_study/precond/study_detail.txt` and the statistics are in `empirical_study/precond/study_statistics.csv`.
-The human-friendly precondition-fixes generated by RANUM are in `empirical_study/precond`.
+The human-friendly precondition-fixes generated by RANUM are in `empirical_study/precond`, where `all` means preconditions can be imposed on both initial input nodes and weight nodes; `input` means preconditions can be imposed only on initial input nodes; `weight` means preconditions can be imposed only on weight nodes; and `immediate` means preconditions can be imposed on the immediate vulnerable operators.
 
 The list of DEBAR supported DNN operator types is in `empirical_study/debar_abstraction_list.txt`.
 The list of RANUM supported DNN operator types can be counted from `interp/interp_operator.py`(`inter_*` methods in `Interpreter` class).
@@ -74,7 +99,7 @@ Specifically, we show the individual commands for each stage task.
 
 ### 0. Static Defect Detection
 
-RANUM: `python3 evaluate/bug_verifier.py`
+RANUM: `ipython evaluate/bug_verifier.py`
 
 The running results of DEBAR are from GRIST (Yan et al) paper and DEBAR (Zhang et al) repository.
 
@@ -82,11 +107,11 @@ The running results of DEBAR are from GRIST (Yan et al) paper and DEBAR (Zhang e
 
 #### RANUM
     
-`python3 evaluate/robust_inducing_inst_generator.py` - generate failure-inducing intervals
+`ipython evaluate/robust_inducing_inst_generator.py` - generate failure-inducing intervals
 
 ##### Random
     
-`python3 experiments/unittest/err_trigger.py random` - generate 1000 distinct unit tests from these intervals
+`ipython experiments/unittest/err_trigger.py random` - generate 1000 distinct unit tests from these intervals
 
 ### 2. System Test Generation
 
@@ -95,19 +120,19 @@ System test generation relies on the generated unit tests, so please run unit te
 
 #### RANUM
 
-`python3 evaluate/train_inst_generator.py ranum`
+`ipython evaluate/train_inst_generator.py ranum`
 
 #### Random
 
-`python3 evaluate/train_inst_generator.py random`
+`ipython evaluate/train_inst_generator.py random`
 
 #### RANUM for inference + Random for system
 
-`python3 evaluate/train_inst_generator.py ranum_p_random`
+`ipython evaluate/train_inst_generator.py ranum_p_random`
 
 #### Random for inference + RANUM for system
 
-`python3 evaluate/train_inst_generator.py random_p_ranum`
+`ipython evaluate/train_inst_generator.py random_p_ranum`
 
 ### 3. Precondition-Fix Generation
 
@@ -115,41 +140,52 @@ System test generation relies on the generated unit tests, so please run unit te
 
 ##### RANUM
 
-`python3 evaluate/precond_generator.py ranum all`
+`ipython evaluate/precond_generator.py ranum all`
 
 ##### RANUM Expand
 
-`python3 evaluate/precond_generator.py ranumexpand all`
+`ipython evaluate/precond_generator.py ranumexpand all`
 
 ##### Gradient Descent
 
-`python3 evaluate/precond_generator.py gd all`
+`ipython evaluate/precond_generator.py gd all`
 
 #### b. Precondition on Weight Nodes
 
 ##### RANUM
 
-`python3 evaluate/precond_generator.py ranum weight`
+`ipython evaluate/precond_generator.py ranum weight`
 
 ##### RANUM Expand (RANUM-E)
 
-`python3 evaluate/precond_generator.py ranumexpand weight`
+`ipython evaluate/precond_generator.py ranumexpand weight`
 
 ##### Gradient Descent
 
-`python3 evaluate/precond_generator.py gd weight`
+`ipython evaluate/precond_generator.py gd weight`
 
 #### c. Precondition on Input Nodes
 
 ##### RANUM
 
-`python3 evaluate/precond_generator.py ranum input`
+`ipython evaluate/precond_generator.py ranum input`
 
 ##### RANUM Expand (RANUM-E)
 
-`python3 evaluate/precond_generator.py ranumexpand input`
+`ipython evaluate/precond_generator.py ranumexpand input`
 
 ##### Gradient Descent
 
-`python3 evaluate/precond_generator.py gd input`
+`ipython evaluate/precond_generator.py gd input`
 
+#### d. Precondition on Immediately Vulnerable Operators
+
+`ipython evaluate/precond_generator_immediate.py`
+
+## Other Resources
+
+- Folder `model_zoo/grist_protobufs_onnx` includes ONNX-format DNN architecture files for the 79 real-world defect programs in GRIST. 
+These files extract core DNN architectures in the original programs. 
+Hope these help the evaluation and future development of defect-fixing methods by disentangling methods from concrete implementation codes and boilerplates.
+
+- Folder `results/GRIST_log` contains our running log for the GRIST tool on the GRIST benchmark. Hope these provide detailed information and cross-validation sources for this widely-known baseline.

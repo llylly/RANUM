@@ -60,10 +60,3 @@ After the new split points are determined, we construct the new abstraction tens
 
 Then, we use index_select to reads in the data from the old abstraction tensor, and then reshape the new abstraction tensor to the desired $d'$-dimensional tensor.
 
-#### Force Split
-
-
-
-#### Reshape
-
-Finally, we are ready to define the semantics of Reshape abstraction.

@@ -5,6 +5,7 @@
 import os
 import json
 import numpy as np
+import argparse
 
 from dateutil import parser
 from evaluate.seeds import seeds
@@ -35,8 +36,12 @@ def tof(x):
     if x > 0: return '$\\checkmark$'
     else: return '$\\times$'
 
+argparser = argparse.ArgumentParser()
+argparser.add_argument('--result_folder', type=str, choices=['results', 'results_digest'], default='results')
+args = argparser.parse_args()
 
 if __name__ == '__main__':
+    RESULT_FOLDER = args.result_folder
 
     ordering = os.listdir('model_zoo/grist_protobufs_onnx')
     ordering = [x[:-5] for x in ordering if x.endswith('.onnx')]
@@ -67,7 +72,7 @@ if __name__ == '__main__':
 
         det_ans[row_p][col_p * width] = f'{mname}'
 
-        with open(f'results/endtoend/detection/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/endtoend/detection/{mname}.json', 'r') as f:
             data = json.load(f)
         tot_detect_time += data['time_stat']['all']
         det_ans[row_p][col_p * width + 1] = '$\checkmark$' if data['numerical_bugs'] > 0 else '$\\times$'
@@ -106,7 +111,7 @@ if __name__ == '__main__':
             logmname = mname[:-1]
         for run in range(10):
             find = False
-            with open(f'results/GRIST_log/log_{logmname}_{attach_name}_run{run}.txt', 'r') as f:
+            with open(f'{RESULT_FOLDER}/GRIST_log/log_{logmname}_{attach_name}_run{run}.txt', 'r') as f:
                 lines = f.readlines()
             for line in lines[-5:]:
                 if line.startswith('FINAL RESULTS:'):
@@ -147,7 +152,7 @@ if __name__ == '__main__':
     for i, mname in enumerate(ordering):
         ranum_unit_test[mname] = [0, 0.]
         for seed in seeds:
-            with open(f'results/inference_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
+            with open(f'{RESULT_FOLDER}/inference_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
                 data = json.load(f)
                 ranum_inference_status[seed][mname] = data
                 assert len(data) == 1
@@ -215,7 +220,7 @@ if __name__ == '__main__':
     for i, mname in enumerate(ordering):
         ranum_unit_test[mname] = [0, 0.]
         for seed in seeds:
-            with open(f'results/endtoend/unittest/random/{seed}/grist/{mname}.json', 'r') as f:
+            with open(f'{RESULT_FOLDER}/endtoend/unittest/random/{seed}/grist/{mname}.json', 'r') as f:
                 data = json.load(f)
                 random_inference_status[seed][mname] = data
                 assert len(data) == 1
@@ -249,7 +254,7 @@ if __name__ == '__main__':
         num_ranum = 0
         time_ranum = 0.
         for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
+            with open(f'{RESULT_FOLDER}/training_inst_gen/grist/{ver_code}/{seed}/stats/{mname}/data.json', 'r') as f:
                 data = json.load(f)
             inference_stat = ranum_inference_status[seed][mname][err_node]
             time_ranum += inference_stat['time']
@@ -265,7 +270,7 @@ if __name__ == '__main__':
         num_random = 0
         time_random = 0.
         for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}random/{seed}/stats/{mname}/data.json', 'r') as f:
+            with open(f'{RESULT_FOLDER}/training_inst_gen/grist/{ver_code}random/{seed}/stats/{mname}/data.json', 'r') as f:
                 data = json.load(f)
             inference_stat = random_inference_status[seed][mname][err_node]
             time_random += inference_stat['tot_time']
@@ -287,7 +292,7 @@ if __name__ == '__main__':
         num_random_p_ranum = 0
         time_random_p_ranum = 0.
         for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}random_p_ranum/{seed}/stats/{mname}/data.json', 'r') as f:
+            with open(f'{RESULT_FOLDER}/training_inst_gen/grist/{ver_code}random_p_ranum/{seed}/stats/{mname}/data.json', 'r') as f:
                 data = json.load(f)
             inference_stat = random_inference_status[seed][mname][err_node]
             time_random_p_ranum += inference_stat['tot_time']
@@ -301,7 +306,7 @@ if __name__ == '__main__':
         num_ranum_p_random = 0
         time_ranum_p_random = 0.
         for seed in seeds:
-            with open(f'results/training_inst_gen/grist/{ver_code}ranum_p_random/{seed}/stats/{mname}/data.json', 'r') as f:
+            with open(f'{RESULT_FOLDER}/training_inst_gen/grist/{ver_code}ranum_p_random/{seed}/stats/{mname}/data.json', 'r') as f:
                 data = json.load(f)
             inference_stat = ranum_inference_status[seed][mname][err_node]
             time_ranum_p_random += inference_stat['time']
@@ -371,7 +376,7 @@ if __name__ == '__main__':
         # 1: ranum
         num_ranum = 0
         time_ranum = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/all/{precond_code}/{mname}.json', 'r') as f:
             data = json.load(f)
             num_ranum += data['success_cnt']
             time_ranum += data['time_stat']['all']
@@ -383,7 +388,7 @@ if __name__ == '__main__':
         # 2: gd
         num_gd = 0
         time_gd = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/all/{precond_code}gd/{mname}.json', 'r') as f:
             data = json.load(f)
             num_gd += data['success_cnt']
             time_gd += data['time_stat']['all']
@@ -394,7 +399,7 @@ if __name__ == '__main__':
         # 3: ranumexpand
         num_ranumexpand = 0
         time_ranumexpand = 0.
-        with open(f'results/precond_gen/grist/all/all/{precond_code}ranumexpand/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/all/{precond_code}ranumexpand/{mname}.json', 'r') as f:
             data = json.load(f)
             num_ranumexpand += data['success_cnt']
             time_ranumexpand += data['time_stat']['all']
@@ -409,7 +414,7 @@ if __name__ == '__main__':
         # 1: ranum
         num_ranum = 0
         time_ranum = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/weight/{precond_code}/{mname}.json', 'r') as f:
             data = json.load(f)
             num_ranum += data['success_cnt']
             time_ranum += data['time_stat']['all']
@@ -420,7 +425,7 @@ if __name__ == '__main__':
         # 2: gd
         num_gd = 0
         time_gd = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/weight/{precond_code}gd/{mname}.json', 'r') as f:
             data = json.load(f)
             num_gd += data['success_cnt']
             time_gd += data['time_stat']['all']
@@ -431,7 +436,7 @@ if __name__ == '__main__':
         # 3: ranumexpand
         num_ranumexpand = 0
         time_ranumexpand = 0.
-        with open(f'results/precond_gen/grist/all/weight/{precond_code}ranumexpand/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/weight/{precond_code}ranumexpand/{mname}.json', 'r') as f:
             data = json.load(f)
             num_ranumexpand += data['success_cnt']
             time_ranumexpand += data['time_stat']['all']
@@ -444,7 +449,7 @@ if __name__ == '__main__':
         # 1: ranum
         num_ranum = 0
         time_ranum = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/input/{precond_code}/{mname}.json', 'r') as f:
             data = json.load(f)
             num_ranum += data['success_cnt']
             time_ranum += data['time_stat']['all']
@@ -455,7 +460,7 @@ if __name__ == '__main__':
         # 2: gd
         num_gd = 0
         time_gd = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/input/{precond_code}gd/{mname}.json', 'r') as f:
             data = json.load(f)
             num_gd += data['success_cnt']
             time_gd += data['time_stat']['all']
@@ -466,7 +471,7 @@ if __name__ == '__main__':
         # 3: ranumexpand
         num_ranumexpand = 0
         time_ranumexpand = 0.
-        with open(f'results/precond_gen/grist/all/input/{precond_code}ranumexpand/{mname}.json', 'r') as f:
+        with open(f'{RESULT_FOLDER}/precond_gen/grist/all/input/{precond_code}ranumexpand/{mname}.json', 'r') as f:
             data = json.load(f)
             num_ranumexpand += data['success_cnt']
             time_ranumexpand += data['time_stat']['all']
@@ -484,7 +489,8 @@ if __name__ == '__main__':
     print('precond: RANUM-E input         ', tot_precond_expand_input, 'time', tot_precond_expand_input_time)
     print('precond: gd input              ', tot_precond_gd_input, 'time', tot_precond_gd_input_time)
 
+    print('=== Number of optimization iterations in precondition generation ===')
     print(json.dumps(iters_cnt, indent=2))
-    print(np.mean(list(iters_cnt.values())), np.std(list(iters_cnt.values())), np.max(list(iters_cnt.values())), np.min(list(iters_cnt.values())))
+    print('mean, std, max, min =', np.mean(list(iters_cnt.values())), np.std(list(iters_cnt.values())), np.max(list(iters_cnt.values())), np.min(list(iters_cnt.values())))
 
     exit(0)

@@ -1,6 +1,6 @@
 """
 This script copies files other than .pt from results/ folder
-Since .pt files are tooo large and does not contain useful result statistics
+Since .pt files are too large and does not contain useful result statistics
 """
 import argparse
 import shutil
