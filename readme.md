@@ -16,6 +16,14 @@ If you find the tool useful, please consider citing our accompanying paper at IC
 
 ## Installation
 
+First, download missing benchmark architectures and running logs from https://doi.org/10.6084/m9.figshare.21973529.v1:
+
+- Following the link, you will find two zip files.
+
+- Download `model_zoo.zip`, and unzip it at the project root folder. You will get a new folder `model_zoo/`.
+
+- Download `results.zip`, and unzip it. You will find two folders: `results/` and `results_digest/`. Move both folders to be under the project root .
+
 The tool is expected to run on Linux + Python + PyTorch platform with around 500 GB storage space.
 Reference installation commands:
 
@@ -28,7 +36,7 @@ pip install -r requirements.txt
 GPU support only requires minor changes in the code (place `tensor.cuda()` at necessary places). With GPU and these minor changes, times of speed-ups are expected but we haven't tested yet.
 
 For following commands, the working directory is the root directory of this project.
-All results are output to `results/` folder.
+All new results are output to `results/` folder.
 
 ## Result Reproduction
 
