@@ -493,4 +493,4 @@ if __name__ == '__main__':
     print(json.dumps(iters_cnt, indent=2))
     print('mean, std, max, min =', np.mean(list(iters_cnt.values())), np.std(list(iters_cnt.values())), np.max(list(iters_cnt.values())), np.min(list(iters_cnt.values())))
 
-    exit(0)
+    exit()
