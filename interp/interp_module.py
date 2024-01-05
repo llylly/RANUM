@@ -126,9 +126,10 @@ class InterpModule():
             for v in list(node.input) + list(node.output):
                 if v not in self.signature_dict:
                     print(f'  warning: {v} has not appeared yet')
+                    continue
                 self.all_nodes.add(v)
 
-            node_input = list(node.input)
+            node_input = list([x for x in node.input if x != ""])
             if len(node_input) == 0 and node.op_type in ['RandomNormal', 'RandomUniform']:
                 node_input.append(InterpModule.SUPER_START_NODE)
                 self.start_points.add(InterpModule.SUPER_START_NODE)
@@ -361,7 +362,9 @@ class InterpModule():
             # Thus, we discard now_raw_data for initialization
             if now_raw_data is not None:
                 if now_t not in discrete_types and \
-                        ((((np.max(now_raw_data) - np.min(now_raw_data) <= EPS) or (init_config[s].stride == 1)) and np.array(now_raw_data).size > 1) or ((s.count('clip_by_value') > 0) and (interp_config.get('discard_clip', False)))):
+                        ((((np.max(now_raw_data) - np.min(now_raw_data) <= EPS) or (
+                                init_config[s].stride == 1)) and np.array(now_raw_data).size > 1) or (
+                                 (s.count('clip_by_value') > 0) and (interp_config.get('discard_clip', False)))):
                     print(f'discard the initial data for node {s}')
                     now_raw_data = None
 
@@ -430,7 +433,7 @@ class InterpModule():
                             else:
                                 # print(f'on {vj}(type: {node_optype})')
                                 cur_abst, cur_exceps = interpreter.handle(
-                                    [self.abstracts[x] for x in node.input], node, node_optype, vj
+                                    [self.abstracts[x] for x in node.input if x != ""], node, node_optype, vj
                                 )
                         else:
                             # specially handle the loop dependencies
@@ -529,7 +532,8 @@ class InterpModule():
                     parent, now_node, ind_input, ind_output, node_optype, node_name, node = ctx
 
                     if any([x not in abstracts for x in node.input]):
-                        print(f'! no abstractions for some input of node {node_name}, skip: they are {[x for x in node.input if x not in abstracts]}')
+                        print(
+                            f'! no abstractions for some input of node {node_name}, skip: they are {[x for x in node.input if x not in abstracts]}')
                         continue
 
                     node_input_cnt = len(node.input)
@@ -651,11 +655,13 @@ class InterpModule():
                                                          lb=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.VARIANCE_CONFIG_DEFAULT[1])
                 elif dtype in discrete_types:
-                    print(f'Parameter or weight {name} corresponds to a discrete node, abstract by {AbstractionInitConfig.INT_CONFIG_DEFAULT}')
+                    print(
+                        f'Parameter or weight {name} corresponds to a discrete node, abstract by {AbstractionInitConfig.INT_CONFIG_DEFAULT}')
                     result[name] = AbstractionInitConfig(diff=False, from_init=False,
                                                          lb=AbstractionInitConfig.INT_CONFIG_DEFAULT[0],
                                                          ub=AbstractionInitConfig.INT_CONFIG_DEFAULT[1])
-                elif data is not None and data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(data) <= 1e-5 and abs(
+                elif data is not None and data.ndim >= 1 and data.size > 0 and np.max(data) - np.min(
+                        data) <= 1e-5 and abs(
                         np.max(data)) <= 1e-5:
                     # approaching zero tensor detected, overwrite
                     print(
@@ -689,11 +695,13 @@ class InterpModule():
             if alert_exceps: raise Exception(f'cannot locate the loss function nodes')
 
         if any([any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target']) for x in self.queue]):
-            input_nodes = [x[0] for x in self.queue if any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target'])]
+            input_nodes = [x[0] for x in self.queue if
+                           any(x[0].startswith(kw) for kw in ['x', 'X', 'y', 'z', '0', 'input', 'target'])]
 
         if len(input_nodes) == 0:
             print('for debug:')
-            print('  possible input nodes:', [now_node for now_node, now_ctx in self.queue if self.deg_in[now_node] == 0])
+            print('  possible input nodes:',
+                  [now_node for now_node, now_ctx in self.queue if self.deg_in[now_node] == 0])
             raise Exception(f'cannot locate the input nodes')
 
         return input_nodes, loss_function_nodes

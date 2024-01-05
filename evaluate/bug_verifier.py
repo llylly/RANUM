@@ -11,7 +11,7 @@ from interp.interp_module import load_onnx_from_file
 from interp.interp_utils import AbstractionInitConfig
 
 # should be grist and/or debar
-run_benchmarks = ['grist']
+run_benchmarks = ['test']
 
 if __name__ == '__main__':
     global_unsupported_ops = dict()
@@ -22,6 +22,9 @@ if __name__ == '__main__':
         elif bench_type == 'debar':
             print('on DEBAR bench')
             nowdir = 'model_zoo/tf_protobufs_onnx'
+        elif bench_type == 'test':
+            print('on test bench')
+            nowdir = 'model_zoo/test'
         files = sorted([x for x in os.listdir(nowdir) if x.endswith('.onnx')])
         nowlen = len(files)
         for id, file in enumerate(files):

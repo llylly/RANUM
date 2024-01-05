@@ -11,7 +11,7 @@ POSTIVE_MINIMUM = 1e-10
 class AbstractionInitConfig(object):
     INPUT_CONFIG_DEFAULT = [-50., 50.]
     WEIGHT_CONFIG_DEFAULT = [-10., 10.]
-    DROPOUT_CONFIG_DEFAULT = [0.1, 0,9]
+    DROPOUT_CONFIG_DEFAULT = [0.1, 0, 9]
     KEEP_PROB_CONFIG_DEFAULT = [0.1, 0.9]
     VARIANCE_CONFIG_DEFAULT = [0, 1]
     INT_CONFIG_DEFAULT = [0, 20]
@@ -57,15 +57,27 @@ class AbstractionInitConfig(object):
 
 
 class PossibleNumericalError(Exception):
-    OVERFLOW_LIMIT = 1e38
-    UNDERFLOW_LIMIT = 1e-37
-    OVERFLOW_D = 38
-    UNDERFLOW_D = -37
+    # float32
+    # OVERFLOW_LIMIT = 1e38
+    # UNDERFLOW_LIMIT = 1e-37
+    # OVERFLOW_D = 38
+    # UNDERFLOW_D = -37
+    # float16
+    OVERFLOW_LIMIT = 1e4
+    UNDERFLOW_LIMIT = 1e-7
+    OVERFLOW_D = 4
+    UNDERFLOW_D = -7
+    # float8e4
+    # OVERFLOW_LIMIT = 1e2
+    # UNDERFLOW_LIMIT = 1e-8
+    # OVERFLOW_D = 2
+    # UNDERFLOW_D = -8
     ERROR_UNKNOWN = -1
     ERROR_CONTAINS_ZERO = 0
     ERROR_OVERFLOW = 1
     ERROR_UNDERFLOW = 2
-    OPs2Check = {"Exp", "Log", "Div", "Sqrt", "Pow", "Reciprocal", "Range", "NegativeLogLikelihoodLoss", "LogSoftmax"}
+    OPs2Check = {"Exp", "Log", "Div", "Sqrt", "Pow", "Reciprocal", "Range", "NegativeLogLikelihoodLoss", "LogSoftmax",
+                 "LayerNormalization"}
     code2str = {ERROR_CONTAINS_ZERO: "Range contains zero.", ERROR_OVERFLOW: "Operator overflows.",
                 ERROR_UNDERFLOW: "Operator underflows.", ERROR_UNKNOWN: 'Unknown error.'}
     continue_prop = False
@@ -79,6 +91,24 @@ class PossibleNumericalError(Exception):
                        f'  range from analysis is {self.cur_range};\n ' \
                        f'  triggered numerical error condition {self.code2str[self.err_cond]}'
         super(PossibleNumericalError, self).__init__(self.message)
+
+    @staticmethod
+    def to_float32():
+        PossibleNumericalError.OVERFLOW_LIMIT_ = PossibleNumericalError.OVERFLOW_LIMIT
+        PossibleNumericalError.UNDERFLOW_LIMIT_ = PossibleNumericalError.UNDERFLOW_LIMIT
+        PossibleNumericalError.OVERFLOW_D_ = PossibleNumericalError.OVERFLOW_D
+        PossibleNumericalError.UNDERFLOW_D_ = PossibleNumericalError.UNDERFLOW_D
+        PossibleNumericalError.OVERFLOW_LIMIT = 1e38
+        PossibleNumericalError.UNDERFLOW_LIMIT = 1e-37
+        PossibleNumericalError.OVERFLOW_D = 38
+        PossibleNumericalError.UNDERFLOW_D = -37
+
+    @staticmethod
+    def to_default():
+        PossibleNumericalError.OVERFLOW_LIMIT = PossibleNumericalError.OVERFLOW_LIMIT_
+        PossibleNumericalError.UNDERFLOW_LIMIT = PossibleNumericalError.UNDERFLOW_LIMIT_
+        PossibleNumericalError.OVERFLOW_D = PossibleNumericalError.OVERFLOW_D_
+        PossibleNumericalError.UNDERFLOW_D = PossibleNumericalError.UNDERFLOW_D_
 
     @staticmethod
     def is_invalid(x):
@@ -125,6 +155,7 @@ def parse_attribute(node):
     for item in node.attribute:
         ans[item.name] = get_attribute_value(item)
     return ans
+
 
 discrete_types = ['UINT8', 'INT8', 'UINT16', 'INT16', 'INT32', 'INT64', 'STRING', 'BOOL']
 

@@ -6,13 +6,14 @@ from functools import reduce
 import warnings
 
 import onnx
-from onnx import numpy_helper
+from onnx import numpy_helper, helper
 from interp.interp_utils import AbstractionInitConfig, parse_attribute, \
     discrete_types, unsupported_types, datatype_mapping, get_numel, \
     PossibleNumericalError, index_clip_thres, POSTIVE_MINIMUM
 from interp.grad_thru_functions import StraightSigmoid, StraightTanh, StraightSoftmaxIntervalLb, \
     StraightSoftmaxIntervalUb, \
     StraightSoftmaxInterval, StraightRelu, StraightExp, SmoothRelu, StraightMinimum, StraightMaximum
+
 
 class Abstraction(object):
     """
@@ -467,6 +468,12 @@ class Interpreter(object):
         # diff_order = 1b: provide first order gradient as much as possible along with gradient for minimum, maximum
         # diff_order = 2: provide second order gradient as much as possible, by substituting ReLU to softplus
         self.diff_order = diff_order
+        if self.diff_order != '1b':
+            self.minimum = torch.minimum
+            self.maximum = torch.maximum
+        else:
+            self.minimum = StraightMinimum.apply
+            self.maximum = StraightMaximum.apply
 
         # concrete_rand: whether generate concrete random tensors for tensor-generating ops, like randomUniform etc.
         # if concrete_rand is none, not applied, otherwise, use the manual_seed for generating ops
@@ -631,6 +638,8 @@ class Interpreter(object):
             abstB.lb = abstB.lb * coeff
             abstB.ub = abstB.ub * coeff
         else:
+            abstA = abstA.extend_dim(abstracts[1].get_dim(), inplace=False)
+            abstB = abstB.extend_dim(abstracts[0].get_dim(), inplace=False)
             target_splits = abstA.splits.copy()
             target_splits[-1] = abstB.splits[-2]
             target_splits[:-2] = abstB.splits[:-2]
@@ -661,21 +670,25 @@ class Interpreter(object):
         Bubneu = abstB.ub * (abstB.lb <= 0.) * (abstB.ub >= 0.)
         Bubpos = abstB.ub * (abstB.lb > 0.)
 
-        # ans.lb = torch.minimum(torch.matmul(abstA.lb, abstB.lb),
-        #                        torch.minimum(torch.matmul(abstA.lb, abstB.ub),
-        #                                      torch.minimum(torch.matmul(abstA.ub, abstB.lb),
+        # ans.lb = self.minimum(torch.matmul(abstA.lb, abstB.lb),
+        #                        self.minimum(torch.matmul(abstA.lb, abstB.ub),
+        #                                      self.minimum(torch.matmul(abstA.ub, abstB.lb),
         #                                                    torch.matmul(abstA.ub, abstB.ub))))
         #
-        # ans.ub = torch.maximum(torch.matmul(abstA.lb, abstB.lb),
-        #                        torch.maximum(torch.matmul(abstA.lb, abstB.ub),
-        #                                      torch.maximum(torch.matmul(abstA.ub, abstB.lb),
+        # ans.ub = self.maximum(torch.matmul(abstA.lb, abstB.lb),
+        #                        self.maximum(torch.matmul(abstA.lb, abstB.ub),
+        #                                      self.maximum(torch.matmul(abstA.ub, abstB.lb),
         #                                                    torch.matmul(abstA.ub, abstB.ub))))
 
         ans.lb = torch.matmul(Aubneg, Bubneg) + torch.matmul(Aubneu, Blbneg) + torch.matmul(Aubpos, Blbneg) + \
-                 torch.matmul(Albneg, Bubneu) + torch.matmul(Aubneu, Blbneu) + torch.matmul(Albneu, Bubneu) + torch.matmul(Aubpos, Blbneu) + \
+                 torch.matmul(Albneg, Bubneu) + torch.matmul(Aubneu, Blbneu) + torch.matmul(Albneu,
+                                                                                            Bubneu) + torch.matmul(
+            Aubpos, Blbneu) + \
                  torch.matmul(Albneg, Bubpos) + torch.matmul(Albneu, Bubpos) + torch.matmul(Albpos, Blbpos)
         ans.ub = torch.matmul(Albneg, Blbneg) + torch.matmul(Albneu, Blbneg) + torch.matmul(Albpos, Bubneg) + \
-                 torch.matmul(Albneg, Blbneu) + torch.matmul(Albneu, Blbneu) + torch.matmul(Aubneu, Bubneu) + torch.matmul(Aubpos, Bubneu) + \
+                 torch.matmul(Albneg, Blbneu) + torch.matmul(Albneu, Blbneu) + torch.matmul(Aubneu,
+                                                                                            Bubneu) + torch.matmul(
+            Aubpos, Bubneu) + \
                  torch.matmul(Aubneg, Blbpos) + torch.matmul(Aubneu, Bubpos) + torch.matmul(Aubpos, Bubpos)
 
         ans.var_name = var_name
@@ -748,7 +761,6 @@ class Interpreter(object):
         A.lb = A.lb * coeff
         A.ub = A.ub * coeff
 
-
         Albneg = A.lb * (A.ub < 0.)
         Albneu = A.lb * (A.lb <= 0.) * (A.ub >= 0.)
         Albpos = A.lb * (A.lb > 0.)
@@ -763,22 +775,26 @@ class Interpreter(object):
         Bubpos = B.ub * (B.lb > 0.)
 
         # ans = Abstraction()
-        # ans.lb = torch.minimum(torch.matmul(A.lb, B.lb),
-        #                        torch.minimum(torch.matmul(A.lb, B.ub),
-        #                                      torch.minimum(torch.matmul(A.ub, B.lb),
+        # ans.lb = self.minimum(torch.matmul(A.lb, B.lb),
+        #                        self.minimum(torch.matmul(A.lb, B.ub),
+        #                                      self.minimum(torch.matmul(A.ub, B.lb),
         #                                                    torch.matmul(A.ub, B.ub))))
         #
-        # ans.ub = torch.maximum(torch.matmul(A.lb, B.lb),
-        #                        torch.maximum(torch.matmul(A.lb, B.ub),
-        #                                      torch.maximum(torch.matmul(A.ub, B.lb),
+        # ans.ub = self.maximum(torch.matmul(A.lb, B.lb),
+        #                        self.maximum(torch.matmul(A.lb, B.ub),
+        #                                      self.maximum(torch.matmul(A.ub, B.lb),
         #                                                    torch.matmul(A.ub, B.ub))))
 
         ans = Abstraction()
         ans.lb = torch.matmul(Aubneg, Bubneg) + torch.matmul(Aubneu, Blbneg) + torch.matmul(Aubpos, Blbneg) + \
-                 torch.matmul(Albneg, Bubneu) + torch.matmul(Aubneu, Blbneu) + torch.matmul(Albneu, Bubneu) + torch.matmul(Aubpos, Blbneu) + \
+                 torch.matmul(Albneg, Bubneu) + torch.matmul(Aubneu, Blbneu) + torch.matmul(Albneu,
+                                                                                            Bubneu) + torch.matmul(
+            Aubpos, Blbneu) + \
                  torch.matmul(Albneg, Bubpos) + torch.matmul(Albneu, Bubpos) + torch.matmul(Albpos, Blbpos)
         ans.ub = torch.matmul(Albneg, Blbneg) + torch.matmul(Albneu, Blbneg) + torch.matmul(Albpos, Bubneg) + \
-                 torch.matmul(Albneg, Blbneu) + torch.matmul(Albneu, Blbneu) + torch.matmul(Aubneu, Bubneu) + torch.matmul(Aubpos, Bubneu) + \
+                 torch.matmul(Albneg, Blbneu) + torch.matmul(Albneu, Blbneu) + torch.matmul(Aubneu,
+                                                                                            Bubneu) + torch.matmul(
+            Aubpos, Bubneu) + \
                  torch.matmul(Aubneg, Blbpos) + torch.matmul(Aubneu, Bubpos) + torch.matmul(Aubpos, Bubpos)
 
         if alpha >= 0.:
@@ -930,10 +946,10 @@ class Interpreter(object):
         cos_ub = torch.cos(ub)
         ans.lb = torch.where((ub - lb >= 2 * np.pi) | ((lb <= np.pi) & (ub >= np.pi)) | (ub >= 3 * np.pi),
                              -torch.ones_like(lb),
-                             torch.minimum(cos_lb, cos_ub))
+                             self.minimum(cos_lb, cos_ub))
         ans.ub = torch.where((ub - lb >= 2 * np.pi) | (lb == 0) | (ub == 4 * np.pi) | (ub >= 2 * np.pi),
                              torch.ones_like(lb),
-                             torch.maximum(cos_lb, cos_ub))
+                             self.maximum(cos_lb, cos_ub))
         ans.shape = abstracts[0].shape.copy()
         ans.splits = abstracts[0].splits.copy()
         ans.var_name = var_name
@@ -1172,7 +1188,8 @@ class Interpreter(object):
         if finegrain:
             new_X_lb, new_X_ub = X.lb, X.ub
         else:
-            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape, dilations,
+            new_X_lb, new_X_ub, lpses, rpses = fold_repeated_indices(X, dim_for_conv, out_shape, kernel_shape,
+                                                                     dilations,
                                                                      strides)
 
         """core conv operation"""
@@ -1193,9 +1210,8 @@ class Interpreter(object):
         #           groups=group)
         # C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
         #           groups=group)
-        # Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
-        # Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
-
+        # Cmin = self.minimum(self.minimum(self.minimum(C1, C2), C3), C4)
+        # Cmax = self.maximum(self.maximum(self.maximum(C1, C2), C3), C4)
 
         new_X_lbneg = new_X_lb * (new_X_ub < 0.)
         new_X_lbneu = new_X_lb * (new_X_lb <= 0.) * (new_X_ub >= 0.)
@@ -1353,8 +1369,8 @@ class Interpreter(object):
         #           groups=group)
         # C4 = func(new_X_ub, W.ub, None, stride=strides, padding=0, dilation=dilations,
         #           groups=group)
-        # Cmin = torch.minimum(torch.minimum(torch.minimum(C1, C2), C3), C4)
-        # Cmax = torch.maximum(torch.maximum(torch.maximum(C1, C2), C3), C4)
+        # Cmin = self.minimum(self.minimum(self.minimum(C1, C2), C3), C4)
+        # Cmax = self.maximum(self.maximum(self.maximum(C1, C2), C3), C4)
 
         new_X_lbneg = new_X_lb * (new_X_ub < 0.)
         new_X_lbneu = new_X_lb * (new_X_lb <= 0.) * (new_X_ub >= 0.)
@@ -1390,7 +1406,6 @@ class Interpreter(object):
                func(new_X_ubneg, Wlbpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
                func(new_X_ubneu, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group) + \
                func(new_X_ubpos, Wubpos, None, stride=strides, padding=0, dilation=dilations, groups=group)
-
 
         if B is not None:
             Cmin = Cmin + B.lb.reshape(*([-1] + [1] * dim_for_transconv))
@@ -1478,8 +1493,8 @@ class Interpreter(object):
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
         e1, e2 = 1 / abst.lb, 1 / abst.ub
-        ans.lb = torch.minimum(e1, e2)
-        ans.ub = torch.maximum(e1, e2)
+        ans.lb = self.minimum(e1, e2)
+        ans.ub = self.maximum(e1, e2)
         if ((abst.lb <= PossibleNumericalError.UNDERFLOW_LIMIT) & (
                 abst.ub >= -PossibleNumericalError.UNDERFLOW_LIMIT)).any():
             return PossibleNumericalError.clip_to_valid_range(ans), \
@@ -1587,6 +1602,17 @@ class Interpreter(object):
         ans.splits = abst.splits.copy()
         return ans, list()
 
+    def interp_Erf(self, abstracts, node, optype, var_name):
+        abst = abstracts[0]
+        ans = Abstraction()
+        ans.var_name = var_name
+        ans.shape = abst.shape.copy()
+        ans.splits = abst.splits.copy()
+        ans.lb = torch.erf(abst.lb)
+        ans.ub = torch.erf(abst.ub)
+
+        return ans, list()
+
     def interp_Exp(self, abstracts, node, optype, var_name):
         abst = abstracts[0]
         ans = Abstraction()
@@ -1638,7 +1664,8 @@ class Interpreter(object):
             # inputs: [l1, l2, l3], [u1, u2, u3]
             # softmax_lb = [l1 / (l1 + u2 + u3), ...]
             # softmax_ub = [u1 / (u1 + l2 + l3)]
-            ans.lb = exp_lb / torch.maximum((torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb), torch.full_like(exp_lb, POSTIVE_MINIMUM, device=exp_lb.device))
+            ans.lb = exp_lb / self.maximum((torch.sum(exp_ub * multiplies, dim=axis, keepdim=True) - exp_ub + exp_lb),
+                                           torch.full_like(exp_lb, POSTIVE_MINIMUM, device=exp_lb.device))
             ans.ub = exp_ub / (torch.sum(exp_lb * multiplies, dim=axis, keepdim=True) - exp_lb + exp_ub)
             ans.ub = torch.where(torch.isnan(ans.ub), torch.ones_like(ans.ub, device=ans.ub.device), ans.ub)
         else:
@@ -1662,8 +1689,8 @@ class Interpreter(object):
         # ans.lb = torch.where(abst.lb > 0, abst.lb, torch.zeros_like(abst.lb))
         # a tighter version
         ans.lb = torch.where((abst.lb < 0) * (abst.ub > 0), torch.zeros_like(abst.lb),
-                             torch.minimum(abst.lb.abs(), abst.ub.abs()))
-        ans.ub = torch.maximum(abst.lb.abs(), abst.ub.abs())
+                             self.minimum(abst.lb.abs(), abst.ub.abs()))
+        ans.ub = self.maximum(abst.lb.abs(), abst.ub.abs())
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -2260,6 +2287,30 @@ class Interpreter(object):
         now_abst.var_name = var_name
         return now_abst, list()
 
+    def interp_Where(self, abstracts, node, optype, var_name):
+        cond, x, y = abstracts[0], abstracts[1], abstracts[2]
+        cond = cond.extend_dim(x.get_dim(), inplace=False)
+        cond = cond.extend_dim(y.get_dim(), inplace=False)
+        x = x.extend_dim(cond.get_dim(), inplace=False)
+        y = y.extend_dim(cond.get_dim(), inplace=False)
+
+        cond.split_by(x.splits, inplace=True)
+        cond.split_by(y.splits, inplace=True)
+        x.split_by(cond.splits, inplace=True)
+        y.split_by(cond.splits, inplace=True)
+        ans = Abstraction()
+        ans.shape, ans.splits = get_shape_split_with_broadcasting(x, y)
+
+        cond_lb = cond.lb.type(torch.bool)
+        cond_ub = cond.ub.type(torch.bool)
+        ans.lb = torch.where(cond_lb & cond_ub, x.lb,
+                             torch.where((~cond_lb) & (~cond_ub), y.lb, self.minimum(x.lb, y.lb)))
+        ans.ub = torch.where(cond_lb & cond_ub, x.ub,
+                             torch.where((~cond_lb) & (~cond_ub), y.ub, self.maximum(x.ub, y.ub)))
+        ans.var_name = var_name
+
+        return ans, list()
+
     def interp_ScatterElements(self, abstracts, node, optype, var_name):
         attr = parse_attribute(node)
         axis = attr.get('axis', 0)
@@ -2272,7 +2323,9 @@ class Interpreter(object):
 
         if indices.is_exact():
             # when the indices are exact, to avoid precision loss, we split data to make it in fine granularity
-            data = data.split_by([data.splits[i] if i != axis else list(range(data.shape[i])) for i in range(len(data.shape))], inplace=False)
+            data = data.split_by(
+                [data.splits[i] if i != axis else list(range(data.shape[i])) for i in range(len(data.shape))],
+                inplace=False)
 
         index_map = [0 for _ in range(data.shape[axis])]
         for item in data.splits[axis]:
@@ -2326,8 +2379,8 @@ class Interpreter(object):
                 new_ub = torch.amax(choices, dim=0)
             if len(data.splits[axis]) != data.shape[axis]:
                 # only need to take min/max when the axis splits are not in finest granularity
-                ans.lb = torch.minimum(old_lb, new_lb)
-                ans.ub = torch.maximum(old_ub, new_ub)
+                ans.lb = self.minimum(old_lb, new_lb)
+                ans.ub = self.maximum(old_ub, new_ub)
             else:
                 ans.lb, ans.ub = new_lb, new_ub
         else:
@@ -2343,8 +2396,8 @@ class Interpreter(object):
             updates_min = torch.amin(updates.lb, dim=axis, keepdim=True)
             updates_max = torch.amax(updates.ub, dim=axis, keepdim=True)
             if reduction == 'none':
-                new_lb = torch.minimum(old_lb, updates_min)
-                new_ub = torch.maximum(old_ub, updates_max)
+                new_lb = self.minimum(old_lb, updates_min)
+                new_ub = self.maximum(old_ub, updates_max)
             elif reduction == 'add':
                 new_lb = old_lb + updates_min
                 new_ub = old_ub + updates_max
@@ -2356,8 +2409,8 @@ class Interpreter(object):
                 choices = torch.stack([new_lbl, new_lbu, new_ubl, new_ubu], dim=0)
                 new_lb = torch.amin(choices, dim=0)
                 new_ub = torch.amax(choices, dim=0)
-            ans.lb = torch.minimum(old_lb, new_lb)
-            ans.ub = torch.maximum(old_ub, new_ub)
+            ans.lb = self.minimum(old_lb, new_lb)
+            ans.ub = self.maximum(old_ub, new_ub)
 
         ans.splits = data.splits
         ans.shape = data.shape
@@ -2541,7 +2594,7 @@ class Interpreter(object):
         else:
             torch.manual_seed(self.concrete_rand)
             ans.splits = [list(range(item)) for item in ans.shape]
-            ans.lb = torch.rand(ans.shape, device=device) * (high-low) + low
+            ans.lb = torch.rand(ans.shape, device=device) * (high - low) + low
             ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         ans.var_name = var_name
         return ans, list()
@@ -2586,7 +2639,7 @@ class Interpreter(object):
         else:
             torch.manual_seed(self.concrete_rand)
             ans.splits = [list(range(item)) for item in ans.shape]
-            ans.lb = torch.rand(ans.shape, device=device) * (high-low) + low
+            ans.lb = torch.rand(ans.shape, device=device) * (high - low) + low
             ans.ub = torch.tensor(ans.lb, device=ans.lb.device)
         if device is not None:
             ans.lb, ans.ub = ans.lb.to(device), ans.ub.to(device)
@@ -2604,17 +2657,17 @@ class Interpreter(object):
             ans.splits = [list(range(lb.shape[0]))]
             ans.shape = [lb.shape[0]]
         else:
-            max_range = torch.maximum(torch.abs(start.lb - limit.ub), torch.abs(start.ub - limit.lb))
+            max_range = self.maximum(torch.abs(start.lb - limit.ub), torch.abs(start.ub - limit.lb))
             if delta.lb < 0. < delta.ub:
                 # TODO: No idea how to continue propagating here
                 return None, [
                     PossibleNumericalError(optype, var_name, [delta.lb, delta.ub],
                                            PossibleNumericalError.ERROR_CONTAINS_ZERO)]
-            min_step = torch.minimum(torch.abs(delta.lb), torch.abs(delta.ub))
+            min_step = self.minimum(torch.abs(delta.lb), torch.abs(delta.ub))
             max_element = torch.ceil(max_range / min_step).cpu().long().item()
             ans = Abstraction()
-            ans.lb = torch.minimum(start.lb, limit.lb).view(-1)
-            ans.ub = torch.maximum(start.ub, limit.ub).view(-1)
+            ans.lb = self.minimum(start.lb, limit.lb).view(-1)
+            ans.ub = self.maximum(start.ub, limit.ub).view(-1)
             ans.splits = [[0]]
             ans.shape = [max_element]
         ans.var_name = var_name
@@ -2743,12 +2796,8 @@ class Interpreter(object):
 
             ans = Abstraction()
             ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-            if self.diff_order != '1b':
-                ans.lb = torch.minimum(abst0.lb, abst1.lb)
-                ans.ub = torch.minimum(abst0.ub, abst1.ub)
-            else:
-                ans.lb = StraightMinimum.apply(abst0.lb, abst1.lb)
-                ans.ub = StraightMinimum.apply(abst0.ub, abst1.ub)
+            ans.lb = self.minimum(abst0.lb, abst1.lb)
+            ans.ub = self.minimum(abst0.ub, abst1.ub)
             ans.var_name = var_name
 
         return ans, list()
@@ -2768,12 +2817,8 @@ class Interpreter(object):
 
             ans = Abstraction()
             ans.shape, ans.splits = get_shape_split_with_broadcasting(abst0, abst1)
-            if self.diff_order != '1b':
-                ans.lb = torch.maximum(abst0.lb, abst1.lb)
-                ans.ub = torch.maximum(abst0.ub, abst1.ub)
-            else:
-                ans.lb = StraightMaximum.apply(abst0.lb, abst1.lb)
-                ans.ub = StraightMaximum.apply(abst0.ub, abst1.ub)
+            ans.lb = self.maximum(abst0.lb, abst1.lb)
+            ans.ub = self.maximum(abst0.ub, abst1.ub)
             ans.var_name = var_name
 
         return ans, list()
@@ -3027,8 +3072,8 @@ class Interpreter(object):
                                         torch.zeros_like(ans.lb).to(ans.lb.device), ans.lb)
                 select_ub = torch.where((target.lb <= ignore_index) * (ignore_index <= target.ub),
                                         torch.zeros_like(ans.ub).to(ans.ub.device), ans.ub)
-                ans.lb = torch.minimum(ans.lb, select_lb)
-                ans.ub = torch.maximum(ans.ub, select_ub)
+                ans.lb = self.minimum(ans.lb, select_lb)
+                ans.ub = self.maximum(ans.ub, select_ub)
         else:
             if weight is None:
                 lb = input.lb
@@ -3136,12 +3181,12 @@ class Interpreter(object):
                     PossibleNumericalError(optype, var_name, [torch.tensor(deno_min), torch.tensor(deno_max)],
                                            PossibleNumericalError.ERROR_CONTAINS_ZERO)]
             elif deno_max < 0.:
-                ans.lb = torch.minimum(ans.ub / deno_min, ans.ub / deno_max)
-                ans.ub = torch.maximum(ans.lb / deno_min, ans.lb / deno_max)
+                ans.lb = self.minimum(ans.ub / deno_min, ans.ub / deno_max)
+                ans.ub = self.maximum(ans.lb / deno_min, ans.lb / deno_max)
             else:
                 # deno_min > 0.
-                ans.lb = torch.minimum(ans.lb / deno_min, ans.lb / deno_max)
-                ans.ub = torch.maximum(ans.ub / deno_min, ans.ub / deno_max)
+                ans.lb = self.minimum(ans.lb / deno_min, ans.lb / deno_max)
+                ans.ub = self.maximum(ans.ub / deno_min, ans.ub / deno_max)
 
         ans.var_name = var_name
         return ans, list()
@@ -3293,6 +3338,68 @@ class Interpreter(object):
         ret.ub = torch.amax(choices, dim=0) + B.ub
         return [ret] + [None] * (len(node.output) - 1), list()
 
+    def interp_LayerNormalization(self, abstracts, node, optype, var_name):
+        attrs = parse_attribute(node)
+        axis = attrs.get('axis', -1)
+        epsilon = attrs.get('epsilon', 1e-05)
+        stash_type = attrs.get('stash_type', 1)
+        x, scale = abstracts[:2]
+        if axis < 0:
+            axis += x.get_dim()
+        errors = []
+        if len(abstracts) > 2:
+            bias = abstracts[2]
+        else:
+            bias = None
+        # The first stage is standardization, which makes the normalized elements have zero mean and unit variances.
+        # if stash_type == 1:
+        #     PossibleNumericalError.to_float32()
+        node_reducemean = helper.make_node(
+            "ReduceMean", ['x'], ['a'], var_name + "mean", axes=list(range(axis, x.get_dim()))
+        )
+        mean, _ = self.interp_ReduceMean([x], node_reducemean, optype, var_name + "mean")
+        node_sub = helper.make_node(
+            "Sub", ['x', 'y'], ['a'], var_name + "sub"
+        )
+        d, _ = self.interp_Sub([x, mean], node_sub, optype, var_name + "sub")
+        node_square = helper.make_node(
+            "Square", ['x'], ['a'], var_name + "square"
+        )
+        dd, _ = self.interp_Square([d], node_square, optype, var_name + "square")
+        var, _ = self.interp_ReduceMean([dd], node_reducemean, optype, var_name + "mean")
+        var.lb = var.lb + epsilon
+        var.ub = var.ub + epsilon
+        node_sqrt = helper.make_node(
+            "Sqrt", ['x'], ['a'], var_name + "sqrt"
+        )
+        var, e = self.interp_Sqrt([var], node_sqrt, optype, var_name + "sqrt")
+        errors.extend(e)
+        if var is None:
+            return None, errors
+        node_reciprocal = helper.make_node(
+            "Reciprocal", ['x'], ['a'], var_name + "reciprocal"
+        )
+        var, e = self.interp_Reciprocal([var], node_reciprocal, optype, var_name + "reciprocal")
+        errors.extend(e)
+        if var is None:
+            return None, errors
+        node_mul = helper.make_node(
+            "Mul", ['x', 'y'], ['a'], var_name + "mul"
+        )
+        normalized, _ = self.interp_Mul([d, var], node_mul, optype, var_name + "mul")
+        # if stash_type == 1:
+        #     PossibleNumericalError.to_default()
+        # The second stage then scales and shifts the outcome of the first stage
+        normalized, _ = self.interp_Mul([normalized, scale], node_mul, optype, var_name + "mul")
+        if bias is not None:
+            node_add = helper.make_node(
+                "Add", ['x', 'y'], ['a'], var_name + "add"
+            )
+            normalized, _ = self.interp_Add([normalized, bias], node_add, optype, var_name + "add")
+
+        ret = [normalized, mean, var]
+        return ret[:len(node.output)], errors
+
     def interp_OneHot(self, abstracts, node, optype, var_name):
         attrs = parse_attribute(node)
         axis = attrs.get('axis', -1)
@@ -3332,8 +3439,8 @@ class Interpreter(object):
         abst = abstracts[0]
         ans = Abstraction()
         ans.lb = torch.where((abst.lb < 0) & (abst.ub > 0), torch.zeros_like(abst.lb),
-                             torch.minimum(abst.lb.square(), abst.ub.square()))
-        ans.ub = torch.maximum(abst.lb.square(), abst.ub.square())
+                             self.minimum(abst.lb.square(), abst.ub.square()))
+        ans.ub = self.maximum(abst.lb.square(), abst.ub.square())
         ans.var_name = var_name
         ans.shape = abst.shape.copy()
         ans.splits = abst.splits.copy()
@@ -3355,8 +3462,8 @@ class Interpreter(object):
             ans = abstracts[0].smash(inplace=False)
             if coordinate_transformation_mode == "tf_crop_and_resize":
                 extrapolation_value_tensor = torch.DoubleTensor([extrapolation_value])
-                ans.lb = torch.minimum(ans.lb, extrapolation_value_tensor)
-                ans.ub = torch.maximum(ans.ub, extrapolation_value_tensor)
+                ans.lb = self.minimum(ans.lb, extrapolation_value_tensor)
+                ans.ub = self.maximum(ans.ub, extrapolation_value_tensor)
             ans.var_name = var_name
             if abstracts[2] is not None and abstracts[2].shape[0] == abstracts[0].get_dim():
                 ans.shape = [int(x * abstracts[2].lb[i].item()) for i, x in enumerate(abstracts[0].shape)]
@@ -3424,8 +3531,8 @@ class Interpreter(object):
         ans = Abstraction()
         ans.lb = torch.where((abst.lb < 0) & (abst.ub > 0),
                              torch.zeros_like(abst.lb),
-                             torch.minimum(abst.lb.square(), abst.ub.square()))
-        ans.ub = torch.maximum(abst.lb.square(), abst.ub.square())
+                             self.minimum(abst.lb.square(), abst.ub.square()))
+        ans.ub = self.maximum(abst.lb.square(), abst.ub.square())
         ans.lb = ans.lb * multiplies
         ans.ub = ans.ub * multiplies
         for d in axes[::-1]:

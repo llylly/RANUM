@@ -7,6 +7,7 @@ from onnx.backend.test.case.node.batchnorm import _batchnorm_test_mode
 from onnx.backend.test.case.node.onehot import one_hot
 from onnx.backend.test.case.node.pad import pad_impl
 from onnx.backend.test.case.node.resize import interpolate_nd, linear_coeffs, nearest_coeffs
+from onnx.backend.test.case.node.layernormalization import _layer_normalization, calculate_normalized_shape
 from functools import reduce, partial
 
 from interp.interp_utils import AbstractionInitConfig, EPS, PossibleNumericalError
@@ -4290,6 +4291,85 @@ class TestAbstraction(unittest.TestCase):
         expect_Cos(node, inputs=[x], outputs=[y], name='test_cos')
         x = Abstraction().load(conf_s3, 'x', x_.shape, 'FLOAT', x_)
         expect_Cos(node, inputs=[x], outputs=[y], name='test_cos')
+
+    def test_LayerNormalization(self):
+        interp = Interpreter()
+        conf_s2 = AbstractionInitConfig(diff=True, from_init=True, stride=2)
+        conf_s3 = AbstractionInitConfig(diff=True, from_init=True, stride=3)
+        conf_exact = AbstractionInitConfig(diff=True, from_init=True, stride=1)
+
+        def test_d():
+            X = np.random.randn(3, 4).astype(np.float32)
+
+            def case(axis: int) -> None:
+                normalized_shape = calculate_normalized_shape(X.shape, axis)
+                W = np.random.randn(*normalized_shape).astype(np.float32)
+                B = np.random.randn(*normalized_shape).astype(np.float32)
+                Y, mean, inv_std_dev = _layer_normalization(X, W, B, axis=axis)
+
+                node = helper.make_node(
+                    "LayerNormalization",
+                    inputs=["X", "W", "B"],
+                    outputs=["Y", "Mean", "InvStdDev"],
+                    axis=axis,
+                )
+
+                if axis < 0:
+                    name = f"test_layer_normalization_2d_axis_negative_{-axis}"
+                else:
+                    name = f"test_layer_normalization_2d_axis{axis}"
+                x_abst = Abstraction().load(conf_s2, 'x', X.shape, 'FLOAT', X)
+                w_abst = Abstraction().load(conf_exact, 'w', W.shape, 'FLOAT', W)
+                b_abst = Abstraction().load(conf_s3, 'b', B.shape, 'FLOAT', B)
+                (y_abst, mean_abst, inv_std_dev_abst), _ = interp.interp_LayerNormalization([x_abst, w_abst, b_abst],
+                                                                                            node,
+                                                                                            'LayerNormalization', name)
+                self.assertTrue(correct_abstraction(y_abst, Y))
+                self.assertTrue(correct_abstraction(mean_abst, mean))
+                self.assertTrue(correct_abstraction(inv_std_dev_abst, inv_std_dev))
+
+            for i in range(len(X.shape)):
+                case(i)
+                case(i - len(X.shape))
+
+        def test_d_epsilon():
+            epsilon = 1e-1
+            X = np.random.randn(2, 3, 5).astype(np.float32)
+
+            def case(axis: int) -> None:
+                normalized_shape = calculate_normalized_shape(X.shape, axis)
+                W = np.random.randn(*normalized_shape).astype(np.float32)
+                B = np.random.randn(*normalized_shape).astype(np.float32)
+                Y, mean, inv_std_dev = _layer_normalization(X, W, B, axis, epsilon)
+                node = helper.make_node(
+                    "LayerNormalization",
+                    inputs=["X", "W", "B"],
+                    outputs=["Y", "Mean", "InvStdDev"],
+                    axis=axis,
+                    epsilon=epsilon,
+                )
+
+                if axis < 0:
+                    name = f"test_layer_normalization_3d_axis_negative_{-axis}_epsilon"
+                else:
+                    name = f"test_layer_normalization_3d_axis{axis}_epsilon"
+
+                x_abst = Abstraction().load(conf_s2, 'x', X.shape, 'FLOAT', X)
+                w_abst = Abstraction().load(conf_exact, 'w', W.shape, 'FLOAT', W)
+                b_abst = Abstraction().load(conf_s3, 'b', B.shape, 'FLOAT', B)
+                (y_abst, mean_abst, inv_std_dev_abst), _ = interp.interp_LayerNormalization([x_abst, w_abst, b_abst],
+                                                                                            node,
+                                                                                            'LayerNormalization', name)
+                self.assertTrue(correct_abstraction(y_abst, Y))
+                self.assertTrue(correct_abstraction(mean_abst, mean))
+                self.assertTrue(correct_abstraction(inv_std_dev_abst, inv_std_dev))
+
+            for i in range(len(X.shape)):
+                case(i)
+                case(i - len(X.shape))
+
+        test_d()
+        test_d_epsilon()
 
 
 def gemm_reference_implementation(A, B, C=None, alpha=1., beta=1., transA=0,
